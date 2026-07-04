@@ -438,7 +438,7 @@ def download_images(image_list, output_dir):
     """Download images. image_list is [(id, url), ...]."""
     max_images = int(os.environ.get("DEMO_MAX_SCRAPED_IMAGES", "0") or "0")
     if max_images > 0 and len(image_list) > max_images:
-        print(f"  Demo limit: downloading first {max_images}/{len(image_list)} images", flush=True)
+        print(f"  Collage limit: downloading first {max_images}/{len(image_list)} images", flush=True)
         image_list = image_list[:max_images]
 
     os.makedirs(output_dir, exist_ok=True)
