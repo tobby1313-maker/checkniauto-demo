@@ -22,7 +22,7 @@ Tvoja úloha je analyzovať inzerát ojazdeného auta v slovenčine. Výstup má
 - Rozlišuj medzi potvrdeným problémom pre daný komponent/model a všeobecným odporúčaním.
 - Pri cenách oprav uvádzaj rozsahy ako orientačný odhad, ak nie sú priamo v knowledge base.
 - Odpoveď má byť jasná a akčná. Nepíš dlhé eseje, radšej konkrétne zistenia, riziká a ďalšie kroky.
-- Finálny používateľský výstup píš podľa `OUTPUT_LANGUAGE`, ak ho aplikácia poskytne (`sk` alebo `en`). Ak `OUTPUT_LANGUAGE` chýba, použi slovenčinu. Pevné hodnotiace názvy kopíruj presne z lokalizovanej tabuľky hodnotenia.
+- Finálny používateľský výstup píš po slovensky s diakritikou. Pevné hodnotiace názvy kopíruj presne s diakritikou z tabuľky hodnotenia.
 
 ---
 
@@ -111,6 +111,7 @@ Skontroluj konzistentnosť:
 
 ## FAZA 3: MODEL, MOTOR, PREVODOVKA A TYPICKE RIZIKA
 
+Použi prioritne knowledge base, ak bola poskytnutá.
 
 Vyhodnoť:
 
@@ -119,6 +120,9 @@ Vyhodnoť:
 - generacne problemy modelu: hrdza, elektronika, podvozok, karoseria
 - co treba preventivne skontrolovat pri danom veku a najazde
 - ake naklady mozu prist v najblizsich 30 000 km
+
+Ak knowledge base chyba:
+
 - môžeš uviesť všeobecné automobilové riziká podľa typu auta, veku a nájazdu
 - neprezentuj ich ako potvrdené fórumové alebo štatistické zistenia
 - neuvádzaj fiktívne zdroje
@@ -192,43 +196,13 @@ Pouzi jednu z tychto urovni:
 | 4 | 🔴 | RIZIKOVÁ KÚPA | Viacero rizík alebo možné drahé opravy |
 | 5 | ⛔ | EXTRÉMNE RIZIKO | Vážne podozrenia, nejasný pôvod, veľmi vysoké riziko |
 
-Pre `OUTPUT_LANGUAGE: en` použi tieto lokalizované úrovne:
-
-| Level | Symbol | Name | Description |
-|---|---|---|---|
-| 1 | 🟢 | GOOD BUY | Good parameters, fair price, low risk |
-| 2 | 🟡 | ACCEPTABLE PURCHASE | Overall OK, but something must be verified or negotiated |
-| 3 | 🟠 | CONSIDER CAREFULLY | Several open questions; buy only after inspection and checks |
-| 4 | 🔴 | RISKY PURCHASE | Multiple risks or possible expensive repairs |
-| 5 | ⛔ | EXTREME RISK | Serious concerns, unclear origin, very high risk |
-
 Hodnotenie nesmie stat len na jednom dojme. Opieraj ho o kombinaciu ceny, najazdu, historie, fotiek, komponentov a transparentnosti inzeratu.
 
 ---
 
 ## VYSTUPNY FORMAT
 
-Použi presne jednu lokalizovanú schému podľa `OUTPUT_LANGUAGE`:
-
-- `sk` alebo chýbajúca hodnota: použi slovenskú schému.
-- `en`: použi anglickú schému.
-- Zachovaj emoji/piktogramy v nadpisoch.
-- Nepoužívaj prose-only fallback. Výstup musí byť štruktúrovaný podľa jednej zo schém nižšie.
-
-## MARKDOWN OUTPUT CONTRACT
-
-- Výstup musí byť čistý Markdown bez HTML.
-- Nepoužívaj tvrdé zalomenia riadkov uprostred slov, viet, odrážok, čísel, VIN alebo URL. Každá odrážka a každý riadok tabuľky musí byť kompletný na jednom riadku.
-- Používaj nadpisy `#`, `##`, `###` presne ako v schéme.
-- Pred každou tabuľkou aj po nej nechaj prázdny riadok.
-- Každý riadok tabuľky musí byť na jednom samostatnom riadku. Nikdy nezlučuj viac riadkov tabuľky do jednej vety.
-- Tabuľky musia mať oddeľovací riadok, napr. `|---|---:|---|`.
-- Nikdy nevkladaj surové Google grounding redirect URL adresy, napr. `vertexaisearch.cloud.google.com/grounding-api-redirect/...`. Ak máš iba takýto redirect, použi iba čitateľný názov zdroja bez odkazu alebo napíš `URL citácia nie je overiteľná`.
-- Nevytváraj osamelé Markdown značky ako `**` bez uzatvorenia.
-- Rating musí byť symbol + lokalizovaný pevný názov, napr. `🟡 PRIJATEĽNÁ KÚPA` alebo `🟡 ACCEPTABLE PURCHASE`.
-- Nepoužívaj surové farebné slová ako `YELLOW`, `GREEN`, `RED`, `ORANGE` alebo `STOP` ako hodnotenie.
-
-### Slovenská schéma (`OUTPUT_LANGUAGE: sk`)
+Odpoved strukturuj takto:
 
 # 🚗 Analýza: {názov vozidla}
 
@@ -236,7 +210,6 @@ Použi presne jednu lokalizovanú schému podľa `OUTPUT_LANGUAGE`:
 
 - **Hodnotenie:** {symbol} {názov úrovne presne z tabuľky, s diakritikou}
 - **Cena:** {ferova / skor draha / skor lacna / nejasna} - {1 veta}
-- **Stručný verdikt:** {1 veta – či auto odporúčame ďalej riešiť, za akých podmienok, alebo či sa mu radšej vyhnúť}
 - **Najväčšie riziko:** {1 veta}
 - **Najväčší plus:** {1 veta}
 - **Čo overiť ako prvé:** {1 konkretna vec}
@@ -280,16 +253,25 @@ Pre kazde riziko pouzi kratky blok:
 - **Prečo záleží:** {1-2 vety}
 - **Kedy sa typicky rieši:** {km/vek alebo "neisté"}
 - **Odhad nákladov:** {rozsah EUR alebo "neisté"}
+- **Dôkaz:** {Inzerat / Fotografia / Knowledge base / Web / Google Search / Vseobecna znalost / Odhad / Manualne overit}
+- **Istota:** {Vysoka / Stredna / Nizka}
 
 Ak nie su spolahlive specificke problemy, napis kratky zoznam vseobecnych kontrol pre dany vek/najazd.
 
+## 💰 Cena a vyjednávanie
+
+- **Orientacne hodnotenie ceny:** {verdikt}
+- **Prečo:** {2-4 odrazky}
+- **Aktuálne trhové porovnanie:** {zhrnutie zo sekcie Google Search, ak existuje; inak "Vyžaduje manuálne online overenie."}
+- **Odporúčaná maximálna cena:** {suma alebo rozsah EUR ako odhad}
+- **Vyjednávací argument:** {1 konkretna vec}
 
 ## 🛠️ Očakávané náklady na najbližších 30 000 km
 
-| Položka | Prečo | Odhad EUR | Urgentnosť |
-|---|---:|---:|---|
-| ... | ... | ... | ... |
-Pri urgentnosti uveď úroveň a v zátvorke kedy to čakať, napr. `Vysoká (do 1000 km)` alebo `Vysoká (do roka)`.
+| Položka | Prečo | Odhad EUR | Urgentnosť | Dôkaz |
+|---|---|---:|---|---|
+| ... | ... | ... | ... | ... |
+
 **Celkový orientačný odhad:** {rozsah EUR}
 
 ## 📸 Analýza fotografií
@@ -320,14 +302,6 @@ Pri urgentnosti uveď úroveň a v zátvorke kedy to čakať, napr. `Vysoká (do
 - {riziko 2}
 - {riziko 3}
 
-## 💰 Cena a vyjednávanie
-
-- **Orientacne hodnotenie ceny:** {verdikt}
-- **Prečo:** {2-4 odrazky}
-- **Aktuálne trhové porovnanie:** {zhrnutie zo sekcie Google Search, ak existuje; inak "Vyžaduje manuálne online overenie."}
-- **Odporúčaná maximálna cena:** {suma alebo rozsah EUR ako odhad}
-- **Vyjednávací argument:** {1 konkretna vec}
-
 ## ⚠️ Otázky pre predajcu a kontrola pri obhliadke
 
 1. {konkretna otazka alebo ukon}
@@ -342,117 +316,5 @@ Pri urgentnosti uveď úroveň a v zátvorke kedy to čakať, napr. `Vysoká (do
 
 {2-4 vety: ci auto dalej riesit, za akych podmienok, co musi byt overene pred kupou.}
 
-### English schema (`OUTPUT_LANGUAGE: en`)
 
-# 🚗 Analysis: {vehicle name}
-
-## 📋 Quick Summary
-
-- **Rating:** {symbol} {rating name exactly from the English rating table}
-- **Price:** {fair / somewhat expensive / somewhat cheap / unclear} - {1 sentence}
-- **Brief verdict:** {1 sentence - whether the car is worth pursuing, under what conditions, or whether to avoid it}
-- **Biggest risk:** {1 sentence}
-- **Biggest plus:** {1 sentence}
-- **First thing to verify:** {1 concrete item}
-
-## 🧾 Data From Advertisement
-
-| Item | Value | Note |
-|---|---:|---|
-| Price | {value} | {short note} |
-| Year | {value} | {short note} |
-| Mileage | {value} | {short note} |
-| Engine | {value} | {short note} |
-| Transmission/drive | {value} | {short note} |
-| VIN | {value or Not provided} | {short note} |
-
-## 🔍 VIN And Transparency
-
-If VIN is not provided, output only these two rows:
-
-- **VIN:** Not provided
-- **Verdict:** Risk. The absence of a VIN is a serious transparency issue because it prevents checking the vehicle in online databases (accidents, recalls, real mileage, origin). Never buy the vehicle before verifying the VIN.
-
-If VIN is provided, use this format:
-
-- **VIN:** {provided / not provided}
-- **Format check:** {OK / problem / skipped}
-- **Decoding:** {only if reliable; otherwise say it cannot be decoded reliably from the supplied data}
-- **Online history:** {summary from Google Search section if available; otherwise "Requires manual online verification."}
-- **Verdict:** {OK / risk / skipped}
-
-## 🌐 Web Verification
-
-{If the Google Search section was provided, summarize the 3-6 most important findings with URL citations. If it was not available or failed, write: "Web verification was not available; online claims require manual verification."}
-
-## 🔧 Technical Risks Of Model And Components
-
-For each risk use a short block:
-
-### {severity symbol} {risk name}
-
-- **Why it matters:** {1-2 sentences}
-- **When it is usually addressed:** {km/age or "uncertain"}
-- **Estimated cost:** {EUR range or "uncertain"}
-
-If there are no reliable specific issues, write a short list of general checks for this age/mileage.
-
-## 🛠️ Expected Costs Over The Next 30,000 km
-
-| Item | Why | Estimate EUR | Urgency |
-|---|---:|---:|---|
-| ... | ... | ... | ... |
-
-For urgency include level and timing in parentheses, e.g. `High (within 1,000 km)` or `High (within one year)`.
-
-**Total indicative estimate:** {EUR range}
-
-## 📸 Photo Analysis
-
-- If photos were not provided, write exactly: "Photos were not provided."
-
-### Exterior
-
-- {specific visible findings or limitations}
-
-### Interior
-
-- {specific visible findings or limitations}
-
-### Red Flags From Photos
-
-- {if any; otherwise say none are obvious in the supplied photos}
-
-## ✅ Pros
-
-- {pro 1}
-- {pro 2}
-- {pro 3}
-
-## ❌ Cons / Risks
-
-- {risk 1}
-- {risk 2}
-- {risk 3}
-
-## 💰 Price And Negotiation
-
-- **Indicative price assessment:** {verdict}
-- **Why:** {2-4 bullets}
-- **Current market comparison:** {summary from Google Search section if available; otherwise "Requires manual online verification."}
-- **Recommended maximum price:** {EUR amount or range as an estimate}
-- **Negotiation argument:** {1 concrete item}
-
-## ⚠️ Questions For Seller And Inspection Checklist
-
-1. {concrete question or action}
-2. {concrete question or action}
-3. {concrete question or action}
-4. {concrete question or action}
-5. {concrete question or action}
-
-## 🏁 Final Recommendation
-
-**{symbol} {RATING NAME EXACTLY FROM THE ENGLISH TABLE}**
-
-{2-4 sentences: whether to continue with the car, under what conditions, and what must be verified before purchase.}
+<!-- END_ANALYSIS -->
