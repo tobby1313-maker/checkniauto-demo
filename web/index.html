@@ -928,129 +928,146 @@
         function mdToHtml(md) {
             if (!md) return "";
 
-            let html = md;
+            // --- Step 1: Fix Gemini mid-word line breaks ---
+            // Gemini wraps text at ~80 chars and often splits words across lines.
+            // Join a broken word when a line ends with a lowercase/diacritic letter or digit
+            // and the next line starts with a lowercase/diacritic letter or digit.
+            // Match any word character (alphanumeric + underscore) plus all common
+            // Slovak/Czech diacritic chars.
+            // Using Unicode-aware regex via character ranges for all accented chars.
+            var wordEndRe = /[a-z0-9\u00E0-\u024F\u0300-\u036F]/i;
+            md = md.replace(/([a-z0-9\u00E0-\u024F])\n([a-z0-9\u00E0-\u024F])/gi, "$1$2");
 
-            // --- Fix Gemini mid-word line breaks ---
-            // Gemini sometimes splits words across lines (e.g. "pat\ní" → "patí").
-            // Join a broken word when a line ends with a lowercase letter or digit
-            // and the next line starts with a lowercase letter or digit.
-            html = html.replace(/([a-zá-ž0-9])\n([a-zá-ž0-9])/g, "$1$2");
+            // Also fix cases where a heading marker gets split: "##\nHeading" → "## Heading"
+            // And fix "Polozka | Hodnota\n|:---|---:" (table headers split from separator row)
+            md = md.replace(/^((?:#+|\|))\n\s*/gm, "$1 ");
+            // Fix table rows where the pipe and content got split across lines
+            md = md.replace(/(\|[^\n]*?)\n(\|)/g, "$1$2");
+            // Fix list items where continuation text starts on next line without "- "
+            // e.g. "-   **Prečo záleží:** text\n    pokračovanie" stays fine,
+            // but "-   **Pre\nčo**" needs fixing - already handled by word join above
 
-            // Escape HTML entities first to prevent XSS
-            // Use char codes to avoid auto-formatter mangling the entity references
-            html = html
-                .replace(new RegExp('&', 'g'), '&' + 'amp;')
-                .replace(new RegExp('<', 'g'), '&' + 'lt;')
-                .replace(new RegExp('>', 'g'), '&' + 'gt;');
+            // Escape HTML entities to prevent XSS
+            // Build entity strings via char codes so no auto-formatter can misinterpret them
+            var AMP = String.fromCharCode(38) + 'amp;';  // &
+            var LT  = String.fromCharCode(38) + 'lt;';   // <
+            var GT  = String.fromCharCode(38) + 'gt;';   // >
+            var html = md.split(String.fromCharCode(38)).join(AMP)
+                         .split(String.fromCharCode(60)).join(LT)
+                         .split(String.fromCharCode(62)).join(GT);
 
-            // Code blocks (``` ... ```) - must be done before inline code
-            html = html.replace(/```(?:\w+)?\s*\n?([\s\S]*?)\n?```/g, (_, code) => {
-                return `<pre><code>${code.trim()}</code></pre>`;
+            // --- Step 2: Block-level conversions (order matters) ---
+
+            // Code blocks (``` ... ```)
+            html = html.replace(/```(?:\w+)?\s*\n?([\s\S]*?)\n?```/g, function(_, code) {
+                return '<pre><code>' + code.trim() + '</code></pre>';
             });
 
+            // Horizontal rules (must be before headings)
+            html = html.replace(/^---(?:\s*)$/gm, '<hr>');
+
+            // Headings (## and ###) - must be before lists
+            html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+
+            // Blockquotes (> text)
+            html = html.replace(/^>\s?(.+)$/gm, '<blockquote><p>$1</p></blockquote>');
+
+            // Tables: find table blocks and convert
+            html = html.replace(/((?:\|.+?\|(?:\s*$)\n?)+)/gm, function(tableBlock) {
+                var rows = tableBlock.trim().split('\n').filter(function(r) { return r.trim(); });
+                if (rows.length < 1) return tableBlock;
+
+                var isHeader = true;
+                var result = '<table>\n';
+
+                for (var r = 0; r < rows.length; r++) {
+                    var cells = rows[r].split('|').filter(function(c) { return c.trim(); });
+                    var tag = isHeader ? 'th' : 'td';
+                    result += '<tr>';
+                    for (var c = 0; c < cells.length; c++) {
+                        var trimmed = cells[c].trim();
+                        // Skip separator rows like |---|---|
+                        if (/^[-:\s]+$/.test(trimmed)) continue;
+                        result += '<' + tag + '>' + trimmed + '</' + tag + '>';
+                    }
+                    result += '</tr>\n';
+                    isHeader = false;
+                }
+
+                result += '</table>';
+                return result;
+            });
+
+            // --- Step 3: Inline conversions ---
+
             // Inline code (`code`)
-            html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-            // Bold (**text** or __text__)
-            html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-            html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+            // Bold (**text**)
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-            // Italic (*text* or _text_) - but not inside words
-            html = html.replace(/(?<!\w)\*([^*\n]+?)\*(?!\w)/g, "<em>$1</em>");
-            html = html.replace(/(?<!\w)_([^_\n]+?)_(?!\w)/g, "<em>$1</em>");
+            // Italic (*text*) - but not inside words
+            html = html.replace(/(?<!\w)\*([^*\n]+?)\*(?!\w)/g, '<em>$1</em>');
 
             // Strikethrough (~~text~~)
-            html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
-
-            // Horizontal rules
-            html = html.replace(/^---(?:\s*$)/gm, "<hr>");
+            html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
 
             // Links [text](url)
             html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
-            // Blockquotes (> text)
-            html = html.replace(/^>\s?(.+)$/gm, "<blockquote><p>$1</p></blockquote>");
-
-            // Tables: find table blocks and convert
-            html = html.replace(/((?:\|.+?\|(?:\s*$)\n?)+)/gm, (tableBlock) => {
-                const rows = tableBlock.trim().split("\n").filter(r => r.trim());
-                if (rows.length < 1) return tableBlock;
-
-                let isHeader = true;
-                let result = "<table>\n";
-
-                for (const row of rows) {
-                    const cells = row.split("|").filter(c => c.trim());
-                    const tag = isHeader ? "th" : "td";
-                    result += "<tr>";
-                    for (const cell of cells) {
-                        const trimmed = cell.trim();
-                        // Skip separator rows like |---|---|
-                        if (/^[-:\s]+$/.test(trimmed)) continue;
-                        result += `<${tag}>${trimmed}</${tag}>`;
-                    }
-                    result += "</tr>\n";
-                    isHeader = false;
-                }
-
-                result += "</table>";
-                return result;
-            });
-
-            // Headings (## and ###)
-            html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
-            html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+            // --- Step 4: Lists ---
 
             // Unordered lists (- item or * item)
-            html = html.replace(/^[\s]*[-*]\s+(.+)$/gm, "<li>$1</li>");
-            html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => {
-                return "<ul>" + match + "</ul>";
+            html = html.replace(/^[\s]*[-*]\s+(.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>\n?)+/g, function(match) {
+                return '<ul>' + match + '</ul>';
             });
 
             // Ordered lists (1. item)
-            html = html.replace(/^\s*\d+\.\s+(.+)$/gm, "<li>$1</li>");
+            html = html.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
 
-            // Paragraphs: wrap remaining text in <p> tags
-            const lines = html.split("\n");
-            let result = "";
-            let inBlock = false;
+            // --- Step 5: Paragraph wrapping ---
+            var lines = html.split('\n');
+            var result = '';
+            var inBlock = false;
 
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const trimmed = line.trim();
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                var trimmed = line.trim();
 
                 // Skip empty lines
                 if (!trimmed) {
-                    if (!inBlock) result += "\n";
+                    if (!inBlock) result += '\n';
                     continue;
                 }
 
                 // Check if line starts a block element
                 if (/^<(h[2-4]|ul|ol|li|table|tr|th|td|pre|blockquote|hr|div)/i.test(trimmed)) {
-                    result += trimmed + "\n";
+                    result += trimmed + '\n';
                     inBlock = true;
                     continue;
                 }
 
                 // Check if line ends a block element
                 if (/^<\/(ul|ol|table|pre|blockquote)>/i.test(trimmed)) {
-                    result += trimmed + "\n";
+                    result += trimmed + '\n';
                     inBlock = false;
                     continue;
                 }
 
                 // If we're inside a block, just append
                 if (inBlock) {
-                    result += trimmed + "\n";
+                    result += trimmed + '\n';
                     continue;
                 }
 
                 // Wrap standalone text in paragraph
-                result += `<p>${trimmed}</p>\n`;
+                result += '<p>' + trimmed + '</p>\n';
             }
 
             // Remove empty paragraphs
-            result = result.replace(/<p>\s*<\/p>/g, "");
+            result = result.replace(/<p>\s*<\/p>/g, '');
 
             return result;
         }
