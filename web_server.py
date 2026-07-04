@@ -1361,7 +1361,7 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
 ---
 
 ## ✅ INŠTRUKCIA:
-Analyzuj tento inzerát podľa systémového promptu vyššie. Použi všetky 5 fáz analýzy a vygeneruj kompletný výstup vrátane hodnotenia.
+Analyzuj tento inzerát podľa systémového promptu vyššie. Použi všetky fázy analýzy a vygeneruj kompletný lokalizovaný výstup vrátane hodnotenia.
 """
 
     user_content += (
@@ -1369,7 +1369,9 @@ Analyzuj tento inzerát podľa systémového promptu vyššie. Použi všetky 5 
         "## OUTPUT_LANGUAGE:\n"
         f"{_demo_output_language(output_language)}\n\n"
         "## DEMO INSTRUCTION:\n"
-        "Write the final analysis in OUTPUT_LANGUAGE. Do not include knowledge_base save blocks, "
+        "Use the localized report schema for OUTPUT_LANGUAGE (`sk` or `en`) exactly as defined in the system prompt. "
+        "Preserve the required Markdown structure: emoji headings, valid Markdown tables, valid lists, and localized rating names. "
+        "Do not use raw color labels like YELLOW/GREEN/RED as ratings. Do not include knowledge_base save blocks, "
         "internal API details, access-code state, or debugging metadata.\n"
     )
 
