@@ -19,6 +19,8 @@ import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 
+IMAGE_REQUEST_TIMEOUT = int(os.environ.get("DEMO_IMAGE_REQUEST_TIMEOUT", "12"))
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "sk-SK,sk;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -350,7 +352,7 @@ def download_images(image_list, output_dir):
         print(f"  [{i}/{len(image_list)}] {i:02d}_{img_id}.{ext} ...", end=" ", flush=True)
 
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=30)
+            resp = requests.get(url, headers=HEADERS, timeout=IMAGE_REQUEST_TIMEOUT)
             resp.raise_for_status()
 
             # Determine correct extension from content type

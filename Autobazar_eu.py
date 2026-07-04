@@ -25,6 +25,8 @@ truststore.inject_into_ssl()
 import requests
 from bs4 import BeautifulSoup
 
+IMAGE_REQUEST_TIMEOUT = int(os.environ.get("DEMO_IMAGE_REQUEST_TIMEOUT", "12"))
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -449,7 +451,7 @@ def download_images(image_list, output_dir):
         print(f"  [{i}/{total}] {filename} ...", end=" ", flush=True)
 
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=30, stream=True)
+            resp = requests.get(url, headers=HEADERS, timeout=IMAGE_REQUEST_TIMEOUT, stream=True)
             resp.raise_for_status()
             with open(filepath, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
