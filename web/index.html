@@ -1542,6 +1542,7 @@
             var prev = String(previous || "").trimEnd();
             var cur = String(current || "").trim();
             if (!prev || !cur || /^```/.test(prev)) return false;
+            if (/^\|/.test(cur)) return false;
             if (/^\|/.test(prev) && (prev.match(/\|/g) || []).length < 3) return true;
             if (isBlockStartForCleanup(cur)) return false;
             if (/^[-*]\s+/.test(prev) || /^\d+\.\s+/.test(prev)) return true;
