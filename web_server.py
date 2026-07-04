@@ -79,6 +79,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".avif"}
 SUPPORTED_SCRAPER_HOSTS = ("autobazar.eu", "autobazar.sk", "bazos.sk", "bazos.cz")
 UNSUPPORTED_DEMO_HOSTS = ("mobile.de",)
 MAX_MANUAL_IMAGES = int(os.environ.get("DEMO_MAX_MANUAL_IMAGES", "12"))
+DEMO_MAX_SCRAPED_IMAGES = max(1, int(os.environ.get("DEMO_MAX_SCRAPED_IMAGES", "8")))
 DEMO_PROMPT_FILE = os.environ.get("DEMO_PROMPT_FILE", "analyze_prompt_v4_koyeb.txt")
 DEMO_RATE_LIMIT_PER_IP = os.environ.get("DEMO_RATE_LIMIT_PER_IP", "3/day")
 DEMO_MAX_CONCURRENT_JOBS = max(1, int(os.environ.get("DEMO_MAX_CONCURRENT_JOBS", "1")))
@@ -1222,6 +1223,7 @@ def api_scrape():
         try:
             env = os.environ.copy()
             env["SCRAPPER_AUTA_DIR"] = AUTA_DIR
+            env.setdefault("DEMO_MAX_SCRAPED_IMAGES", str(DEMO_MAX_SCRAPED_IMAGES))
             process = subprocess.Popen(
                 [sys.executable, main_py, url],
                 cwd=SCRIPT_DIR,
@@ -1541,6 +1543,7 @@ def api_demo_analyze():
         slug = derive_slug(url)
         env = os.environ.copy()
         env["SCRAPPER_AUTA_DIR"] = AUTA_DIR
+        env.setdefault("DEMO_MAX_SCRAPED_IMAGES", str(DEMO_MAX_SCRAPED_IMAGES))
         yield f"data: {json.dumps({'status': 'Scraping listing...'})}\n\n"
         process = subprocess.Popen(
             [sys.executable, main_py, url],

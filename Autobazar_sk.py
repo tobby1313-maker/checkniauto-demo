@@ -341,6 +341,11 @@ def format_car_info_md(info, num_images):
 
 def download_images(image_list, output_dir):
     """Download all images to output directory."""
+    max_images = int(os.environ.get("DEMO_MAX_SCRAPED_IMAGES", "0") or "0")
+    if max_images > 0 and len(image_list) > max_images:
+        print(f"  Demo limit: downloading first {max_images}/{len(image_list)} images", flush=True)
+        image_list = image_list[:max_images]
+
     os.makedirs(output_dir, exist_ok=True)
     downloaded = 0
 
