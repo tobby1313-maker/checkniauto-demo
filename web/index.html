@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Checkni Auto je AI kontrola inzerátu auta pred kúpou.">
+    <title>Checkni Auto - AI kontrola auta pred kúpou</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --bg: #ffffff;
+            --surface: #ffffff;
+            --surface-soft: #f3f4f6;
+            --text: #121820;
+            --muted: #66717f;
+            --line: #e1e5ea;
+            --orange: #f97316;
+            --orange-dark: #ea580c;
+            --orange-soft: rgba(249, 115, 22, 0.14);
+            --logo-filter: invert(57%) sepia(92%) saturate(1962%) hue-rotate(351deg) brightness(99%) contrast(97%);
+            --success: #0f766e;
+            --danger: #b42318;
+            --shadow: 0 22px 60px rgba(18, 24, 32, 0.08);
+            --focus: 0 0 0 4px rgba(249, 115, 22, 0.20);
+        }
+
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #111315;
+            --surface: #1a1d21;
+            --surface-soft: #24282d;
+            --text: #f4f4f5;
+            --muted: #a8adb5;
+            --line: #333840;
+            --orange: #f97316;
+            --orange-dark: #fb923c;
+            --orange-soft: rgba(249, 115, 22, 0.18);
+            --logo-filter: invert(57%) sepia(92%) saturate(1962%) hue-rotate(351deg) brightness(105%) contrast(98%);
+            --success: #4fd1c5;
+            --danger: #ff8a80;
+            --shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+            --focus: 0 0 0 4px rgba(249, 115, 22, 0.25);
+        }
+
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            min-width: 320px;
+            background: var(--bg);
+            color: var(--text);
+        }
+        button, input, textarea, select { font: inherit; }
+        button { cursor: pointer; }
+        img { max-width: 100%; display: block; }
+
+        .page {
+            min-height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: color-mix(in srgb, var(--surface) 88%, transparent);
+            border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(16px);
+        }
+
+        .nav {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .brand img {
+            width: 46px;
+            height: 46px;
+            object-fit: contain;
+            border-radius: 0;
+            filter: var(--logo-filter);
+        }
+
+        :root[data-theme="dark"] .brand img {
+            filter: var(--logo-filter);
+        }
+
+        .brand strong {
+            display: block;
+            font-size: 18px;
+            line-height: 1.1;
+            letter-spacing: 0;
+        }
+
+        .brand span {
+            display: block;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 2px;
+        }
+
+        .nav-tools {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .language-select,
+        input,
+        textarea,
+        select {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text);
+            outline: none;
+        }
+
+        .language-select {
+            min-height: 40px;
+            padding: 0 36px 0 12px;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 11px 12px;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            border-color: var(--orange);
+            box-shadow: var(--focus);
+        }
+
+        .theme-toggle {
+            width: 76px;
+            min-width: 76px;
+            height: 40px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: var(--surface-soft);
+            color: var(--muted);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            align-items: center;
+            padding: 3px;
+            position: relative;
+        }
+
+        .theme-toggle::before {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 32px;
+            height: 32px;
+            border-radius: 999px;
+            background: var(--surface);
+            box-shadow: 0 2px 8px rgba(18, 24, 32, 0.14);
+            transition: transform 180ms ease;
+        }
+
+        :root[data-theme="dark"] .theme-toggle::before {
+            transform: translateX(36px);
+        }
+
+        .theme-toggle svg {
+            width: 17px;
+            height: 17px;
+            justify-self: center;
+            z-index: 1;
+        }
+
+        .layout {
+            max-width: 1120px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 36px 20px 42px;
+            display: grid;
+            grid-template-columns: minmax(320px, 620px);
+            gap: 22px;
+            align-items: start;
+            justify-content: center;
+        }
+
+        .intro {
+            display: none;
+            align-content: start;
+            padding-top: 10px;
+        }
+
+        h1 {
+            margin: 0;
+            max-width: 480px;
+            font-size: clamp(42px, 7vw, 76px);
+            line-height: 0.96;
+            letter-spacing: 0;
+        }
+
+        .analyzer,
+        .output-panel,
+        .log-panel {
+            background: color-mix(in srgb, var(--surface) 96%, transparent);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .analyzer-head,
+        .panel-head {
+            padding: 15px 16px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .analyzer-head strong,
+        .panel-head strong {
+            font-size: 17px;
+        }
+
+        .status {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.35;
+            text-align: right;
+        }
+
+        .status.error {
+            color: var(--danger);
+            font-weight: 750;
+        }
+
+        .tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            padding: 4px;
+            margin: 16px 16px 0;
+            background: var(--surface-soft);
+            border-radius: 8px;
+        }
+
+        .tab {
+            min-height: 42px;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--muted);
+            font-weight: 750;
+        }
+
+        .tab.active {
+            background: var(--surface);
+            color: var(--orange);
+            box-shadow: inset 0 0 0 1px var(--orange-soft), 0 1px 4px rgba(18, 24, 32, 0.10);
+        }
+
+        form {
+            padding: 16px;
+        }
+
+        .field {
+            display: grid;
+            gap: 7px;
+            margin-bottom: 13px;
+        }
+
+        .field label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 750;
+        }
+
+        .hint {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        textarea {
+            min-height: 168px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .btn {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            min-height: 42px;
+            padding: 10px 13px;
+            background: var(--surface);
+            color: var(--text);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-weight: 750;
+        }
+
+        .btn.primary {
+            width: 100%;
+            border-color: var(--orange);
+            background: var(--orange);
+            color: #fff;
+            font-size: 16px;
+        }
+
+        .btn.primary:hover {
+            background: var(--orange-dark);
+            border-color: var(--orange-dark);
+        }
+
+        .btn:disabled {
+            opacity: 0.52;
+            cursor: not-allowed;
+        }
+
+        .hidden { display: none; }
+
+        input[type="file"]::file-selector-button {
+            border: 0;
+            border-radius: 7px;
+            min-height: 36px;
+            margin-right: 12px;
+            padding: 8px 12px;
+            background: var(--orange);
+            color: #fff;
+            font-weight: 750;
+            cursor: pointer;
+        }
+
+        input[type="file"]::file-selector-button:hover {
+            background: var(--orange-dark);
+        }
+
+        .workspace {
+            max-width: 1120px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 20px 42px;
+            display: grid;
+            grid-template-columns: minmax(280px, 350px) minmax(0, 1fr);
+            gap: 22px;
+        }
+
+        .log {
+            min-height: 260px;
+            max-height: 430px;
+            overflow: auto;
+            margin: 0;
+            padding: 14px 16px;
+            background: var(--surface);
+            color: var(--text);
+            white-space: pre-wrap;
+            font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+        }
+
+        :root[data-theme="dark"] .log {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .result-tools {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .result {
+            min-height: 520px;
+            padding: 20px;
+            overflow: auto;
+            white-space: pre-wrap;
+            line-height: 1.62;
+        }
+
+        .result:empty::before {
+            content: attr(data-empty);
+            color: var(--muted);
+        }
+
+        @media (max-width: 920px) {
+            .layout,
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+
+            .intro {
+                padding-top: 0;
+            }
+
+        }
+
+        @media (max-width: 620px) {
+            .nav {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .nav-tools {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .language-select {
+                flex: 1;
+            }
+
+            .layout,
+            .workspace {
+                padding-left: 14px;
+                padding-right: 14px;
+            }
+
+            .row {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 43px;
+            }
+
+            .panel-head {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .result-tools {
+                justify-content: flex-start;
+            }
+        }
+
+        @media print {
+            .topbar,
+            .layout,
+            .log-panel,
+            .panel-head .status,
+            .result-tools {
+                display: none !important;
+            }
+
+            body {
+                background: #fff;
+                color: #000;
+            }
+
+            .workspace {
+                display: block;
+                max-width: none;
+                padding: 0;
+            }
+
+            .output-panel {
+                border: 0;
+                box-shadow: none;
+            }
+
+            .result {
+                min-height: 0;
+                padding: 0;
+                overflow: visible;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page" id="page">
+        <header class="topbar">
+            <nav class="nav">
+                <div class="brand">
+                    <img src="assets/checkni-auto-logo.png" alt="Checkni Auto logo">
+                    <div>
+                        <strong>Checkni Auto</strong>
+                        <span id="brandSubtitle">Vlož inzerát alebo vlastný text s fotkami. Dostaneš stručnú analýzu rizík, ceny a otázok pre predajcu.</span>
+                    </div>
+                </div>
+
+                <div class="nav-tools">
+                    <select id="outputLanguage" class="language-select" aria-label="Jazyk výstupu">
+                        <option value="sk">Slovenčina</option>
+                        <option value="en">English</option>
+                    </select>
+                    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Prepnúť svetlý alebo tmavý režim" title="Prepnúť tému">
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"></circle>
+                            <path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                        </svg>
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5 8.5 8.5 0 1 0 20.5 14.3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+                        </svg>
+                    </button>
+                </div>
+            </nav>
+        </header>
+
+        <main>
+            <section class="layout">
+                <section class="analyzer" id="analyzerSection" aria-label="Analyzátor inzerátu">
+                    <div class="analyzer-head">
+                        <strong id="analyzerTitle">Analyzovať inzerát</strong>
+                    </div>
+
+                    <div class="tabs" role="tablist">
+                        <button class="tab active" id="urlTab" type="button">URL</button>
+                        <button class="tab" id="manualTab" type="button">Manuálne</button>
+                    </div>
+
+                    <form id="urlForm">
+                        <div class="field">
+                            <label for="listingUrl">Odkaz na inzerát</label>
+                            <input id="listingUrl" name="url" type="url" placeholder="https://www.bazos.sk/..." autocomplete="url">
+                            <div class="hint" id="supportedHint">Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.</div>
+                        </div>
+                        <button class="btn primary" id="urlSubmit" type="submit">Spustiť analýzu</button>
+                    </form>
+
+                    <form id="manualForm" class="hidden">
+                        <div class="field">
+                            <label for="title">Názov auta</label>
+                            <input id="title" name="title" placeholder="Škoda Octavia 2.0 TDI">
+                        </div>
+                        <div class="row">
+                            <div class="field">
+                                <label for="price">Cena v EUR</label>
+                                <input id="price" name="price" inputmode="numeric" placeholder="12900">
+                            </div>
+                            <div class="field">
+                                <label for="sourceUrl">Zdrojový odkaz</label>
+                                <input id="sourceUrl" name="source_url" type="url" placeholder="Voliteľné">
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="manualText">Text inzerátu</label>
+                            <textarea id="manualText" name="manual_text" placeholder="Vlož popis, parametre, VIN, výbavu, servisnú históriu a poznámku predajcu..."></textarea>
+                        </div>
+                        <div class="field">
+                            <label for="images">Fotky</label>
+                            <input id="images" name="images" type="file" accept="image/*" multiple>
+                            <div class="hint" id="imagesHint">Maximálne 12 fotiek.</div>
+                        </div>
+                        <button class="btn primary" id="manualSubmit" type="submit">Analyzovať</button>
+                    </form>
+                </section>
+            </section>
+
+            <section class="workspace" id="analysis">
+                <aside class="log-panel">
+                    <div class="panel-head">
+                        <strong>Priebeh</strong>
+                        <span class="status" id="status">Pripravené</span>
+                    </div>
+                    <pre class="log" id="log"></pre>
+                </aside>
+
+                <section class="output-panel">
+                    <div class="panel-head">
+                        <strong>Výsledok</strong>
+                        <div class="result-tools">
+                            <button class="btn" id="copyBtn" type="button" disabled>Kopírovať</button>
+                            <button class="btn" id="downloadBtn" type="button" disabled>Markdown</button>
+                            <button class="btn" id="pdfBtn" type="button" disabled>PDF</button>
+                        </div>
+                    </div>
+                    <article class="result" id="result" data-empty="Výsledok analýzy sa zobrazí tu."></article>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const root = document.documentElement;
+        const themeToggle = document.querySelector("#themeToggle");
+        const urlTab = document.querySelector("#urlTab");
+        const manualTab = document.querySelector("#manualTab");
+        const urlForm = document.querySelector("#urlForm");
+        const manualForm = document.querySelector("#manualForm");
+        const statusEl = document.querySelector("#status");
+        const logEl = document.querySelector("#log");
+        const resultEl = document.querySelector("#result");
+        const copyBtn = document.querySelector("#copyBtn");
+        const downloadBtn = document.querySelector("#downloadBtn");
+        const pdfBtn = document.querySelector("#pdfBtn");
+        const outputLanguage = document.querySelector("#outputLanguage");
+        const imagesInput = document.querySelector("#images");
+        const submitButtons = [document.querySelector("#urlSubmit"), document.querySelector("#manualSubmit")];
+        const maxManualImages = 12;
+        let resultText = "";
+        let currentLanguage = outputLanguage.value || "sk";
+
+        const translations = {
+            sk: {
+                documentTitle: "Checkni Auto - AI kontrola auta pred kúpou",
+                languageLabel: "Jazyk výstupu",
+                brandSubtitle: "Vlož inzerát alebo vlastný text s fotkami. Dostaneš stručnú analýzu rizík, ceny a otázok pre predajcu.",
+                themeLabel: "Prepnúť svetlý alebo tmavý režim",
+                themeTitle: "Prepnúť tému",
+                analyzerLabel: "Analyzátor inzerátu",
+                analyzerTitle: "Analyzovať inzerát",
+                manualTab: "Manuálne",
+                listingUrlLabel: "Odkaz na inzerát",
+                supportedHint: "Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
+                urlSubmit: "Spustiť analýzu",
+                titleLabel: "Názov auta",
+                titlePlaceholder: "Škoda Octavia 2.0 TDI",
+                priceLabel: "Cena v EUR",
+                sourceUrlLabel: "Zdrojový odkaz",
+                sourceUrlPlaceholder: "Voliteľné",
+                manualTextLabel: "Text inzerátu",
+                manualTextPlaceholder: "Vlož popis, parametre, VIN, výbavu, servisnú históriu a poznámku predajcu...",
+                imagesLabel: "Fotky",
+                imagesHint: "Maximálne 12 fotiek.",
+                tooManyImages: "Vyber najviac 12 fotiek. Ponechal som prvých 12.",
+                manualSubmit: "Analyzovať",
+                progressTitle: "Priebeh",
+                resultTitle: "Výsledok",
+                copy: "Kopírovať",
+                resultEmpty: "Výsledok analýzy sa zobrazí tu.",
+                ready: "Pripravené",
+                starting: "Spúšťam",
+                done: "Hotovo",
+                copied: "Skopírované",
+                markdownFilename: "checkni-auto-analyza"
+            },
+            en: {
+                documentTitle: "Checkni Auto - AI used car check before buying",
+                languageLabel: "Output language",
+                brandSubtitle: "Paste a listing or your own text with photos. Get a concise analysis of risks, price, and questions for the seller.",
+                themeLabel: "Switch light or dark mode",
+                themeTitle: "Switch theme",
+                analyzerLabel: "Listing analyzer",
+                analyzerTitle: "Analyze listing",
+                manualTab: "Manual",
+                listingUrlLabel: "Listing URL",
+                supportedHint: "Supported: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
+                urlSubmit: "Run analysis",
+                titleLabel: "Car title",
+                titlePlaceholder: "Skoda Octavia 2.0 TDI",
+                priceLabel: "Price in EUR",
+                sourceUrlLabel: "Source URL",
+                sourceUrlPlaceholder: "Optional",
+                manualTextLabel: "Listing text",
+                manualTextPlaceholder: "Paste the description, specs, VIN, equipment, service history, and seller note...",
+                imagesLabel: "Photos",
+                imagesHint: "Maximum 12 photos.",
+                tooManyImages: "Choose at most 12 photos. I kept the first 12.",
+                manualSubmit: "Analyze",
+                progressTitle: "Progress",
+                resultTitle: "Result",
+                copy: "Copy",
+                resultEmpty: "The analysis result will appear here.",
+                ready: "Ready",
+                starting: "Starting",
+                done: "Done",
+                copied: "Copied",
+                markdownFilename: "checkni-auto-analysis"
+            }
+        };
+
+        function tr(key) {
+            const value = translations[currentLanguage]?.[key] || translations.sk[key] || key;
+            return typeof value === "function" ? value : value;
+        }
+
+        function setText(selector, value) {
+            const node = document.querySelector(selector);
+            if (node) node.textContent = value;
+        }
+
+        function applyLanguage(language) {
+            currentLanguage = language === "en" ? "en" : "sk";
+            outputLanguage.value = currentLanguage;
+            document.documentElement.lang = currentLanguage;
+            document.title = tr("documentTitle");
+            localStorage.setItem("checkni-auto-language", currentLanguage);
+
+            outputLanguage.setAttribute("aria-label", tr("languageLabel"));
+            themeToggle.setAttribute("aria-label", tr("themeLabel"));
+            themeToggle.setAttribute("title", tr("themeTitle"));
+            document.querySelector("#analyzerSection").setAttribute("aria-label", tr("analyzerLabel"));
+
+            setText("#brandSubtitle", tr("brandSubtitle"));
+            setText("#analyzerTitle", tr("analyzerTitle"));
+            setText("#manualTab", tr("manualTab"));
+            setText("label[for='listingUrl']", tr("listingUrlLabel"));
+            setText("#supportedHint", tr("supportedHint"));
+            setText("#urlSubmit", tr("urlSubmit"));
+            setText("label[for='title']", tr("titleLabel"));
+            setText("label[for='price']", tr("priceLabel"));
+            setText("label[for='sourceUrl']", tr("sourceUrlLabel"));
+            setText("label[for='manualText']", tr("manualTextLabel"));
+            setText("label[for='images']", tr("imagesLabel"));
+            setText("#imagesHint", tr("imagesHint"));
+            setText("#manualSubmit", tr("manualSubmit"));
+            setText(".log-panel .panel-head strong", tr("progressTitle"));
+            setText(".output-panel .panel-head strong", tr("resultTitle"));
+            setText("#copyBtn", tr("copy"));
+
+            document.querySelector("#title").placeholder = tr("titlePlaceholder");
+            document.querySelector("#sourceUrl").placeholder = tr("sourceUrlPlaceholder");
+            document.querySelector("#manualText").placeholder = tr("manualTextPlaceholder");
+            resultEl.dataset.empty = tr("resultEmpty");
+
+            if (!resultText && !logEl.textContent.trim()) {
+                statusEl.textContent = tr("ready");
+            }
+        }
+
+        function initialTheme() {
+            const saved = localStorage.getItem("checkni-auto-theme");
+            if (saved === "dark" || saved === "light") return saved;
+            return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+
+        function setTheme(theme) {
+            root.dataset.theme = theme;
+            localStorage.setItem("checkni-auto-theme", theme);
+        }
+
+        function setMode(mode) {
+            const manual = mode === "manual";
+            manualForm.classList.toggle("hidden", !manual);
+            urlForm.classList.toggle("hidden", manual);
+            manualTab.classList.toggle("active", manual);
+            urlTab.classList.toggle("active", !manual);
+        }
+
+        function resetOutput() {
+            resultText = "";
+            resultEl.textContent = "";
+            logEl.textContent = "";
+            statusEl.textContent = tr("starting");
+            statusEl.classList.remove("error");
+            copyBtn.disabled = true;
+            downloadBtn.disabled = true;
+            pdfBtn.disabled = true;
+            document.querySelector("#analysis").scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function setBusy(isBusy) {
+            submitButtons.forEach((button) => button.disabled = isBusy);
+        }
+
+        function appendLog(line) {
+            logEl.textContent += `${line}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function appendResult(text) {
+            resultText += text;
+            resultEl.textContent = resultText;
+            resultEl.scrollTop = resultEl.scrollHeight;
+            copyBtn.disabled = !resultText;
+            downloadBtn.disabled = !resultText;
+            pdfBtn.disabled = !resultText;
+        }
+
+        function enforceImageLimit() {
+            if (!imagesInput.files || imagesInput.files.length <= maxManualImages) {
+                return true;
+            }
+
+            const selected = Array.from(imagesInput.files).slice(0, maxManualImages);
+            try {
+                const transfer = new DataTransfer();
+                selected.forEach((file) => transfer.items.add(file));
+                imagesInput.files = transfer.files;
+            } catch (error) {
+                imagesInput.value = "";
+            }
+
+            statusEl.textContent = tr("tooManyImages");
+            statusEl.classList.add("error");
+            return false;
+        }
+
+        async function readSse(response) {
+            if (!response.ok) {
+                const errorBody = await response.json().catch(() => ({}));
+                throw new Error(errorBody.error || `Request failed (${response.status})`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const events = buffer.split("\n\n");
+                buffer = events.pop() || "";
+
+                for (const event of events) {
+                    const line = event.split("\n").find((item) => item.startsWith("data: "));
+                    if (!line) continue;
+                    const payload = line.slice(6);
+                    if (payload === "[DONE]") return;
+                    const data = JSON.parse(payload);
+                    if (data.error) throw new Error(data.error);
+                    if (data.status) {
+                        statusEl.textContent = data.status;
+                        appendLog(data.status);
+                    }
+                    if (data.log) appendLog(data.log);
+                    if (data.line) appendLog(data.line);
+                    if (data.text) appendResult(data.text);
+                    if (data.done) statusEl.textContent = tr("done");
+                }
+            }
+        }
+
+        async function runUrl(event) {
+            event.preventDefault();
+            resetOutput();
+            setBusy(true);
+
+            try {
+                const response = await fetch("/api/demo/analyze", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        url: document.querySelector("#listingUrl").value,
+                        output_language: outputLanguage.value
+                    })
+                });
+                await readSse(response);
+            } catch (error) {
+                statusEl.textContent = error.message;
+                statusEl.classList.add("error");
+                appendLog(`ERROR: ${error.message}`);
+                if (/manual/i.test(error.message)) {
+                    document.querySelector("#sourceUrl").value = document.querySelector("#listingUrl").value;
+                    setMode("manual");
+                }
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        async function runManual(event) {
+            event.preventDefault();
+            if (!enforceImageLimit()) return;
+            resetOutput();
+            setBusy(true);
+
+            try {
+                const formData = new FormData(manualForm);
+                formData.set("output_language", outputLanguage.value);
+                const response = await fetch("/api/demo/analyze-manual", {
+                    method: "POST",
+                    body: formData
+                });
+                await readSse(response);
+            } catch (error) {
+                statusEl.textContent = error.message;
+                statusEl.classList.add("error");
+                appendLog(`ERROR: ${error.message}`);
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        themeToggle.addEventListener("click", () => {
+            setTheme(root.dataset.theme === "dark" ? "light" : "dark");
+        });
+
+        copyBtn.addEventListener("click", async () => {
+            await navigator.clipboard.writeText(resultText);
+            statusEl.textContent = tr("copied");
+        });
+
+        downloadBtn.addEventListener("click", () => {
+            const blob = new Blob([resultText], { type: "text/markdown;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${tr("markdownFilename")}-${new Date().toISOString().slice(0, 10)}.md`;
+            link.click();
+            URL.revokeObjectURL(url);
+        });
+
+        pdfBtn.addEventListener("click", () => window.print());
+        urlTab.addEventListener("click", () => setMode("url"));
+        manualTab.addEventListener("click", () => setMode("manual"));
+        outputLanguage.addEventListener("change", () => applyLanguage(outputLanguage.value));
+        imagesInput.addEventListener("change", enforceImageLimit);
+        urlForm.addEventListener("submit", runUrl);
+        manualForm.addEventListener("submit", runManual);
+        applyLanguage(localStorage.getItem("checkni-auto-language") || outputLanguage.value);
+        setTheme(initialTheme());
+    </script>
+</body>
+</html>

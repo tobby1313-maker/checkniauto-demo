@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+Auta/
+.analysis_images/
+tmp/
+scrapper-jobs/
