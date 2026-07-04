@@ -191,6 +191,7 @@ def build_analysis_request(script_dir, output_dir, url):
     """
     # Find the manual ChatGPT prompt.
     prompt_paths = [
+        os.path.join(script_dir, "analyze_prompt_v4_koyeb.txt"),
         os.path.join(script_dir, "analyze_prompt_v2.txt"),
         os.path.join(script_dir, "analyze_prompt.txt"),
     ]

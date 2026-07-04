@@ -930,6 +930,12 @@
 
             let html = md;
 
+            // --- Fix Gemini mid-word line breaks ---
+            // Gemini sometimes splits words across lines (e.g. "pat\ní" → "patí").
+            // Join a broken word when a line ends with a lowercase letter or digit
+            // and the next line starts with a lowercase letter or digit.
+            html = html.replace(/([a-zá-ž0-9])\n([a-zá-ž0-9])/g, "$1$2");
+
             // Escape HTML entities first to prevent XSS
             // Use char codes to avoid auto-formatter mangling the entity references
             html = html
