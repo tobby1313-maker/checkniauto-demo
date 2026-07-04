@@ -1527,16 +1527,81 @@
             return escapeHtml(value).split('"').join("&quot;");
         }
 
+        function isBlockStartForCleanup(line) {
+            var text = String(line || "").trim();
+            return /^#{1,6}\s+/.test(text) ||
+                   /^-{3,}$/.test(text) ||
+                   /^```/.test(text) ||
+                   /^>\s?/.test(text) ||
+                   /^\|.*\|\s*$/.test(text) ||
+                   /^[-*]\s+/.test(text) ||
+                   /^\d+\.\s+/.test(text);
+        }
+
+        function shouldJoinCleanLine(previous, current) {
+            var prev = String(previous || "").trimEnd();
+            var cur = String(current || "").trim();
+            if (!prev || !cur || /^```/.test(prev)) return false;
+            if (/^\|/.test(prev) && (prev.match(/\|/g) || []).length < 3) return true;
+            if (isBlockStartForCleanup(cur)) return false;
+            if (/^[-*]\s+/.test(prev) || /^\d+\.\s+/.test(prev)) return true;
+            if ((prev.match(/\*\*/g) || []).length % 2 === 1) return true;
+            if (/[A-Za-zÀ-ž0-9,;:]$/.test(prev) || /[\/\-(\[]$/.test(prev)) return true;
+            return false;
+        }
+
+        function joinCleanLine(previous, current) {
+            var prev = String(previous || "").trimEnd();
+            var cur = String(current || "").trim();
+            if (/[\/\-(\[]$/.test(prev)) return prev + cur;
+            return prev + " " + cur;
+        }
+
+        function sanitizeGroundingRedirects(text) {
+            text = text.replace(/\[([^\]\n]{1,120})\]\(\s*https?:\/\/vertexaisearch\.cloud\.google\.com[\s\S]*?\)/gi, function(_, label) {
+                return label.replace(/\s+/g, " ").trim() || "URL citácia nie je overiteľná";
+            });
+            text = text.replace(/https?:\/\/vertexaisearch\.cloud\.google\.com\/\S+/gi, "URL citácia nie je overiteľná");
+            return text.replace(/\s+([,.;:])/g, "$1");
+        }
+
         /**
-         * Clean up Gemini text quirks without changing table row boundaries.
+         * Clean up Gemini text quirks before rendering or download.
          */
         function cleanBrokenText(text) {
             text = String(text || "").replace(/\r\n?/g, "\n");
-            // Fix split heading markers: "##\nAnalyza" -> "## Analyza"
+            text = sanitizeGroundingRedirects(text);
             text = text.replace(/^(#+)\n\s*/gm, "$1 ");
-            // Fix orphaned markers, but never merge Markdown table rows.
+
+            var lines = text.split("\n");
+            var cleaned = [];
+            var inFence = false;
+            lines.forEach(function(line) {
+                var trimmed = line.trim();
+                if (/^```/.test(trimmed)) {
+                    cleaned.push(line.trimEnd());
+                    inFence = !inFence;
+                    return;
+                }
+                if (inFence || !trimmed) {
+                    cleaned.push(line.trimEnd());
+                    return;
+                }
+                if (cleaned.length && shouldJoinCleanLine(cleaned[cleaned.length - 1], trimmed)) {
+                    cleaned[cleaned.length - 1] = joinCleanLine(cleaned[cleaned.length - 1], trimmed);
+                } else {
+                    cleaned.push(line.trimEnd());
+                }
+            });
+
+            text = cleaned.join("\n");
             text = text.replace(/\*\*\s*\n+\s*(?=\S)/g, "** ");
             text = text.replace(/^([*-])\s*\n\s*/gm, "$1 ");
+            text = text.replace(/Hodnot nie:?/g, "Hodnotenie:");
+            text = text.replace(/Naj\s*äčší/g, "Najväčší");
+            text = text.replace(/dô ladne/g, "dôkladne");
+            text = text.replace(/- \*\*Verdikt\s+Riziko\./g, "- **Verdikt:** Riziko.");
+            text = text.replace(/\n{3,}/g, "\n\n");
             return text;
         }
 
@@ -1603,8 +1668,10 @@
 
             bodyRows.forEach(function(row) {
                 if (isTableDelimiter(row)) return;
+                var cells = splitTableRow(row);
+                if (cells.length !== headerCells.length) return;
                 out += "<tr>";
-                splitTableRow(row).forEach(function(cell) {
+                cells.forEach(function(cell) {
                     out += "<td>" + renderInline(cell) + "</td>";
                 });
                 out += "</tr>";
@@ -1994,4 +2061,3 @@
     </script>
 </body>
 </html>
-

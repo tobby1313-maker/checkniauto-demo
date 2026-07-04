@@ -218,10 +218,12 @@ Použi presne jednu lokalizovanú schému podľa `OUTPUT_LANGUAGE`:
 ## MARKDOWN OUTPUT CONTRACT
 
 - Výstup musí byť čistý Markdown bez HTML.
+- Nepoužívaj tvrdé zalomenia riadkov uprostred slov, viet, odrážok, čísel, VIN alebo URL. Každá odrážka a každý riadok tabuľky musí byť kompletný na jednom riadku.
 - Používaj nadpisy `#`, `##`, `###` presne ako v schéme.
 - Pred každou tabuľkou aj po nej nechaj prázdny riadok.
 - Každý riadok tabuľky musí byť na jednom samostatnom riadku. Nikdy nezlučuj viac riadkov tabuľky do jednej vety.
 - Tabuľky musia mať oddeľovací riadok, napr. `|---|---:|---|`.
+- Nikdy nevkladaj surové Google grounding redirect URL adresy, napr. `vertexaisearch.cloud.google.com/grounding-api-redirect/...`. Ak máš iba takýto redirect, použi iba čitateľný názov zdroja bez odkazu alebo napíš `URL citácia nie je overiteľná`.
 - Nevytváraj osamelé Markdown značky ako `**` bez uzatvorenia.
 - Rating musí byť symbol + lokalizovaný pevný názov, napr. `🟡 PRIJATEĽNÁ KÚPA` alebo `🟡 ACCEPTABLE PURCHASE`.
 - Nepoužívaj surové farebné slová ako `YELLOW`, `GREEN`, `RED`, `ORANGE` alebo `STOP` ako hodnotenie.

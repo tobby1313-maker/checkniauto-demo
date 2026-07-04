@@ -1,0 +1,283 @@
+"""Normalize LLM analysis Markdown before display, download, or storage."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+
+GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+
+
+@dataclass(frozen=True)
+class ListingFacts:
+    vin: str = ""
+    mileage: str = ""
+
+
+def extract_listing_facts(car_info_text: str | None) -> ListingFacts:
+    """Extract canonical facts that are safe to enforce in generated reports."""
+    text = car_info_text or ""
+    vin_match = re.search(r"\b[A-HJ-NPR-Z0-9]{17}\b", text.upper())
+    mileage = ""
+
+    mileage_patterns = (
+        r"(?im)(?:nájazd|najazd|mileage|kilomet(?:re|ers|rov)?)[^\n\d]{0,30}(\d[\d\s]{2,}\s*km)",
+        r"(?im)(\d[\d\s]{2,}\s*km)",
+    )
+    for pattern in mileage_patterns:
+        match = re.search(pattern, text)
+        if match:
+            mileage = _format_km(match.group(1))
+            break
+
+    return ListingFacts(vin=vin_match.group(0) if vin_match else "", mileage=mileage)
+
+
+def normalize_analysis_markdown(text: str | None, car_info_text: str | None = None) -> str:
+    """Return cleaned Markdown while preserving the report's intended structure."""
+    value = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    value = _sanitize_grounding_redirects(value)
+    value = _unwrap_accidental_breaks(value)
+    value = _normalize_tables(value)
+    value = _fix_common_split_words(value)
+    value = _apply_fact_guard(value, extract_listing_facts(car_info_text))
+    value = _trim_excess_blank_lines(value)
+    return value.rstrip() + ("\n" if value.strip() else "")
+
+
+def _sanitize_grounding_redirects(text: str) -> str:
+    def replace_markdown_link(match: re.Match[str]) -> str:
+        label = re.sub(r"\s+", " ", match.group(1)).strip()
+        return label or "URL citácia nie je overiteľná"
+
+    text = re.sub(
+        r"\[([^\]\n]{1,120})\]\(\s*https?://vertexaisearch\.cloud\.google\.com[\s\S]*?\)",
+        replace_markdown_link,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"https?://vertexaisearch\.cloud\.google\.com/\S+",
+        "URL citácia nie je overiteľná",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+([,.;:])", r"\1", text)
+
+
+def _unwrap_accidental_breaks(text: str) -> str:
+    lines = text.split("\n")
+    out: list[str] = []
+    in_fence = False
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+
+        if stripped.startswith("```"):
+            out.append(line)
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        if not stripped:
+            out.append("")
+            continue
+
+        if out and _should_join(out[-1], stripped):
+            out[-1] = _join_fragments(out[-1], stripped)
+        else:
+            out.append(line)
+
+    return "\n".join(out)
+
+
+def _should_join(previous: str, current: str) -> bool:
+    prev = previous.rstrip()
+    cur = current.strip()
+    if not prev or not cur:
+        return False
+    if prev.startswith("```"):
+        return False
+    if _is_incomplete_table_row(prev):
+        return True
+    if _is_block_start(cur):
+        return False
+    if _starts_list_item(prev) or _starts_ordered_item(prev):
+        return True
+    if prev.count("**") % 2 == 1:
+        return True
+    if prev.endswith(("(", "[", "/", "-")):
+        return True
+    return bool(re.search(r"[A-Za-zÀ-ž0-9,;:]$", prev))
+
+
+def _join_fragments(previous: str, current: str) -> str:
+    prev = previous.rstrip()
+    cur = current.strip()
+    if prev.endswith(("/", "-", "(", "[")):
+        return prev + cur
+    return prev + " " + cur
+
+
+def _is_block_start(line: str) -> bool:
+    text = line.strip()
+    return bool(
+        re.match(r"^#{1,6}\s+", text)
+        or re.match(r"^-{3,}$", text)
+        or text.startswith("```")
+        or text.startswith(">")
+        or _is_table_row(text)
+        or re.match(r"^[-*]\s+", text)
+        or re.match(r"^\d+\.\s+", text)
+    )
+
+
+def _starts_list_item(line: str) -> bool:
+    return bool(re.match(r"^\s*[-*]\s+", line))
+
+
+def _starts_ordered_item(line: str) -> bool:
+    return bool(re.match(r"^\s*\d+\.\s+", line))
+
+
+def _is_table_row(line: str) -> bool:
+    return bool(re.match(r"^\s*\|.*\|\s*$", line or ""))
+
+
+def _split_table_row(row: str) -> list[str]:
+    text = row.strip()
+    if text.startswith("|"):
+        text = text[1:]
+    if text.endswith("|"):
+        text = text[:-1]
+    return [cell.strip() for cell in text.split("|")]
+
+
+def _is_table_delimiter(row: str) -> bool:
+    cells = _split_table_row(row)
+    return bool(cells) and all(re.match(r"^:?-{3,}:?$", cell.replace(" ", "")) for cell in cells)
+
+
+def _is_incomplete_table_row(row: str) -> bool:
+    stripped = row.strip()
+    return stripped.startswith("|") and stripped.count("|") < 3
+
+
+def _normalize_tables(text: str) -> str:
+    lines = text.split("\n")
+    out: list[str] = []
+    expected_cols = 0
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            expected_cols = 0
+            out.append(line)
+            continue
+        if re.match(r"^#{1,6}\s+", stripped):
+            expected_cols = 0
+            out.append(line)
+            continue
+
+        if _is_table_row(stripped):
+            cells = _split_table_row(stripped)
+            if not expected_cols:
+                expected_cols = len(cells)
+            if len(cells) < expected_cols and out:
+                out[-1] = _join_fragments(out[-1], stripped)
+                continue
+            if expected_cols and len(cells) != expected_cols and not _is_table_delimiter(stripped):
+                out.append(_table_row(cells[:expected_cols]))
+                continue
+            out.append(_table_row(cells))
+            continue
+
+        if expected_cols and "|" in stripped and out and _is_incomplete_table_row(out[-1]):
+            out[-1] = _join_fragments(out[-1], stripped)
+            continue
+
+        expected_cols = 0
+        out.append(line)
+
+    return "\n".join(out)
+
+
+def _table_row(cells: list[str]) -> str:
+    return "| " + " | ".join(cell.strip() for cell in cells) + " |"
+
+
+def _fix_common_split_words(text: str) -> str:
+    replacements = {
+        "Hodnot nie": "Hodnotenie",
+        "Hodnot nie:": "Hodnotenie:",
+        "Naj äčší": "Najväčší",
+        "Najäčší": "Najväčší",
+        "dô ladne": "dôkladne",
+        "vy avy": "výbavy",
+        "por vnania": "porovnania",
+        "re az": "reťaz",
+        "reť aze": "reťaze",
+        "Odhad n ákladov": "Odhad nákladov",
+        "- **Verdikt Riziko.": "- **Verdikt:** Riziko.",
+    }
+    for broken, fixed in replacements.items():
+        text = text.replace(broken, fixed)
+    text = re.sub(r"- \*\*([^*\n:]{2,60})\s+\*\*", r"- **\1**", text)
+    text = re.sub(r"- \*\*([^*\n:]{2,60})\s+([^*\n:]{1,20}):\*\*", r"- **\1\2:**", text)
+    text = re.sub(r"- \*\*Verdikt\s+Riziko\.", "- **Verdikt:** Riziko.", text)
+    return text
+
+
+def _apply_fact_guard(text: str, facts: ListingFacts) -> str:
+    if facts.vin:
+        for size in range(16, 11, -1):
+            prefix = re.escape(facts.vin[:size])
+            text = re.sub(rf"\b{prefix}\b(?![A-Z0-9])", facts.vin, text)
+
+    if facts.mileage:
+        canonical_digits = re.sub(r"\D", "", facts.mileage)
+
+        def replace_km(match: re.Match[str]) -> str:
+            candidate = match.group(0)
+            digits = re.sub(r"\D", "", candidate)
+            if digits == canonical_digits:
+                return _format_km(candidate)
+            if _looks_like_split_mileage(digits, canonical_digits):
+                return facts.mileage
+            return candidate
+
+        text = re.sub(r"\b\d{1,3}(?:\s+\d{3})+\s*km\b", replace_km, text, flags=re.IGNORECASE)
+
+    return text
+
+
+def _looks_like_split_mileage(candidate_digits: str, canonical_digits: str) -> bool:
+    if not candidate_digits or not canonical_digits:
+        return False
+    if canonical_digits.endswith(candidate_digits):
+        return True
+    if candidate_digits in canonical_digits and len(candidate_digits) >= 4:
+        return True
+    if len(candidate_digits) == len(canonical_digits) - 1:
+        return canonical_digits[:2] == candidate_digits[:2] and canonical_digits[-3:] == candidate_digits[-3:]
+    return False
+
+
+def _format_km(value: str) -> str:
+    digits = re.sub(r"\D", "", value)
+    if not digits:
+        return value.strip()
+    groups = []
+    while digits:
+        groups.append(digits[-3:])
+        digits = digits[:-3]
+    return " ".join(reversed(groups)) + " km"
+
+
+def _trim_excess_blank_lines(text: str) -> str:
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"\n(?=#{1,6}\s+)", "\n\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()

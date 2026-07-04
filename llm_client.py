@@ -55,6 +55,7 @@ GEMINI_GROUNDING_FALLBACK_MODELS = [
     "gemini-2.5-flash-lite",
 ]
 GROUNDING_CONTEXT_MAX_CHARS = 16000
+GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 
 
 
@@ -145,10 +146,17 @@ def _extract_interaction_text_and_citations(data: dict) -> str:
             if not isinstance(annotation, dict):
                 continue
             url = annotation.get("url")
-            if not url or url in seen_urls:
+            if not url:
+                continue
+            title = _clean_citation_label(annotation.get("title") or annotation.get("source") or url)
+            if GROUNDING_REDIRECT_HOST in url:
+                if title and title not in seen_urls:
+                    seen_urls.add(title)
+                    citations.append(f"- {title} (URL citacia nie je overitelna)")
+                continue
+            if url in seen_urls:
                 continue
             seen_urls.add(url)
-            title = annotation.get("title") or annotation.get("source") or url
             citations.append(f"- [{title}]({url})")
 
     add_text(data.get("output_text") or data.get("outputText") or data.get("text"))
@@ -175,6 +183,13 @@ def _extract_interaction_text_and_citations(data: dict) -> str:
     if citations:
         result = f"{result}\n\n### Citacie z Google Search\n" + "\n".join(citations)
     return result.strip()
+
+
+def _clean_citation_label(value: str) -> str:
+    label = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not label or GROUNDING_REDIRECT_HOST in label:
+        return "Zdroj z Google Search"
+    return label[:120]
 
 
 def run_grounded_web_research(api_key: str, listing_context: str, model: str = None) -> str:

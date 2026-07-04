@@ -28,6 +28,7 @@ from werkzeug.utils import secure_filename
 
 # LLM Client for AI analysis
 from llm_client import analyze_with_llm, extract_kb_save_blocks, RateLimitError, ApiKeyError
+from analysis_normalizer import normalize_analysis_markdown
 
 # Alias for backward compatibility - backup API keys will be managed in llm_client.py
 analyze_with_gemini = analyze_with_llm
@@ -858,6 +859,18 @@ def api_listing_analysis(slug):
     return jsonify({"content": content})
 
 
+
+def _read_car_info_text(slug_dir):
+    car_info_path = os.path.join(slug_dir, "car_info.md")
+    if not os.path.exists(car_info_path):
+        return ""
+    with open(car_info_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _normalize_analysis_for_slug(slug_dir, content):
+    return normalize_analysis_markdown(content, _read_car_info_text(slug_dir))
+
 @app.route("/api/listings/<slug>/analysis-result")
 def api_listing_analysis_result(slug):
     slug_dir = os.path.join(AUTA_DIR, slug)
@@ -867,7 +880,7 @@ def api_listing_analysis_result(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        content = f.read()
+        content = _normalize_analysis_for_slug(slug_dir, f.read())
 
     # Check if there are KB blocks available to save
     kb_blocks = extract_kb_save_blocks(content)
@@ -894,11 +907,11 @@ def api_listing_analysis_export(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        content = f.read()
+        content = _normalize_analysis_for_slug(slug_dir, _strip_kb_section(f.read()))
 
     return jsonify({
         "title": slug.replace("-", " ").title(),
-        "content": _strip_kb_section(content),
+        "content": content,
     })
 
 
@@ -1479,7 +1492,7 @@ Use the web verification above only when it contains concrete evidence. Never in
                 if emit:
                     yield f"data: {json.dumps({'text': emit})}\n\n"
 
-            public_text = _strip_kb_section(full_text)
+            public_text = _normalize_analysis_for_slug(slug_dir, _strip_kb_section(full_text))
             with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
                 f.write(public_text)
             yield f"data: {json.dumps({'done': True, 'slug': slug})}\n\n"
@@ -1710,6 +1723,7 @@ Online zdroje nie sú dostupné. Nepredstieraj webové overenie ani nevymýšľa
 
                 # Save complete result
                 full_text, _ = _trim_repeated_analysis_after_kb(full_text)
+                full_text = _normalize_analysis_for_slug(slug_dir, full_text)
                 result_path = os.path.join(slug_dir, "analysis_result.md")
                 with open(result_path, "w", encoding="utf-8") as f:
                     f.write(full_text)
@@ -1797,6 +1811,7 @@ def api_save_pasted_result(slug):
     if not os.path.isdir(slug_dir):
         return jsonify({"error": "Inzerát nenájdený"}), 404
 
+    content = _normalize_analysis_for_slug(slug_dir, content)
     result_path = os.path.join(slug_dir, "analysis_result.md")
     with open(result_path, "w", encoding="utf-8") as f:
         f.write(content)
