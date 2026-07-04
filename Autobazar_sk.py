@@ -409,7 +409,9 @@ def main():
     parsed = urllib.parse.urlparse(listing_url)
     path_parts = [p for p in parsed.path.split("/") if p]
     slug = path_parts[1] if len(path_parts) >= 2 else "car"
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Auta", slug)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    auta_root = os.environ.get("SCRAPPER_AUTA_DIR") or os.path.join(script_dir, "Auta")
+    output_dir = os.path.join(auta_root, slug)
     images_dir = os.path.join(output_dir, "images")
     print(f"Output:   {output_dir}", flush=True)
 

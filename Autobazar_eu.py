@@ -490,7 +490,8 @@ def main():
 
     slug = derive_slug(listing_url)
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = os.path.join(script_dir, "Auta", slug)
+    auta_root = os.environ.get("SCRAPPER_AUTA_DIR") or os.path.join(script_dir, "Auta")
+    output_dir = os.path.join(auta_root, slug)
     images_dir = os.path.join(output_dir, "images")
 
     print(f"Scraping: {listing_url}")
