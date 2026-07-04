@@ -606,6 +606,189 @@
             }
         }
 
+        /* ========== Progress Overlay ========== */
+        #progressOverlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.35s ease, visibility 0.35s ease;
+            pointer-events: none;
+        }
+
+        #progressOverlay.active {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        #progressOverlay .backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        #progressOverlay .modal {
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 32px 36px 24px;
+            max-width: 520px;
+            width: 92%;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            pointer-events: auto;
+        }
+
+        #progressOverlay .modal-title {
+            font-size: 19px;
+            font-weight: 750;
+            margin-bottom: 20px;
+            color: var(--text);
+        }
+
+        .road-wrap {
+            position: relative;
+            height: 72px;
+            margin: 0 8px 14px;
+            overflow: visible;
+        }
+
+        .road-surface {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 50%;
+            height: 36px;
+            background: #3d4a5c;
+            border-radius: 6px;
+            transform: translateY(-50%);
+            overflow: hidden;
+        }
+
+        .road-curbs {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #a0aec0;
+            border-radius: 2px;
+        }
+
+        .road-curbs.top { top: 3px; }
+        .road-curbs.bottom { bottom: 3px; }
+
+        .road-marks {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: repeating-linear-gradient(
+                90deg,
+                #f7fafc 0px,
+                #f7fafc 16px,
+                transparent 16px,
+                transparent 32px
+            );
+            transform: translateY(-50%);
+        }
+
+        .road-car {
+            position: absolute;
+            top: 50%;
+            font-size: 30px;
+            line-height: 1;
+            transform: translate(-50%, -50%) scaleX(-1);
+            left: 0%;
+            transition: left 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 5;
+            filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3));
+        }
+
+        .road-checkpoint {
+            position: absolute;
+            top: 50%;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4a5568;
+            border: 2px solid #718096;
+            transform: translate(-50%, -50%);
+            transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+            z-index: 3;
+        }
+
+        .road-checkpoint.reached {
+            background: #48bb78;
+            border-color: #48bb78;
+            box-shadow: 0 0 0 4px rgba(72, 187, 120, 0.2);
+        }
+
+        .road-finish {
+            position: absolute;
+            right: -10px;
+            top: 50%;
+            font-size: 30px;
+            line-height: 1;
+            transform: translateY(-50%);
+            z-index: 2;
+        }
+
+        .progress-track {
+            height: 5px;
+            background: var(--surface-soft);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-track-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--orange), var(--orange-dark));
+            border-radius: 4px;
+            transition: width 0.45s ease;
+            width: 0%;
+        }
+
+        .progress-pct {
+            font-size: 14px;
+            font-weight: 750;
+            color: var(--muted);
+            margin-bottom: 2px;
+        }
+
+        .overlay-msg {
+            font-size: 14px;
+            color: var(--text);
+            margin-bottom: 18px;
+            min-height: 20px;
+        }
+
+        .overlay-cancel {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            min-height: 36px;
+            padding: 7px 18px;
+            background: transparent;
+            color: var(--muted);
+            font-weight: 750;
+            font-size: 13px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .overlay-cancel:hover {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
         @media print {
             .topbar,
             .layout,
@@ -687,7 +870,7 @@
                             <input id="listingUrl" name="url" type="url" placeholder="https://www.bazos.sk/..." autocomplete="url">
                             <div class="hint" id="supportedHint">Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.</div>
                         </div>
-                        <button class="btn primary" id="urlSubmit" type="submit">Spustiť analýzu</button>
+                        <button class="btn primary" id="urlSubmit" type="submit">Analyzovať</button>
                     </form>
 
                     <form id="manualForm" class="hidden">
@@ -743,6 +926,34 @@
         </main>
     </div>
 
+    <!-- Progress Overlay -->
+    <div id="progressOverlay">
+        <div class="backdrop"></div>
+        <div class="modal">
+            <div class="modal-title">🔍 Analýza v priebehu...</div>
+            <div class="road-wrap">
+                <div class="road-surface">
+                    <div class="road-curbs top"></div>
+                    <div class="road-marks"></div>
+                    <div class="road-curbs bottom"></div>
+                </div>
+                <div class="road-checkpoint" style="left: 0%"></div>
+                <div class="road-checkpoint" style="left: 25%"></div>
+                <div class="road-checkpoint" style="left: 50%"></div>
+                <div class="road-checkpoint" style="left: 75%"></div>
+                <div class="road-checkpoint" style="left: 93%"></div>
+                <div class="road-finish">🏁</div>
+                <div class="road-car" id="overlayCar">🚗</div>
+            </div>
+            <div class="progress-track">
+                <div class="progress-track-fill" id="overlayProgressFill"></div>
+            </div>
+            <div class="progress-pct" id="overlayProgressPct">0%</div>
+            <div class="overlay-msg" id="overlayMsg">Spúšťam analýzu...</div>
+            <button class="overlay-cancel" id="overlayCancelBtn">Zrušiť</button>
+        </div>
+    </div>
+
     <script>
         const root = document.documentElement;
         const themeToggle = document.querySelector("#themeToggle");
@@ -762,6 +973,7 @@
         const maxManualImages = 12;
         let resultText = "";
         let currentLanguage = outputLanguage.value || "sk";
+        let abortController = null;
 
         const translations = {
             sk: {
@@ -775,7 +987,7 @@
                 manualTab: "Manuálne",
                 listingUrlLabel: "Odkaz na inzerát",
                 supportedHint: "Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
-                urlSubmit: "Spustiť analýzu",
+                urlSubmit: "Analyzovať",
                 titleLabel: "Názov auta",
                 titlePlaceholder: "Škoda Octavia 2.0 TDI",
                 priceLabel: "Cena v EUR",
@@ -808,7 +1020,7 @@
                 manualTab: "Manual",
                 listingUrlLabel: "Listing URL",
                 supportedHint: "Supported: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
-                urlSubmit: "Run analysis",
+                urlSubmit: "Analyse",
                 titleLabel: "Car title",
                 titlePlaceholder: "Skoda Octavia 2.0 TDI",
                 priceLabel: "Price in EUR",
@@ -819,7 +1031,7 @@
                 imagesLabel: "Photos",
                 imagesHint: "Maximum 12 photos.",
                 tooManyImages: "Choose at most 12 photos. I kept the first 12.",
-                manualSubmit: "Analyze",
+                manualSubmit: "Analyse",
                 progressTitle: "Progress",
                 resultTitle: "Result",
                 copy: "Copy",
@@ -910,10 +1122,52 @@
             downloadBtn.disabled = true;
             pdfBtn.disabled = true;
             document.querySelector("#analysis").scrollIntoView({ behavior: "smooth", block: "start" });
+            showOverlay();
         }
 
         function setBusy(isBusy) {
             submitButtons.forEach((button) => button.disabled = isBusy);
+        }
+
+        function showOverlay() {
+            const overlay = document.getElementById('progressOverlay');
+            document.body.style.overflow = 'hidden';
+            document.getElementById('overlayCar').style.left = '0%';
+            document.getElementById('overlayProgressFill').style.width = '0%';
+            document.getElementById('overlayProgressPct').textContent = '0%';
+            document.getElementById('overlayMsg').textContent = tr('starting');
+            document.querySelectorAll('.road-checkpoint').forEach(cp => cp.classList.remove('reached'));
+            overlay.classList.add('active');
+            abortController = new AbortController();
+        }
+
+        function hideOverlay() {
+            const overlay = document.getElementById('progressOverlay');
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
+            abortController = null;
+        }
+
+        function updateProgress(percent, statusText) {
+            const p = Math.min(100, Math.max(0, percent));
+            document.getElementById('overlayCar').style.left = p + '%';
+            document.getElementById('overlayProgressFill').style.width = p + '%';
+            document.getElementById('overlayProgressPct').textContent = Math.round(p) + '%';
+            if (statusText) document.getElementById('overlayMsg').textContent = statusText;
+            document.querySelectorAll('.road-checkpoint').forEach(cp => {
+                if (p >= parseFloat(cp.style.left)) cp.classList.add('reached');
+            });
+        }
+
+        function getProgressForStatus(status) {
+            const s = status.toLowerCase();
+            if (s.includes('spúšťam') || s.includes('start') || s.includes('priprav')) return 5;
+            if (s.includes('sťahujem') || s.includes('download') || s.includes('načítavam')) return 15;
+            if (s.includes('fotk') || s.includes('image') || s.includes('photo') || s.includes('obráz') || s.includes('spracúvam') || s.includes('process')) return 30;
+            if (s.includes('analyz') || s.includes('vyhodnoc') || s.includes('check') || s.includes('scrape') || s.includes('skenujem')) return 55;
+            if (s.includes('gener') || s.includes('vytvára') || s.includes('render') || s.includes('výsled') || s.includes('format')) return 80;
+            if (s.includes('hotovo') || s.includes('done') || s.includes('dokončen') || s.includes('komplet') || s.includes('finished')) return 100;
+            return null;
         }
 
         function appendLog(line) {
@@ -923,153 +1177,101 @@
 
         /**
          * Convert simple Markdown to HTML for styled rendering.
-         * This is a lightweight converter for the specific analysis output format.
          */
         function mdToHtml(md) {
             if (!md) return "";
 
-            // --- Step 1: Fix Gemini mid-word line breaks ---
-            // Gemini wraps text at ~80 chars and often splits words across lines.
-            // Join a broken word when a line ends with a lowercase/diacritic letter or digit
-            // and the next line starts with a lowercase/diacritic letter or digit.
-            // Match any word character (alphanumeric + underscore) plus all common
-            // Slovak/Czech diacritic chars.
-            // Using Unicode-aware regex via character ranges for all accented chars.
-            var wordEndRe = /[a-z0-9\u00E0-\u024F\u0300-\u036F]/i;
+            // --- PASS 1: Pre-process Gemini formatting quirks ---
+            // 1a. Rejoin mid-word line breaks (e.g. "pat\ní" -> "patí")
             md = md.replace(/([a-z0-9\u00E0-\u024F])\n([a-z0-9\u00E0-\u024F])/gi, "$1$2");
+            // 1b. Fix split heading markers: "##\nAnalyza" -> "## Analyza"
+            md = md.replace(/^(#+)\n\s*/gm, "$1 ");
+            // 1c. Merge table rows split across lines: a line ending with | followed by | on next line
+            md = md.replace(/(\|[^\n]*?)\n(\s*\|)/g, "$1$2");
+            // 1d. Fix split bold markers: "**Pre\nco**" -> "**Preco**" (after word join above)
+            // 1e. Fix "**\n\nSomething" -> "** Something" (bold marker orphaned on its own line)
+            md = md.replace(/\*\*\n+/g, '** ');
+            // 1f. Fix "- \n" orphaned list markers
+            md = md.replace(/^-\s*\n\s*/gm, '- ');
 
-            // Also fix cases where a heading marker gets split: "##\nHeading" → "## Heading"
-            // And fix "Polozka | Hodnota\n|:---|---:" (table headers split from separator row)
-            md = md.replace(/^((?:#+|\|))\n\s*/gm, "$1 ");
-            // Fix table rows where the pipe and content got split across lines
-            md = md.replace(/(\|[^\n]*?)\n(\|)/g, "$1$2");
-            // Fix list items where continuation text starts on next line without "- "
-            // e.g. "-   **Prečo záleží:** text\n    pokračovanie" stays fine,
-            // but "-   **Pre\nčo**" needs fixing - already handled by word join above
+            // Escape HTML entities
+            md = md.split(String.fromCharCode(38)).join(String.fromCharCode(38)+'amp;')
+                   .split(String.fromCharCode(60)).join(String.fromCharCode(38)+'lt;')
+                   .split(String.fromCharCode(62)).join(String.fromCharCode(38)+'gt;');
 
-            // Escape HTML entities to prevent XSS
-            // Build entity strings via char codes so no auto-formatter can misinterpret them
-            var AMP = String.fromCharCode(38) + 'amp;';  // &
-            var LT  = String.fromCharCode(38) + 'lt;';   // <
-            var GT  = String.fromCharCode(38) + 'gt;';   // >
-            var html = md.split(String.fromCharCode(38)).join(AMP)
-                         .split(String.fromCharCode(60)).join(LT)
-                         .split(String.fromCharCode(62)).join(GT);
+            var html = md;
 
-            // --- Step 2: Block-level conversions (order matters) ---
-
-            // Code blocks (``` ... ```)
-            html = html.replace(/```(?:\w+)?\s*\n?([\s\S]*?)\n?```/g, function(_, code) {
-                return '<pre><code>' + code.trim() + '</code></pre>';
+            // --- PASS 2: Block-level ---
+            // Code blocks
+            html = html.replace(/```(?:\w+)?\s*\n?([\s\S]*?)\n?```/g, function(_, c) {
+                return '<pre><code>' + c.trim() + '</code></pre>';
             });
-
-            // Horizontal rules (must be before headings)
+            // Horizontal rules
             html = html.replace(/^---(?:\s*)$/gm, '<hr>');
-
-            // Headings (## and ###) - must be before lists
+            // Headings
             html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
             html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-
-            // Blockquotes (> text)
-            html = html.replace(/^>\s?(.+)$/gm, '<blockquote><p>$1</p></blockquote>');
-
-            // Tables: find table blocks and convert
-            html = html.replace(/((?:\|.+?\|(?:\s*$)\n?)+)/gm, function(tableBlock) {
-                var rows = tableBlock.trim().split('\n').filter(function(r) { return r.trim(); });
-                if (rows.length < 1) return tableBlock;
-
-                var isHeader = true;
-                var result = '<table>\n';
-
+            // Tables
+            html = html.replace(/((?:\|.+?\|(?:\s*$)\n?)+)/gm, function(tbl) {
+                var rows = tbl.trim().split('\n').filter(function(r) { return r.trim(); });
+                if (rows.length < 1) return tbl;
+                var hdr = true, out = '<table>\n';
                 for (var r = 0; r < rows.length; r++) {
                     var cells = rows[r].split('|').filter(function(c) { return c.trim(); });
-                    var tag = isHeader ? 'th' : 'td';
-                    result += '<tr>';
+                    var tag = hdr ? 'th' : 'td';
+                    out += '<tr>';
                     for (var c = 0; c < cells.length; c++) {
-                        var trimmed = cells[c].trim();
-                        // Skip separator rows like |---|---|
-                        if (/^[-:\s]+$/.test(trimmed)) continue;
-                        result += '<' + tag + '>' + trimmed + '</' + tag + '>';
+                        var v = cells[c].trim();
+                        if (/^[-:\s]+$/.test(v)) continue;
+                        out += '<' + tag + '>' + v + '</' + tag + '>';
                     }
-                    result += '</tr>\n';
-                    isHeader = false;
+                    out += '</tr>\n';
+                    hdr = false;
                 }
-
-                result += '</table>';
-                return result;
+                return out + '</table>';
             });
 
-            // --- Step 3: Inline conversions ---
-
-            // Inline code (`code`)
+            // --- PASS 3: Inline ---
             html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-            // Bold (**text**)
             html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-            // Italic (*text*) - but not inside words
             html = html.replace(/(?<!\w)\*([^*\n]+?)\*(?!\w)/g, '<em>$1</em>');
-
-            // Strikethrough (~~text~~)
             html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
-
-            // Links [text](url)
             html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
-            // --- Step 4: Lists ---
-
-            // Unordered lists (- item or * item)
+            // --- PASS 4: Lists ---
             html = html.replace(/^[\s]*[-*]\s+(.+)$/gm, '<li>$1</li>');
-            html = html.replace(/(<li>.*<\/li>\n?)+/g, function(match) {
-                return '<ul>' + match + '</ul>';
-            });
-
-            // Ordered lists (1. item)
+            html = html.replace(/(<li>.*<\/li>\n?)+/g, function(m) { return '<ul>' + m + '</ul>'; });
             html = html.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
 
-            // --- Step 5: Paragraph wrapping ---
+            // --- PASS 5: Color rating badges ---
+            html = html.replace(
+                /(ČERVENÁ|ORANŽOVÁ|ZELENÁ|ZLTA|STOP)\s*[-–]\s*([^<\n]+)/g,
+                function(match, color, label) {
+                    var bg = '';
+                    var textColor = '#fff';
+                    if (color === 'ČERVENÁ')       { bg = '#dc2626'; }
+                    else if (color === 'ORANŽOVÁ')  { bg = '#f97316'; }
+                    else if (color === 'ZELENÁ')    { bg = '#16a34a'; }
+                    else if (color === 'ZLTA')      { bg = '#eab308'; textColor = '#1a1a1a'; }
+                    else if (color === 'STOP')      { bg = '#991b1b'; }
+                    return '<span class="rating-badge" style="background:' + bg + ';color:' + textColor + '">' +
+                           color + ' - ' + label + '</span>';
+                }
+            );
+
+            // --- PASS 6: Paragraph wrapping ---
             var lines = html.split('\n');
-            var result = '';
-            var inBlock = false;
-
+            var out = '', inBlock = false;
             for (var i = 0; i < lines.length; i++) {
-                var line = lines[i];
-                var trimmed = line.trim();
-
-                // Skip empty lines
-                if (!trimmed) {
-                    if (!inBlock) result += '\n';
-                    continue;
-                }
-
-                // Check if line starts a block element
-                if (/^<(h[2-4]|ul|ol|li|table|tr|th|td|pre|blockquote|hr|div)/i.test(trimmed)) {
-                    result += trimmed + '\n';
-                    inBlock = true;
-                    continue;
-                }
-
-                // Check if line ends a block element
-                if (/^<\/(ul|ol|table|pre|blockquote)>/i.test(trimmed)) {
-                    result += trimmed + '\n';
-                    inBlock = false;
-                    continue;
-                }
-
-                // If we're inside a block, just append
-                if (inBlock) {
-                    result += trimmed + '\n';
-                    continue;
-                }
-
-                // Wrap standalone text in paragraph
-                result += '<p>' + trimmed + '</p>\n';
+                var L = lines[i], T = L.trim();
+                if (!T) { if (!inBlock) out += '\n'; continue; }
+                if (/^<(h[2-4]|ul|ol|li|table|tr|th|td|pre|blockquote|hr|div|span)/i.test(T)) { out += T + '\n'; inBlock = true; continue; }
+                if (/^<\/(ul|ol|table|pre|blockquote)>/i.test(T)) { out += T + '\n'; inBlock = false; continue; }
+                if (inBlock) { out += T + '\n'; continue; }
+                out += '<p>' + T + '</p>\n';
             }
-
-            // Remove empty paragraphs
-            result = result.replace(/<p>\s*<\/p>/g, '');
-
-            return result;
+            out = out.replace(/<p>\s*<\/p>/g, '');
+            return out;
         }
 
         function appendResult(text) {
@@ -1131,11 +1333,16 @@
                     if (data.status) {
                         statusEl.textContent = data.status;
                         appendLog(data.status);
+                        const p = getProgressForStatus(data.status);
+                        if (p !== null) updateProgress(p, data.status);
                     }
                     if (data.log) appendLog(data.log);
                     if (data.line) appendLog(data.line);
                     if (data.text) appendResult(data.text);
-                    if (data.done) statusEl.textContent = tr("done");
+                    if (data.done) {
+                        statusEl.textContent = tr("done");
+                        updateProgress(100, tr("done"));
+                    }
                 }
             }
 
@@ -1153,6 +1360,7 @@
                 const response = await fetch("/api/demo/analyze", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
+                    signal: abortController?.signal,
                     body: JSON.stringify({
                         url: document.querySelector("#listingUrl").value,
                         output_language: outputLanguage.value
@@ -1160,6 +1368,11 @@
                 });
                 await readSse(response);
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    statusEl.textContent = 'Zrušené';
+                    appendLog('Analýza zrušená');
+                    return;
+                }
                 statusEl.textContent = error.message;
                 statusEl.classList.add("error");
                 appendLog(`ERROR: ${error.message}`);
@@ -1169,6 +1382,7 @@
                 }
             } finally {
                 setBusy(false);
+                hideOverlay();
             }
         }
 
@@ -1183,15 +1397,22 @@
                 formData.set("output_language", outputLanguage.value);
                 const response = await fetch("/api/demo/analyze-manual", {
                     method: "POST",
+                    signal: abortController?.signal,
                     body: formData
                 });
                 await readSse(response);
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    statusEl.textContent = 'Zrušené';
+                    appendLog('Analýza zrušená');
+                    return;
+                }
                 statusEl.textContent = error.message;
                 statusEl.classList.add("error");
                 appendLog(`ERROR: ${error.message}`);
             } finally {
                 setBusy(false);
+                hideOverlay();
             }
         }
 
@@ -1219,6 +1440,14 @@
         manualTab.addEventListener("click", () => setMode("manual"));
         outputLanguage.addEventListener("change", () => applyLanguage(outputLanguage.value));
         imagesInput.addEventListener("change", enforceImageLimit);
+        document.getElementById('overlayCancelBtn').addEventListener('click', () => {
+            if (abortController) {
+                document.getElementById('overlayMsg').textContent = 'Ruším...';
+                document.getElementById('overlayCancelBtn').disabled = true;
+                abortController.abort();
+            }
+        });
+
         urlForm.addEventListener("submit", runUrl);
         manualForm.addEventListener("submit", runManual);
         applyLanguage(localStorage.getItem("checkni-auto-language") || outputLanguage.value);
