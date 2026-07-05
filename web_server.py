@@ -28,7 +28,6 @@ from werkzeug.utils import secure_filename
 
 # LLM Client for AI analysis
 from llm_client import analyze_with_llm, extract_kb_save_blocks, RateLimitError, ApiKeyError
-from analysis_normalizer import normalize_analysis_markdown
 
 # Alias for backward compatibility - backup API keys will be managed in llm_client.py
 analyze_with_gemini = analyze_with_llm
@@ -868,9 +867,6 @@ def _read_car_info_text(slug_dir):
         return f.read()
 
 
-def _normalize_analysis_for_slug(slug_dir, content):
-    return normalize_analysis_markdown(content, _read_car_info_text(slug_dir))
-
 @app.route("/api/listings/<slug>/analysis-result")
 def api_listing_analysis_result(slug):
     slug_dir = os.path.join(AUTA_DIR, slug)
@@ -880,7 +876,7 @@ def api_listing_analysis_result(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        content = _normalize_analysis_for_slug(slug_dir, f.read())
+        content = f.read()
 
     # Check if there are KB blocks available to save
     kb_blocks = extract_kb_save_blocks(content)
@@ -907,7 +903,7 @@ def api_listing_analysis_export(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        content = _normalize_analysis_for_slug(slug_dir, _strip_kb_section(f.read()))
+        content = _strip_kb_section(f.read())
 
     return jsonify({
         "title": slug.replace("-", " ").title(),
@@ -1233,6 +1229,7 @@ def api_scrape():
         except Exception:
             pass
 
+        process = None
         try:
             env = os.environ.copy()
             env["SCRAPPER_AUTA_DIR"] = AUTA_DIR
@@ -1268,10 +1265,11 @@ def api_scrape():
 
         except subprocess.TimeoutExpired:
             yield f"data: {json.dumps({'done': True, 'message': 'Scraping timed out after 120 seconds'})}\n\n"
-            try:
-                process.kill()
-            except Exception:
-                pass
+            if process:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
         except Exception as e:
             yield f"data: {json.dumps({'done': True, 'message': f'Error: {str(e)}'})}\n\n"
 
@@ -1305,9 +1303,9 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
     prompt_path = os.path.join(SCRIPT_DIR, prompt_filename)
 
     if not os.path.exists(car_info_path):
-        return None, "Chyba: car_info.md neexistuje."
+        return None, "Chyba: car_info.md neexistuje.", []
     if not os.path.exists(prompt_path):
-        return None, f"Chyba: {prompt_filename} neexistuje."
+        return None, f"Chyba: {prompt_filename} neexistuje.", []
 
     with open(prompt_path, "r", encoding="utf-8") as f:
         system_prompt = f.read()
@@ -1492,7 +1490,7 @@ Use the web verification above only when it contains concrete evidence. Never in
                 if emit:
                     yield f"data: {json.dumps({'text': emit})}\n\n"
 
-            public_text = _normalize_analysis_for_slug(slug_dir, _strip_kb_section(full_text))
+            public_text = _strip_kb_section(full_text)
             with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
                 f.write(public_text)
             yield f"data: {json.dumps({'done': True, 'slug': slug})}\n\n"
@@ -1560,16 +1558,22 @@ def api_demo_analyze():
         env["SCRAPPER_AUTA_DIR"] = AUTA_DIR
         env.setdefault("DEMO_MAX_SCRAPED_IMAGES", str(DEMO_MAX_SCRAPED_IMAGES))
         yield f"data: {json.dumps({'status': 'Scraping listing...'})}\n\n"
-        process = subprocess.Popen(
-            [sys.executable, main_py, url],
-            cwd=SCRIPT_DIR,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            env=env,
-        )
+        process = None
+        try:
+            process = subprocess.Popen(
+                [sys.executable, main_py, url],
+                cwd=SCRIPT_DIR,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                env=env,
+            )
+        except Exception as e:
+            yield f"data: {json.dumps({'error': f'Failed to start scraper: {str(e)}'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
         try:
             for line in process.stdout:
                 line = line.strip()
@@ -1577,7 +1581,8 @@ def api_demo_analyze():
                     yield f"data: {json.dumps({'log': line})}\n\n"
             process.wait(timeout=150)
         except subprocess.TimeoutExpired:
-            process.kill()
+            if process:
+                process.kill()
             yield f"data: {json.dumps({'error': 'Scraping timed out.'})}\n\n"
             yield "data: [DONE]\n\n"
             return
@@ -1723,7 +1728,6 @@ Online zdroje nie sú dostupné. Nepredstieraj webové overenie ani nevymýšľa
 
                 # Save complete result
                 full_text, _ = _trim_repeated_analysis_after_kb(full_text)
-                full_text = _normalize_analysis_for_slug(slug_dir, full_text)
                 result_path = os.path.join(slug_dir, "analysis_result.md")
                 with open(result_path, "w", encoding="utf-8") as f:
                     f.write(full_text)
@@ -1811,7 +1815,6 @@ def api_save_pasted_result(slug):
     if not os.path.isdir(slug_dir):
         return jsonify({"error": "Inzerát nenájdený"}), 404
 
-    content = _normalize_analysis_for_slug(slug_dir, content)
     result_path = os.path.join(slug_dir, "analysis_result.md")
     with open(result_path, "w", encoding="utf-8") as f:
         f.write(content)
