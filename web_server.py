@@ -1377,16 +1377,10 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
 Analyzuj tento inzerát podľa systémového promptu vyššie. Použi všetky fázy analýzy a vygeneruj kompletný lokalizovaný výstup vrátane hodnotenia.
 """
 
-    user_content += (
-        "\n\n---\n\n"
-        "## OUTPUT_LANGUAGE:\n"
-        f"{_demo_output_language(output_language)}\n\n"
-        "## DEMO INSTRUCTION:\n"
-        "Use the localized report schema for OUTPUT_LANGUAGE (`sk` or `en`) exactly as defined in the system prompt. "
-        "Preserve the required Markdown structure: emoji headings, valid Markdown tables, valid lists, and localized rating names. "
-        "Do not use raw color labels like YELLOW/GREEN/RED as ratings. Do not include knowledge_base save blocks, "
-        "internal API details, access-code state, or debugging metadata.\n"
-    )
+    # OUTPUT_LANGUAGE is already handled by the system prompt (analyze_prompt_v4_koyeb.txt)
+    # which reads the OUTPUT_LANGUAGE field from the application. No need to inject it here.
+    # The v4 prompt already defines the exact output format with localized rating names.
+    pass
 
     return system_prompt, user_content, image_data_list
 

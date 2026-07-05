@@ -105,13 +105,16 @@ def _should_join(previous: str, current: str) -> bool:
         return True
     if _is_block_start(cur):
         return False
-    if _starts_list_item(prev) or _starts_ordered_item(prev):
+    # Join if previous line ends with a hyphen or slash (word was split)
+    if prev.endswith(("/", "-")):
         return True
+    # Join if previous line has unclosed bold marker
     if prev.count("**") % 2 == 1:
         return True
-    if prev.endswith(("(", "[", "/", "-")):
+    # Join if previous line ends with opening bracket/paren (URL or text split)
+    if prev.endswith(("(", "[")):
         return True
-    return bool(re.search(r"[A-Za-zÀ-ž0-9,;:]$", prev))
+    return False
 
 
 def _join_fragments(previous: str, current: str) -> str:
@@ -184,12 +187,17 @@ def _normalize_tables(text: str) -> str:
 
         if _is_table_row(stripped):
             cells = _split_table_row(stripped)
+            # Reset expected_cols on delimiter row (new table starts)
+            if _is_table_delimiter(stripped):
+                expected_cols = len(cells)
+                out.append(_table_row(cells))
+                continue
             if not expected_cols:
                 expected_cols = len(cells)
             if len(cells) < expected_cols and out:
                 out[-1] = _join_fragments(out[-1], stripped)
                 continue
-            if expected_cols and len(cells) != expected_cols and not _is_table_delimiter(stripped):
+            if expected_cols and len(cells) != expected_cols:
                 out.append(_table_row(cells[:expected_cols]))
                 continue
             out.append(_table_row(cells))
