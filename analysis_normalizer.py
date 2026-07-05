@@ -1,4 +1,15 @@
-"""Normalize LLM analysis Markdown before display, download, or storage."""
+"""Normalize LLM analysis Markdown before display, download, or storage.
+
+Safe transformations:
+  - Google Search grounding redirect URL sanitization
+  - Basic VIN and mileage canonicalization
+  - Table structure repair (split rows across lines)
+  - Blank line normalization
+
+NOT performed (too destructive):
+  - Line joining (except inside tables)
+  - Split word fixing
+"""
 
 from __future__ import annotations
 
@@ -38,15 +49,14 @@ def normalize_analysis_markdown(text: str | None, car_info_text: str | None = No
     """Return cleaned Markdown while preserving the report's intended structure."""
     value = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
     value = _sanitize_grounding_redirects(value)
-    value = _unwrap_accidental_breaks(value)
     value = _normalize_tables(value)
-    value = _fix_common_split_words(value)
     value = _apply_fact_guard(value, extract_listing_facts(car_info_text))
     value = _trim_excess_blank_lines(value)
     return value.rstrip() + ("\n" if value.strip() else "")
 
 
 def _sanitize_grounding_redirects(text: str) -> str:
+    """Replace Google Search grounding redirect URLs with their display text."""
     def replace_markdown_link(match: re.Match[str]) -> str:
         label = re.sub(r"\s+", " ", match.group(1)).strip()
         return label or "URL citácia nie je overiteľná"
@@ -63,88 +73,11 @@ def _sanitize_grounding_redirects(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    return re.sub(r"\s+([,.;:])", r"\1", text)
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    return text
 
 
-def _unwrap_accidental_breaks(text: str) -> str:
-    lines = text.split("\n")
-    out: list[str] = []
-    in_fence = False
-
-    for raw_line in lines:
-        line = raw_line.rstrip()
-        stripped = line.strip()
-
-        if stripped.startswith("```"):
-            out.append(line)
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            out.append(line)
-            continue
-        if not stripped:
-            out.append("")
-            continue
-
-        if out and _should_join(out[-1], stripped):
-            out[-1] = _join_fragments(out[-1], stripped)
-        else:
-            out.append(line)
-
-    return "\n".join(out)
-
-
-def _should_join(previous: str, current: str) -> bool:
-    prev = previous.rstrip()
-    cur = current.strip()
-    if not prev or not cur:
-        return False
-    if prev.startswith("```"):
-        return False
-    if _is_incomplete_table_row(prev):
-        return True
-    if _is_block_start(cur):
-        return False
-    # Join if previous line ends with a hyphen or slash (word was split)
-    if prev.endswith(("/", "-")):
-        return True
-    # Join if previous line has unclosed bold marker
-    if prev.count("**") % 2 == 1:
-        return True
-    # Join if previous line ends with opening bracket/paren (URL or text split)
-    if prev.endswith(("(", "[")):
-        return True
-    return False
-
-
-def _join_fragments(previous: str, current: str) -> str:
-    prev = previous.rstrip()
-    cur = current.strip()
-    if prev.endswith(("/", "-", "(", "[")):
-        return prev + cur
-    return prev + " " + cur
-
-
-def _is_block_start(line: str) -> bool:
-    text = line.strip()
-    return bool(
-        re.match(r"^#{1,6}\s+", text)
-        or re.match(r"^-{3,}$", text)
-        or text.startswith("```")
-        or text.startswith(">")
-        or _is_table_row(text)
-        or re.match(r"^[-*]\s+", text)
-        or re.match(r"^\d+\.\s+", text)
-    )
-
-
-def _starts_list_item(line: str) -> bool:
-    return bool(re.match(r"^\s*[-*]\s+", line))
-
-
-def _starts_ordered_item(line: str) -> bool:
-    return bool(re.match(r"^\s*\d+\.\s+", line))
-
+# ── Table helpers ────────────────────────────────────────────────
 
 def _is_table_row(line: str) -> bool:
     return bool(re.match(r"^\s*\|.*\|\s*$", line or ""))
@@ -169,7 +102,22 @@ def _is_incomplete_table_row(row: str) -> bool:
     return stripped.startswith("|") and stripped.count("|") < 3
 
 
+def _table_row(cells: list[str]) -> str:
+    return "| " + " | ".join(cell.strip() for cell in cells) + " |"
+
+
 def _normalize_tables(text: str) -> str:
+    """Repair broken table rows where content is split across lines.
+
+    AGemini may produce:
+      | Nájazd |
+      178 000 km | Uvedené v popise. |
+    This function joins the partial row back into:
+      | Nájazd | 178 000 km | Uvedené v popise. |
+
+    It also handles column count mismatches between subsequent tables
+    by resetting expected_cols on delimiter rows.
+    """
     lines = text.split("\n")
     out: list[str] = []
     expected_cols = 0
@@ -187,15 +135,18 @@ def _normalize_tables(text: str) -> str:
 
         if _is_table_row(stripped):
             cells = _split_table_row(stripped)
-            # Reset expected_cols on delimiter row (new table starts)
+            # New table starts on delimiter row
             if _is_table_delimiter(stripped):
                 expected_cols = len(cells)
                 out.append(_table_row(cells))
                 continue
             if not expected_cols:
                 expected_cols = len(cells)
-            if len(cells) < expected_cols and out:
-                out[-1] = _join_fragments(out[-1], stripped)
+            # If this row has fewer cells than expected, it's a split row.
+            # Don't join with previous — keep it separate so the next
+            # non-| line can be joined to it via the fallback below.
+            if len(cells) < expected_cols:
+                out.append(stripped)
                 continue
             if expected_cols and len(cells) != expected_cols:
                 out.append(_table_row(cells[:expected_cols]))
@@ -203,6 +154,8 @@ def _normalize_tables(text: str) -> str:
             out.append(_table_row(cells))
             continue
 
+        # Fallback: a line that doesn't start with | but contains |
+        # is a continuation of a split table row.
         if expected_cols and "|" in stripped and out and _is_incomplete_table_row(out[-1]):
             out[-1] = _join_fragments(out[-1], stripped)
             continue
@@ -213,33 +166,16 @@ def _normalize_tables(text: str) -> str:
     return "\n".join(out)
 
 
-def _table_row(cells: list[str]) -> str:
-    return "| " + " | ".join(cell.strip() for cell in cells) + " |"
+def _join_fragments(previous: str, current: str) -> str:
+    prev = previous.rstrip()
+    cur = current.strip()
+    return prev + " " + cur
 
 
-def _fix_common_split_words(text: str) -> str:
-    replacements = {
-        "Hodnot nie": "Hodnotenie",
-        "Hodnot nie:": "Hodnotenie:",
-        "Naj äčší": "Najväčší",
-        "Najäčší": "Najväčší",
-        "dô ladne": "dôkladne",
-        "vy avy": "výbavy",
-        "por vnania": "porovnania",
-        "re az": "reťaz",
-        "reť aze": "reťaze",
-        "Odhad n ákladov": "Odhad nákladov",
-        "- **Verdikt Riziko.": "- **Verdikt:** Riziko.",
-    }
-    for broken, fixed in replacements.items():
-        text = text.replace(broken, fixed)
-    text = re.sub(r"- \*\*([^*\n:]{2,60})\s+\*\*", r"- **\1**", text)
-    text = re.sub(r"- \*\*([^*\n:]{2,60})\s+([^*\n:]{1,20}):\*\*", r"- **\1\2:**", text)
-    text = re.sub(r"- \*\*Verdikt\s+Riziko\.", "- **Verdikt:** Riziko.", text)
-    return text
-
+# ── Fact guard ──────────────────────────────────────────────────
 
 def _apply_fact_guard(text: str, facts: ListingFacts) -> str:
+    """Enforce canonical VIN and mileage values from the listing data."""
     if facts.vin:
         for size in range(16, 11, -1):
             prefix = re.escape(facts.vin[:size])
@@ -286,6 +222,5 @@ def _format_km(value: str) -> str:
 
 
 def _trim_excess_blank_lines(text: str) -> str:
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = re.sub(r"\n(?=#{1,6}\s+)", "\n\n", text)
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text.strip()

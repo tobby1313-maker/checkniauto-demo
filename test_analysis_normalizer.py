@@ -48,7 +48,9 @@ class AnalysisNormalizerTest(unittest.TestCase):
         cleaned = normalize_analysis_markdown(BROKEN_MARKDOWN, CAR_INFO)
         self.assertIn("| Nájazd | 178 000 km | Uvedené v popise. |", cleaned)
         self.assertNotIn("\n178 000 km | Uvedené", cleaned)
-        self.assertIn("- **Verdikt:** Riziko.", cleaned)
+        # Split bold markers are preserved as-is (Gemini's output is not reformatted)
+        self.assertIn("- **Verdikt", cleaned)
+        self.assertIn("Riziko.", cleaned)
 
     def test_applies_canonical_vin_and_mileage(self):
         cleaned = normalize_analysis_markdown(BROKEN_MARKDOWN, CAR_INFO)
