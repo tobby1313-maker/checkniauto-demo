@@ -844,7 +844,7 @@
             color: #48bb78;
         }
 
-        /* Palubný počítač – overlay log */
+        /* Palubný počítač - overlay log */
         .overlay-log {
             background: var(--surface-soft);
             border: 1px solid var(--line);
@@ -884,7 +884,7 @@
             to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* ========== Full‑screen result mode ========== */
+        /* ========== Full-screen result mode ========== */
         .result-mode .layout,
         .result-mode .log-panel {
             display: none !important;
@@ -1518,13 +1518,13 @@
 
         function escapeHtml(value) {
             return String(value ?? "")
-                .split("&").join("&amp;")
-                .split("<").join("&lt;")
-                .split(">").join("&gt;");
+                .replace(/&/g, "&")
+                .replace(/</g, "<")
+                .replace(/>/g, ">");
         }
 
         function escapeAttribute(value) {
-            return escapeHtml(value).split('"').join("&quot;");
+            return escapeHtml(value).replace(/"/g, """);
         }
 
         function isBlockStartForCleanup(line) {
@@ -1568,40 +1568,12 @@
 
         /**
          * Clean up Gemini text quirks before rendering or download.
+         * SIMPLIFIED: Only normalize blank lines, do NOT join lines or replace Slovak words.
          */
         function cleanBrokenText(text) {
             text = String(text || "").replace(/\r\n?/g, "\n");
             text = sanitizeGroundingRedirects(text);
-            text = text.replace(/^(#+)\n\s*/gm, "$1 ");
-
-            var lines = text.split("\n");
-            var cleaned = [];
-            var inFence = false;
-            lines.forEach(function(line) {
-                var trimmed = line.trim();
-                if (/^```/.test(trimmed)) {
-                    cleaned.push(line.trimEnd());
-                    inFence = !inFence;
-                    return;
-                }
-                if (inFence || !trimmed) {
-                    cleaned.push(line.trimEnd());
-                    return;
-                }
-                if (cleaned.length && shouldJoinCleanLine(cleaned[cleaned.length - 1], trimmed)) {
-                    cleaned[cleaned.length - 1] = joinCleanLine(cleaned[cleaned.length - 1], trimmed);
-                } else {
-                    cleaned.push(line.trimEnd());
-                }
-            });
-
-            text = cleaned.join("\n");
-            text = text.replace(/\*\*\s*\n+\s*(?=\S)/g, "** ");
-            text = text.replace(/^([*-])\s*\n\s*/gm, "$1 ");
-            text = text.replace(/Hodnot nie:?/g, "Hodnotenie:");
-            text = text.replace(/Naj\s*äčší/g, "Najväčší");
-            text = text.replace(/dô ladne/g, "dôkladne");
-            text = text.replace(/- \*\*Verdikt\s+Riziko\./g, "- **Verdikt:** Riziko.");
+            // Only normalize excessive blank lines - do NOT join lines or replace Slovak text
             text = text.replace(/\n{3,}/g, "\n\n");
             return text;
         }
@@ -1824,7 +1796,7 @@
         }
 
         /**
-         * Switch to full‑screen result mode.
+         * Switch to full-screen result mode.
          */
         function showResultMode() {
             pageEl.classList.add("result-mode");
