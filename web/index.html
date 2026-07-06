@@ -132,7 +132,7 @@
             margin-top: 2px;
         }
         .brand:focus-visible {
-            outline: 2px solid var(--accent);
+            outline: 2px solid var(--orange);
             outline-offset: 6px;
             border-radius: 14px;
         }
@@ -271,7 +271,7 @@
 
         .status.error {
             color: var(--danger);
-            font-weight: 750;
+            font-weight: 700;
         }
 
         .tabs {
@@ -290,7 +290,7 @@
             border-radius: 6px;
             background: transparent;
             color: var(--muted);
-            font-weight: 750;
+            font-weight: 700;
         }
 
         .tab.active {
@@ -312,7 +312,7 @@
         .field label {
             color: var(--muted);
             font-size: 13px;
-            font-weight: 750;
+            font-weight: 700;
         }
 
         .hint {
@@ -344,7 +344,7 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
-            font-weight: 750;
+            font-weight: 700;
         }
 
         .btn.primary {
@@ -375,7 +375,7 @@
             padding: 8px 12px;
             background: var(--orange);
             color: #fff;
-            font-weight: 750;
+            font-weight: 700;
             cursor: pointer;
         }
 
@@ -447,7 +447,7 @@
         .result h2 {
             margin: 28px 0 14px;
             font-size: 20px;
-            font-weight: 750;
+            font-weight: 700;
             color: var(--text);
             padding-bottom: 8px;
             border-bottom: 2px solid var(--result-heading-border);
@@ -456,21 +456,21 @@
         .result h3 {
             margin: 22px 0 10px;
             font-size: 17px;
-            font-weight: 750;
+            font-weight: 700;
             color: var(--text);
         }
 
         .result h4 {
             margin: 18px 0 8px;
             font-size: 15px;
-            font-weight: 750;
+            font-weight: 700;
             color: var(--text);
         }
 
         /* Inline elements */
         .result strong {
             color: var(--result-strong);
-            font-weight: 750;
+            font-weight: 700;
         }
 
         .result em {
@@ -547,7 +547,7 @@
 
         .result th {
             background: var(--result-table-header-bg);
-            font-weight: 750;
+            font-weight: 700;
             white-space: nowrap;
         }
 
@@ -573,7 +573,7 @@
             display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
-            font-weight: 750;
+            font-weight: 700;
             font-size: 14px;
         }
 
@@ -680,7 +680,7 @@
 
         #progressOverlay .modal-title {
             font-size: 19px;
-            font-weight: 750;
+            font-weight: 700;
             margin-bottom: 20px;
             color: var(--text);
         }
@@ -791,7 +791,7 @@
 
         .progress-pct {
             font-size: 14px;
-            font-weight: 750;
+            font-weight: 700;
             color: var(--muted);
             margin-bottom: 2px;
         }
@@ -810,7 +810,7 @@
             padding: 7px 18px;
             background: transparent;
             color: var(--muted);
-            font-weight: 750;
+            font-weight: 700;
             font-size: 13px;
             cursor: pointer;
             transition: border-color 0.2s, color 0.2s;
@@ -827,7 +827,7 @@
             height: 20px;
             margin: -6px 8px 14px;
             font-size: 10px;
-            font-weight: 750;
+            font-weight: 700;
             color: var(--muted);
             text-transform: uppercase;
             letter-spacing: 0.3px;
@@ -844,7 +844,7 @@
             color: #48bb78;
         }
 
-        /* Palubný počítač - overlay log */
+        /* Palubny pocitac - overlay log */
         .overlay-log {
             background: var(--surface-soft);
             border: 1px solid var(--line);
@@ -984,13 +984,13 @@
                     <img src="assets/checkni-auto-logo.png" alt="Checkni Auto logo">
                     <div>
                         <strong>Checkni Auto</strong>
-                        <span id="brandSubtitle">Vlož inzerát alebo vlastný text s fotkami. Dostaneš stručnú analýzu rizík, ceny a otázok pre predajcu.</span>
+                        <span id="brandSubtitle">Vloz inzerat alebo vlastny text s fotkami. Dostanes strucnu analyzu rizik, ceny a otazok pre predajcu.</span>
                     </div>
                 </button>
 
                 <div class="nav-tools">
-                    <select id="outputLanguage" class="language-select" aria-label="Jazyk výstupu">
-                        <option value="sk">Slovenčina</option>
+                    <select id="outputLanguage" class="language-select" aria-label="Jazyk vystupu">
+                        <option value="sk">Slovencina</option>
                         <option value="en">English</option>
                     </select>
                     <button class="theme-toggle" id="themeToggle" type="button" aria-label="Prepnúť svetlý alebo tmavý režim" title="Prepnúť tému">
@@ -1008,29 +1008,29 @@
 
         <main>
             <section class="layout">
-                <section class="analyzer" id="analyzerSection" aria-label="Analyzátor inzerátu">
+                <section class="analyzer" id="analyzerSection" aria-label="Analyzator inzeratu">
                     <div class="analyzer-head">
                         <strong id="analyzerTitle">Analyzovať inzerát</strong>
                     </div>
 
                     <div class="tabs" role="tablist">
                         <button class="tab active" id="urlTab" type="button">URL</button>
-                        <button class="tab" id="manualTab" type="button">Manuálne</button>
+                        <button class="tab" id="manualTab" type="button">Manualne</button>
                     </div>
 
                     <form id="urlForm">
                         <div class="field">
                             <label for="listingUrl">Odkaz na inzerát</label>
                             <input id="listingUrl" name="url" type="url" placeholder="https://www.bazos.sk/..." autocomplete="url">
-                            <div class="hint" id="supportedHint">Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.</div>
+                            <div class="hint" id="supportedHint">Podporovane: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.</div>
                         </div>
                         <button class="btn primary" id="urlSubmit" type="submit">Analyzovať</button>
                     </form>
 
                     <form id="manualForm" class="hidden">
                         <div class="field">
-                            <label for="title">Názov auta</label>
-                            <input id="title" name="title" placeholder="Škoda Octavia 2.0 TDI">
+                            <label for="title">Nazov auta</label>
+                            <input id="title" name="title" placeholder="Skoda Octavia 2.0 TDI">
                         </div>
                         <div class="row">
                             <div class="field">
@@ -1038,18 +1038,18 @@
                                 <input id="price" name="price" inputmode="numeric" placeholder="12900">
                             </div>
                             <div class="field">
-                                <label for="sourceUrl">Zdrojový odkaz</label>
-                                <input id="sourceUrl" name="source_url" type="url" placeholder="Voliteľné">
+                                <label for="sourceUrl">Zdrojovy odkaz</label>
+                                <input id="sourceUrl" name="source_url" type="url" placeholder="Volitelne">
                             </div>
                         </div>
                         <div class="field">
-                            <label for="manualText">Text inzerátu</label>
-                            <textarea id="manualText" name="manual_text" placeholder="Vlož popis, parametre, VIN, výbavu, servisnú históriu a poznámku predajcu..."></textarea>
+                            <label for="manualText">Text inzeratu</label>
+                            <textarea id="manualText" name="manual_text" placeholder="Vloz popis, parametre, VIN, vybavu, servisnu historiu a poznamku predajcu..."></textarea>
                         </div>
                         <div class="field">
                             <label for="images">Fotky</label>
                             <input id="images" name="images" type="file" accept="image/*" multiple>
-                            <div class="hint" id="imagesHint">Maximálne 12 fotiek.</div>
+                            <div class="hint" id="imagesHint">Maximalne 12 fotiek.</div>
                         </div>
                         <button class="btn primary" id="manualSubmit" type="submit">Analyzovať</button>
                     </form>
@@ -1060,21 +1060,21 @@
                 <aside class="log-panel">
                     <div class="panel-head">
                         <strong>Priebeh</strong>
-                        <span class="status" id="status">Pripravené</span>
+                        <span class="status" id="status">Pripravene</span>
                     </div>
                     <pre class="log" id="log"></pre>
                 </aside>
 
                 <section class="output-panel">
                     <div class="panel-head">
-                        <strong>Výsledok</strong>
+                        <strong>Vysledok</strong>
                         <div class="result-tools">
                             <button class="btn" id="copyBtn" type="button" disabled>Kopírovať</button>
                             <button class="btn" id="downloadBtn" type="button" disabled>Markdown</button>
                             <button class="btn" id="pdfBtn" type="button" disabled>PDF</button>
                         </div>
                     </div>
-                    <article class="result" id="result" data-empty="Výsledok analýzy sa zobrazí tu."></article>
+                    <article class="result" id="result" data-empty="Vysledok analyzy sa zobrazi tu."></article>
                 </section>
             </section>
         </main>
@@ -1084,7 +1084,7 @@
     <div id="progressOverlay">
         <div class="backdrop"></div>
         <div class="modal">
-            <div class="modal-title" id="overlayTitle">🏎️ Checkni Auto – Analýza v priebehu</div>
+            <div class="modal-title" id="overlayTitle">🏎️ Checkni Auto – Analyza v priebehu</div>
             <div class="road-wrap">
                 <div class="road-surface">
                     <div class="road-curbs top"></div>
@@ -1100,19 +1100,20 @@
                 <div class="road-car" id="overlayCar">🚗</div>
             </div>
             <div class="checkpoint-labels">
-                <span class="cl" style="left:0%">Štart</span>
-                <span class="cl" style="left:25%">Prvá kontrola</span>
+                <span class="cl" style="left:0%">Start</span>
+                <span class="cl" style="left:25%">Prva kontrola</span>
                 <span class="cl" style="left:50%">Diagnostika</span>
-                <span class="cl" style="left:75%">Detailný servis</span>
-                <span class="cl" style="left:93%">Záverečná</span>
+                <span class="cl" style="left:75%">Detailny servis</span>
+                <span class="cl" style="left:93%">Zaverečna</span>
                 <span class="cl" style="left:100%">Cieľ</span>
             </div>
             <div class="progress-track">
                 <div class="progress-track-fill" id="overlayProgressFill"></div>
             </div>
             <div class="progress-pct" id="overlayProgressPct">0%</div>
+            <div class="overlay-msg" id="overlayMsg">Starting engine...</div>
             <div class="overlay-log" id="overlayLog"></div>
-            <button class="overlay-cancel" id="overlayCancelBtn">Zrušiť</button>
+            <button class="overlay-cancel" id="overlayCancelBtn">Zrusiť</button>
         </div>
     </div>
 
@@ -1145,26 +1146,26 @@
 
         const carJargon = {
             sk: [
-                { match: (s) => /štartujem|spúšťam|start|priprav/i.test(s),                   icon: '🔑', msg: 'Štartujem motor...' },
-                { match: (s) => /sťahujem|download|načítavam|inzerát/i.test(s),                icon: '📡', msg: 'Nalaďujem signál... sťahujem inzerát' },
-                { match: (s) => /fotk|image|photo|obráz/i.test(s),                            icon: '📸', msg: 'Fotím detaily z každej strany' },
-                { match: (s) => /spracúvam|process/i.test(s),                                 icon: '🖼️', msg: 'Umývam a leštím fotografie' },
-                { match: (s) => /vin/i.test(s),                                               icon: '🔍', msg: 'Čítam VIN kód pod kapotou' },
-                { match: (s) => /analyz|skenujem|check/i.test(s),                             icon: '🧠', msg: 'Kontrolujem motor, prevodovku, podvozok' },
-                { match: (s) => /vyhodnoc|risk|nebezpečen/i.test(s),                          icon: '⚠️', msg: 'Idem na technickú a emisnú kontrolu' },
-                { match: (s) => /gener|vytvára|render|výsled|format/i.test(s),                icon: '📝', msg: 'Píšem servisnú knižku...' },
-                { match: (s) => /hotovo|done|dokončen|komplet|finished/i.test(s),             icon: '🏁', msg: 'FINISH! Pretli sme cieľovú pásku!' },
+                { match: (s) => /štartujem|spúšťam|start|priprav/i.test(s),                   icon: '\u{1F511}', msg: 'Starting engine...' },
+                { match: (s) => /sťahujem|download|načítavam|inzerát/i.test(s),                icon: '\u{1F4E1}', msg: 'Tuning into the listing signal' },
+                { match: (s) => /fotk|image|photo|obráz/i.test(s),                            icon: '\u{1F4F8}', msg: 'Snapping detail shots' },
+                { match: (s) => /spracúvam|process/i.test(s),                                 icon: '\u{1F5BC}', msg: 'Washing and waxing the photos' },
+                { match: (s) => /vin/i.test(s),                                               icon: '\u{1F50D}', msg: 'Reading VIN under the hood' },
+                { match: (s) => /analyz|skenujem|check/i.test(s),                             icon: '\u{1F9E0}', msg: 'Checking engine, gearbox, chassis' },
+                { match: (s) => /vyhodnoc|risk|nebezpečen/i.test(s),                          icon: '\u26A0', msg: 'Running full diagnostics' },
+                { match: (s) => /gener|vytvára|render|výsled|format/i.test(s),                icon: '\u{1F4DD}', msg: 'Writing the service record...' },
+                { match: (s) => /hotovo|done|dokončen|komplet|finished/i.test(s),             icon: '\u{1F3C1}', msg: 'FINISH! Crossed the finish line!' },
             ],
             en: [
-                { match: (s) => /start|štart|priprav/i.test(s),                              icon: '🔑', msg: 'Starting the engine...' },
-                { match: (s) => /download|sťahujem|listing|načítavam/i.test(s),               icon: '📡', msg: 'Tuning into the listing signal' },
-                { match: (s) => /fotk|image|photo|obráz/i.test(s),                           icon: '📸', msg: 'Snapping detail shots' },
-                { match: (s) => /spracúvam|process/i.test(s),                                icon: '🖼️', msg: 'Washing & waxing the photos' },
-                { match: (s) => /vin/i.test(s),                                               icon: '🔍', msg: 'Reading VIN under the hood' },
-                { match: (s) => /analyz|skenujem|check/i.test(s),                            icon: '🧠', msg: 'Checking engine, gearbox, chassis' },
-                { match: (s) => /vyhodnoc|risk|nebezpečen/i.test(s),                         icon: '⚠️', msg: 'Running full diagnostics' },
-                { match: (s) => /gener|vytvára|render|výsled|format/i.test(s),               icon: '📝', msg: 'Writing the service record...' },
-                { match: (s) => /hotovo|done|dokončen|komplet|finished/i.test(s),            icon: '🏁', msg: 'FINISH! Crossed the finish line!' },
+                { match: (s) => /start|štart|priprav/i.test(s),                              icon: '\u{1F511}', msg: 'Starting the engine...' },
+                { match: (s) => /download|sťahujem|listing|načítavam/i.test(s),               icon: '\u{1F4E1}', msg: 'Tuning into the listing signal' },
+                { match: (s) => /fotk|image|photo|obráz/i.test(s),                           icon: '\u{1F4F8}', msg: 'Snapping detail shots' },
+                { match: (s) => /spracúvam|process/i.test(s),                                icon: '\u{1F5BC}', msg: 'Washing and waxing the photos' },
+                { match: (s) => /vin/i.test(s),                                               icon: '\u{1F50D}', msg: 'Reading VIN under the hood' },
+                { match: (s) => /analyz|skenujem|check/i.test(s),                            icon: '\u{1F9E0}', msg: 'Checking engine, gearbox, chassis' },
+                { match: (s) => /vyhodnoc|risk|nebezpečen/i.test(s),                         icon: '\u26A0', msg: 'Running full diagnostics' },
+                { match: (s) => /gener|vytvára|render|výsled|format/i.test(s),               icon: '\u{1F4DD}', msg: 'Writing the service record...' },
+                { match: (s) => /hotovo|done|dokončen|komplet|finished/i.test(s),            icon: '\u{1F3C1}', msg: 'FINISH! Crossed the finish line!' },
             ]
         };
 
@@ -1180,37 +1181,37 @@
 
         const translations = {
             sk: {
-                documentTitle: "Checkni Auto - AI kontrola auta pred kúpou",
-                languageLabel: "Jazyk výstupu",
-                brandSubtitle: "Vlož inzerát alebo vlastný text s fotkami. Dostaneš stručnú analýzu rizík, ceny a otázok pre predajcu.",
-                themeLabel: "Prepnúť svetlý alebo tmavý režim",
-                themeTitle: "Prepnúť tému",
-                analyzerLabel: "Analyzátor inzerátu",
-                analyzerTitle: "Analyzovať inzerát",
-                manualTab: "Manuálne",
-                listingUrlLabel: "Odkaz na inzerát",
-                supportedHint: "Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
-                urlSubmit: "Analyzovať",
-                titleLabel: "Názov auta",
-                titlePlaceholder: "Škoda Octavia 2.0 TDI",
+                documentTitle: "Checkni Auto - AI kontrola auta pred kupou",
+                languageLabel: "Jazyk vystupu",
+                brandSubtitle: "Vloz inzerat alebo vlastny text s fotkami. Dostanes strucnu analyzu rizik, ceny a otazok pre predajcu.",
+                themeLabel: "Prepnut svetly alebo tmavy rezim",
+                themeTitle: "Prepnut temu",
+                analyzerLabel: "Analyzator inzeratu",
+                analyzerTitle: "Analyzovat inzerat",
+                manualTab: "Manualne",
+                listingUrlLabel: "Odkaz na inzerat",
+                supportedHint: "Podporovane: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
+                urlSubmit: "Analyzovat",
+                titleLabel: "Nazov auta",
+                titlePlaceholder: "Skoda Octavia 2.0 TDI",
                 priceLabel: "Cena v EUR",
-                sourceUrlLabel: "Zdrojový odkaz",
-                sourceUrlPlaceholder: "Voliteľné",
-                manualTextLabel: "Text inzerátu",
-                manualTextPlaceholder: "Vlož popis, parametre, VIN, výbavu, servisnú históriu a poznámku predajcu...",
+                sourceUrlLabel: "Zdrojovy odkaz",
+                sourceUrlPlaceholder: "Volitelne",
+                manualTextLabel: "Text inzeratu",
+                manualTextPlaceholder: "Vloz popis, parametre, VIN, vybavu, servisnu historiu a poznamku predajcu...",
                 imagesLabel: "Fotky",
-                imagesHint: "Maximálne 12 fotiek.",
-                tooManyImages: "Vyber najviac 12 fotiek. Ponechal som prvých 12.",
-                manualSubmit: "Analyzovať",
+                imagesHint: "Maximalne 12 fotiek.",
+                tooManyImages: "Vyber najviac 12 fotiek. Ponechal som prvych 12.",
+                manualSubmit: "Analyzovat",
                 progressTitle: "Priebeh",
-                resultTitle: "Výsledok",
-                copy: "Kopírovať",
-                resultEmpty: "Výsledok analýzy sa zobrazí tu.",
-                ready: "Pripravené",
-                starting: "Štartujem motor",
+                resultTitle: "Vysledok",
+                copy: "Kopirovat",
+                resultEmpty: "Vysledok analyzy sa zobrazi tu.",
+                ready: "Pripravene",
+                starting: "Starting the engine",
                 done: "Hotovo",
                 finish: "FINISH",
-                copied: "Skopírované",
+                copied: "Skopirovane",
                 markdownFilename: "checkni-auto-analyza"
             },
             en: {
@@ -1462,7 +1463,6 @@
             const car = document.getElementById('overlayCar');
             const currentLeft = parseFloat(car.style.left) || 0;
 
-            // If we already passed this point (e.g. fake progress overshot), just update text
             if (p <= currentLeft + 1) {
                 addJargonForStatus(statusText);
                 if (statusText) {
@@ -1502,33 +1502,33 @@
 
         function getProgressForStatus(status) {
             const s = status.toLowerCase();
-            if (s.includes('štartujem') || s.includes('spúšťam') || s.includes('start') || s.includes('priprav')) return 5;
-            if (s.includes('sťahujem') || s.includes('download') || s.includes('načítavam')) return 15;
-            if (s.includes('fotk') || s.includes('image') || s.includes('photo') || s.includes('obráz') || s.includes('spracúvam') || s.includes('process')) return 30;
+            if (s.includes('start') || s.includes('startujem') || s.includes('priprav')) return 5;
+            if (s.includes('download') || s.includes('taham') || s.includes('nacitavam')) return 15;
+            if (s.includes('fotk') || s.includes('image') || s.includes('photo') || s.includes('obraz') || s.includes('spracuvam') || s.includes('process')) return 30;
             if (s.includes('analyz') || s.includes('vyhodnoc') || s.includes('check') || s.includes('scrape') || s.includes('skenujem')) return 55;
-            if (s.includes('gener') || s.includes('vytvára') || s.includes('render') || s.includes('výsled') || s.includes('format')) return 80;
-            if (s.includes('hotovo') || s.includes('done') || s.includes('dokončen') || s.includes('komplet') || s.includes('finished')) return 100;
+            if (s.includes('gener') || s.includes('vytvara') || s.includes('render') || s.includes('vysled') || s.includes('format')) return 80;
+            if (s.includes('hotovo') || s.includes('done') || s.includes('dokoncen') || s.includes('komplet') || s.includes('finished')) return 100;
             return null;
         }
 
         function appendLog(line) {
-            logEl.textContent += `${line}\n`;
+            logEl.textContent += line + '\n';
             logEl.scrollTop = logEl.scrollHeight;
         }
 
         function escapeHtml(value) {
-            return String(value ?? "")
-                .replace(/&/g, "&")
-                .replace(/</g, "<")
-                .replace(/>/g, ">");
+            return String(value ?? '')
+                .replace(/&/g, '&amp;amp;')
+                .replace(/&lt;/g, '&lt;')
+                .replace(/&gt;/g, '&gt;');
         }
 
         function escapeAttribute(value) {
-            return escapeHtml(value).replace(/"/g, """);
+            return escapeHtml(value).replace(/&quot;/g, '&quot;');
         }
 
         function isBlockStartForCleanup(line) {
-            var text = String(line || "").trim();
+            var text = String(line || '').trim();
             return /^#{1,6}\s+/.test(text) ||
                    /^-{3,}$/.test(text) ||
                    /^```/.test(text) ||
@@ -1539,65 +1539,63 @@
         }
 
         function shouldJoinCleanLine(previous, current) {
-            var prev = String(previous || "").trimEnd();
-            var cur = String(current || "").trim();
+            var prev = String(previous || '').trimEnd();
+            var cur = String(current || '').trim();
             if (!prev || !cur || /^```/.test(prev)) return false;
             if (/^\|/.test(cur)) return false;
             if (/^\|/.test(prev) && (prev.match(/\|/g) || []).length < 3) return true;
             if (isBlockStartForCleanup(cur)) return false;
             if (/^[-*]\s+/.test(prev) || /^\d+\.\s+/.test(prev)) return true;
             if ((prev.match(/\*\*/g) || []).length % 2 === 1) return true;
-            if (/[A-Za-zÀ-ž0-9,;:]$/.test(prev) || /[\/\-(\[]$/.test(prev)) return true;
+            if (/[A-Za-z0-9,;:]$/.test(prev) || /[\/\-(\[]$/.test(prev)) return true;
             return false;
         }
 
         function joinCleanLine(previous, current) {
-            var prev = String(previous || "").trimEnd();
-            var cur = String(current || "").trim();
+            var prev = String(previous || '').trimEnd();
+            var cur = String(current || '').trim();
             if (/[\/\-(\[]$/.test(prev)) return prev + cur;
-            return prev + " " + cur;
+            return prev + ' ' + cur;
         }
 
         function sanitizeGroundingRedirects(text) {
             text = text.replace(/\[([^\]\n]{1,120})\]\(\s*https?:\/\/vertexaisearch\.cloud\.google\.com[\s\S]*?\)/gi, function(_, label) {
-                return label.replace(/\s+/g, " ").trim() || "URL citácia nie je overiteľná";
+                return label.replace(/\s+/g, ' ').trim() || 'URL citation not verifiable';
             });
-            text = text.replace(/https?:\/\/vertexaisearch\.cloud\.google\.com\/\S+/gi, "URL citácia nie je overiteľná");
-            return text.replace(/\s+([,.;:])/g, "$1");
+            text = text.replace(/https?:\/\/vertexaisearch\.cloud\.google\.com\/\S+/gi, 'URL citation not verifiable');
+            return text.replace(/\s+([,.;:])/g, '$1');
         }
 
         /**
          * Clean up Gemini text quirks before rendering or download.
-         * SIMPLIFIED: Only normalize blank lines, do NOT join lines or replace Slovak words.
          */
         function cleanBrokenText(text) {
-            text = String(text || "").replace(/\r\n?/g, "\n");
+            text = String(text || '').replace(/\r\n?/g, '\n');
             text = sanitizeGroundingRedirects(text);
-            // Only normalize excessive blank lines - do NOT join lines or replace Slovak text
-            text = text.replace(/\n{3,}/g, "\n\n");
+            text = text.replace(/\n{3,}/g, '\n\n');
             return text;
         }
 
         function renderInline(text) {
             var placeholders = [];
             function hold(html) {
-                var token = "\uE000" + placeholders.length + "\uE001";
-                placeholders.push({ token, html });
+                var token = '\uE000' + placeholders.length + '\uE001';
+                placeholders.push({ token: token, html: html });
                 return token;
             }
 
-            var source = String(text || "");
+            var source = String(text || '');
             source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function(_, label, href) {
                 return hold('<a href="' + escapeAttribute(href) + '" target="_blank" rel="noopener">' + escapeHtml(label) + '</a>');
             });
             source = source.replace(/`([^`]+)`/g, function(_, code) {
-                return hold("<code>" + escapeHtml(code) + "</code>");
+                return hold('<code>' + escapeHtml(code) + '</code>');
             });
 
             var html = escapeHtml(source);
-            html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-            html = html.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, "$1<em>$2</em>");
-            html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+            html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
+            html = html.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
 
             placeholders.forEach(function(item) {
                 html = html.split(item.token).join(item.html);
@@ -1606,27 +1604,27 @@
         }
 
         function isTableRow(line) {
-            return /^\s*\|.*\|\s*$/.test(line || "");
+            return /^\s*\|.*\|\s*$/.test(line || '');
         }
 
         function splitTableRow(row) {
             var text = row.trim();
-            if (text.startsWith("|")) text = text.slice(1);
-            if (text.endsWith("|")) text = text.slice(0, -1);
-            return text.split("|").map(function(cell) { return cell.trim(); });
+            if (text.startsWith('|')) text = text.slice(1);
+            if (text.endsWith('|')) text = text.slice(0, -1);
+            return text.split('|').map(function(cell) { return cell.trim(); });
         }
 
         function isTableDelimiter(row) {
             var cells = splitTableRow(row);
             return cells.length > 0 && cells.every(function(cell) {
-                return /^:?-{3,}:?$/.test(cell.replace(/\s+/g, ""));
+                return /^:?-{3,}:?$/.test(cell.replace(/\s+/g, ''));
             });
         }
 
         function renderTable(rows) {
             rows = rows.filter(function(row) { return row.trim(); });
             if (rows.length < 2) {
-                return "<p>" + renderInline(rows.join(" ")) + "</p>";
+                return '<p>' + renderInline(rows.join(' ')) + '</p>';
             }
 
             var hasDelimiter = rows.length > 1 && isTableDelimiter(rows[1]);
@@ -1635,26 +1633,26 @@
             var out = '<div class="table-wrap"><table><thead><tr>';
 
             headerCells.forEach(function(cell) {
-                out += "<th>" + renderInline(cell) + "</th>";
+                out += '<th>' + renderInline(cell) + '</th>';
             });
-            out += "</tr></thead><tbody>";
+            out += '</tr></thead><tbody>';
 
             bodyRows.forEach(function(row) {
                 if (isTableDelimiter(row)) return;
                 var cells = splitTableRow(row);
                 if (cells.length !== headerCells.length) return;
-                out += "<tr>";
+                out += '<tr>';
                 cells.forEach(function(cell) {
-                    out += "<td>" + renderInline(cell) + "</td>";
+                    out += '<td>' + renderInline(cell) + '</td>';
                 });
-                out += "</tr>";
+                out += '</tr>';
             });
 
-            return out + "</tbody></table></div>";
+            return out + '</tbody></table></div>';
         }
 
         function isBlockStart(line) {
-            var text = (line || "").trim();
+            var text = (line || '').trim();
             return /^#{1,6}\s+/.test(text) ||
                    /^-{3,}$/.test(text) ||
                    /^```/.test(text) ||
@@ -1668,9 +1666,9 @@
          * Convert the report's Markdown subset to safe, styled HTML.
          */
         function mdToHtml(md) {
-            if (!md) return "";
+            if (!md) return '';
 
-            var lines = cleanBrokenText(md).split("\n");
+            var lines = cleanBrokenText(md).split('\n');
             var out = [];
             var i = 0;
 
@@ -1691,20 +1689,20 @@
                         i++;
                     }
                     if (i < lines.length) i++;
-                    out.push("<pre><code>" + escapeHtml(codeLines.join("\n")) + "</code></pre>");
+                    out.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
                     continue;
                 }
 
                 var heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
                 if (heading) {
                     var level = Math.min(4, heading[1].length);
-                    out.push("<h" + level + ">" + renderInline(heading[2]) + "</h" + level + ">");
+                    out.push('<h' + level + '>' + renderInline(heading[2]) + '</h' + level + '>');
                     i++;
                     continue;
                 }
 
                 if (/^-{3,}$/.test(trimmed)) {
-                    out.push("<hr>");
+                    out.push('<hr>');
                     i++;
                     continue;
                 }
@@ -1722,36 +1720,36 @@
                 if (/^[-*]\s+/.test(trimmed)) {
                     var items = [];
                     while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
-                        items.push(lines[i].trim().replace(/^[-*]\s+/, ""));
+                        items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
                         i++;
                     }
-                    out.push("<ul>" + items.map(function(item) {
-                        return "<li>" + renderInline(item) + "</li>";
-                    }).join("") + "</ul>");
+                    out.push('<ul>' + items.map(function(item) {
+                        return '<li>' + renderInline(item) + '</li>';
+                    }).join('') + '</ul>');
                     continue;
                 }
 
                 if (/^\d+\.\s+/.test(trimmed)) {
                     var orderedItems = [];
                     while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
-                        orderedItems.push(lines[i].trim().replace(/^\d+\.\s+/, ""));
+                        orderedItems.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
                         i++;
                     }
-                    out.push("<ol>" + orderedItems.map(function(item) {
-                        return "<li>" + renderInline(item) + "</li>";
-                    }).join("") + "</ol>");
+                    out.push('<ol>' + orderedItems.map(function(item) {
+                        return '<li>' + renderInline(item) + '</li>';
+                    }).join('') + '</ol>');
                     continue;
                 }
 
                 if (/^>\s?/.test(trimmed)) {
                     var quoteLines = [];
                     while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
-                        quoteLines.push(lines[i].trim().replace(/^>\s?/, ""));
+                        quoteLines.push(lines[i].trim().replace(/^>\s?/, ''));
                         i++;
                     }
-                    out.push("<blockquote>" + quoteLines.map(function(item) {
-                        return "<p>" + renderInline(item) + "</p>";
-                    }).join("") + "</blockquote>");
+                    out.push('<blockquote>' + quoteLines.map(function(item) {
+                        return '<p>' + renderInline(item) + '</p>';
+                    }).join('') + '</blockquote>');
                     continue;
                 }
 
@@ -1761,10 +1759,10 @@
                     paragraph.push(lines[i].trim());
                     i++;
                 }
-                out.push("<p>" + renderInline(paragraph.join(" ")) + "</p>");
+                out.push('<p>' + renderInline(paragraph.join(' ')) + '</p>');
             }
 
-            return out.join("\n");
+            return out.join('\n');
         }
 
         function appendResult(text) {
@@ -1787,51 +1785,45 @@
                 selected.forEach((file) => transfer.items.add(file));
                 imagesInput.files = transfer.files;
             } catch (error) {
-                imagesInput.value = "";
+                imagesInput.value = '';
             }
 
-            statusEl.textContent = tr("tooManyImages");
-            statusEl.classList.add("error");
+            statusEl.textContent = tr('tooManyImages');
+            statusEl.classList.add('error');
             return false;
         }
 
-        /**
-         * Switch to full-screen result mode.
-         */
         function showResultMode() {
-            pageEl.classList.add("result-mode");
-            // Add "New listing" button to nav if not already there
-            let newBtn = document.querySelector("#newListingBtn");
+            pageEl.classList.add('result-mode');
+            let newBtn = document.querySelector('#newListingBtn');
             if (!newBtn) {
-                newBtn = document.createElement("button");
-                newBtn.id = "newListingBtn";
-                newBtn.className = "btn ghost small";
-                newBtn.textContent = "+ Nový inzerát";
-                newBtn.addEventListener("click", hideResultMode);
-                const navTools = document.querySelector(".nav-tools");
+                newBtn = document.createElement('button');
+                newBtn.id = 'newListingBtn';
+                newBtn.className = 'btn ghost small';
+                newBtn.textContent = '+ New listing';
+                newBtn.addEventListener('click', hideResultMode);
+                const navTools = document.querySelector('.nav-tools');
                 navTools.insertBefore(newBtn, navTools.firstChild);
             }
-            newBtn.classList.remove("hidden");
-            window.scrollTo({ top: 0, behavior: "smooth" });
+            newBtn.classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        /**
-         * Return to normal input mode.
-         */
         function hideResultMode() {
-            pageEl.classList.remove("result-mode");
-            const newBtn = document.querySelector("#newListingBtn");
-            if (newBtn) newBtn.classList.add("hidden");
-            resultText = "";
-            resultEl.innerHTML = "";
-            logEl.textContent = "";
-            statusEl.textContent = tr("ready");
-            statusEl.classList.remove("error");
+            pageEl.classList.remove('result-mode');
+            const newBtn = document.querySelector('#newListingBtn');
+            if (newBtn) newBtn.classList.add('hidden');
+            resultText = '';
+            resultEl.innerHTML = '';
+            logEl.textContent = '';
+            statusEl.textContent = tr('ready');
+            statusEl.classList.remove('error');
             copyBtn.disabled = true;
             downloadBtn.disabled = true;
             pdfBtn.disabled = true;
-            window.scrollTo({ top: 0, behavior: "smooth" });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+
         function returnToLandingPage() {
             if (abortController) {
                 abortController.abort();
@@ -1840,46 +1832,39 @@
             hideResultMode();
         }
 
-        /**
-         * The #newListingBtn might be added by showResultMode, but we also need it
-         * in hideResultMode to be hidden. We'll manage it directly in those functions.
-         */
-
         async function readSse(response) {
             if (!response.ok) {
                 const errorBody = await response.json().catch(() => ({}));
-                throw new Error(errorBody.error || `Request failed (${response.status})`);
+                throw new Error(errorBody.error || 'Request failed (' + response.status + ')');
             }
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let net = "";
+            let net = '';
             let sawDoneSignal = false;
-            // Buffer the analysis text during streaming — display only when done.
-            let fullResult = "";
+            let fullResult = '';
 
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;
                 net += decoder.decode(value, { stream: true });
-                const events = net.split("\n\n");
-                net = events.pop() || "";
+                const events = net.split('\n\n');
+                net = events.pop() || '';
 
                 for (const event of events) {
-                    const line = event.split("\n").find((item) => item.startsWith("data: "));
+                    const line = event.split('\n').find((item) => item.startsWith('data: '));
                     if (!line) continue;
                     const payload = line.slice(6);
-                    if (payload === "[DONE]") {
+                    if (payload === '[DONE]') {
                         sawDoneSignal = true;
-                        // Display the complete, cleaned result
                         resultText = cleanBrokenText(fullResult);
                         resultEl.innerHTML = mdToHtml(resultText);
                         copyBtn.disabled = false;
                         downloadBtn.disabled = false;
                         pdfBtn.disabled = false;
-                        statusEl.textContent = tr("finish");
+                        statusEl.textContent = tr('finish');
                         finishProgress();
-                        updateProgress(100, tr("finish"));
+                        updateProgress(100, tr('finish'));
                         setTimeout(() => {
                             hideOverlay();
                             showResultMode();
@@ -1897,34 +1882,28 @@
                     if (data.log) appendLog(data.log);
                     if (data.line) appendLog(data.line);
                     if (data.text) {
-                        // Buffer – do NOT display incrementally
                         fullResult += data.text;
-                    }
-                    if (data.done) {
-                        // Duplicate handler – also handle done payload if it arrives
-                        // before [DONE]
                     }
                 }
             }
 
             if (!sawDoneSignal) {
-                // If we never got [DONE] but we have data, still show it
                 if (fullResult) {
                     resultText = cleanBrokenText(fullResult);
                     resultEl.innerHTML = mdToHtml(resultText);
                     copyBtn.disabled = false;
                     downloadBtn.disabled = false;
                     pdfBtn.disabled = false;
-                    statusEl.textContent = tr("finish");
+                    statusEl.textContent = tr('finish');
                     finishProgress();
-                    updateProgress(100, tr("finish"));
+                    updateProgress(100, tr('finish'));
                     setTimeout(() => {
                         hideOverlay();
                         showResultMode();
                     }, 600);
                     return;
                 }
-                throw new Error("Connection ended before the analysis finished. Try again with fewer photos or use manual mode.");
+                throw new Error('Connection ended before the analysis finished. Try again with fewer photos or use manual mode.');
             }
         }
 
@@ -1934,28 +1913,28 @@
             setBusy(true);
 
             try {
-                const response = await fetch("/api/demo/analyze", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                const response = await fetch('/api/demo/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     signal: abortController?.signal,
                     body: JSON.stringify({
-                        url: document.querySelector("#listingUrl").value,
+                        url: document.querySelector('#listingUrl').value,
                         output_language: outputLanguage.value
                     })
                 });
                 await readSse(response);
             } catch (error) {
                 if (error.name === 'AbortError') {
-                    statusEl.textContent = 'Zrušené';
-                    appendLog('Analýza zrušená');
+                    statusEl.textContent = 'Cancelled';
+                    appendLog('Analysis cancelled');
                     return;
                 }
                 statusEl.textContent = error.message;
-                statusEl.classList.add("error");
-                appendLog(`ERROR: ${error.message}`);
+                statusEl.classList.add('error');
+                appendLog('ERROR: ' + error.message);
                 if (/manual/i.test(error.message)) {
-                    document.querySelector("#sourceUrl").value = document.querySelector("#listingUrl").value;
-                    setMode("manual");
+                    document.querySelector('#sourceUrl').value = document.querySelector('#listingUrl').value;
+                    setMode('manual');
                 }
             } finally {
                 setBusy(false);
@@ -1971,65 +1950,65 @@
 
             try {
                 const formData = new FormData(manualForm);
-                formData.set("output_language", outputLanguage.value);
-                const response = await fetch("/api/demo/analyze-manual", {
-                    method: "POST",
+                formData.set('output_language', outputLanguage.value);
+                const response = await fetch('/api/demo/analyze-manual', {
+                    method: 'POST',
                     signal: abortController?.signal,
                     body: formData
                 });
                 await readSse(response);
             } catch (error) {
                 if (error.name === 'AbortError') {
-                    statusEl.textContent = 'Zrušené';
-                    appendLog('Analýza zrušená');
+                    statusEl.textContent = 'Cancelled';
+                    appendLog('Analysis cancelled');
                     return;
                 }
                 statusEl.textContent = error.message;
-                statusEl.classList.add("error");
-                appendLog(`ERROR: ${error.message}`);
+                statusEl.classList.add('error');
+                appendLog('ERROR: ' + error.message);
             } finally {
                 setBusy(false);
                 hideOverlay();
             }
         }
 
-        themeToggle.addEventListener("click", () => {
-            setTheme(root.dataset.theme === "dark" ? "light" : "dark");
+        themeToggle.addEventListener('click', () => {
+            setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
         });
 
-        copyBtn.addEventListener("click", async () => {
+        copyBtn.addEventListener('click', async () => {
             await navigator.clipboard.writeText(resultText);
-            statusEl.textContent = tr("copied");
+            statusEl.textContent = tr('copied');
         });
 
-        downloadBtn.addEventListener("click", () => {
-            const blob = new Blob([resultText], { type: "text/markdown;charset=utf-8" });
+        downloadBtn.addEventListener('click', () => {
+            const blob = new Blob([resultText], { type: 'text/markdown;charset=utf-8' });
             const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
+            const link = document.createElement('a');
             link.href = url;
-            link.download = `${tr("markdownFilename")}-${new Date().toISOString().slice(0, 10)}.md`;
+            link.download = tr('markdownFilename') + '-' + new Date().toISOString().slice(0, 10) + '.md';
             link.click();
             URL.revokeObjectURL(url);
         });
 
-        pdfBtn.addEventListener("click", () => window.print());
-        urlTab.addEventListener("click", () => setMode("url"));
-        manualTab.addEventListener("click", () => setMode("manual"));
-        brandHomeBtn.addEventListener("click", returnToLandingPage);
-        outputLanguage.addEventListener("change", () => applyLanguage(outputLanguage.value));
-        imagesInput.addEventListener("change", enforceImageLimit);
+        pdfBtn.addEventListener('click', () => window.print());
+        urlTab.addEventListener('click', () => setMode('url'));
+        manualTab.addEventListener('click', () => setMode('manual'));
+        brandHomeBtn.addEventListener('click', returnToLandingPage);
+        outputLanguage.addEventListener('change', () => applyLanguage(outputLanguage.value));
+        imagesInput.addEventListener('change', enforceImageLimit);
         document.getElementById('overlayCancelBtn').addEventListener('click', () => {
             if (abortController) {
-                const j = getJargon('hotovo', currentLanguage);
-                if (j) appendOverlayLog(j.icon, 'Zrušené', true);
+                const j = getJargon('done', currentLanguage);
+                if (j) appendOverlayLog(j.icon, 'Cancelled', true);
                 document.getElementById('overlayCancelBtn').disabled = true;
                 abortController.abort();
             }
         });
 
-        urlForm.addEventListener("submit", runUrl);
-        manualForm.addEventListener("submit", runManual);
-        applyLanguage(localStorage.getItem("checkni-auto-language") || outputLanguage.value);
+        urlForm.addEventListener('submit', runUrl);
+        manualForm.addEventListener('submit', runManual);
+        applyLanguage(localStorage.getItem('checkni-auto-language') || outputLanguage.value);
         setTheme(initialTheme());
     </script>
 </body>
