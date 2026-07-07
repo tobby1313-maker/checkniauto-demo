@@ -1490,6 +1490,10 @@ Use the web verification above only when it contains concrete evidence. Never in
                 if emit:
                     yield f"data: {json.dumps({'text': emit})}\n\n"
 
+            raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
+            with open(raw_path, "w", encoding="utf-8") as f:
+                f.write(full_text)
+
             public_text = _strip_kb_section(full_text)
             with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
                 f.write(public_text)
