@@ -28,6 +28,7 @@ from werkzeug.utils import secure_filename
 
 # LLM Client for AI analysis
 from llm_client import analyze_with_llm, extract_kb_save_blocks, RateLimitError, ApiKeyError
+from token_tracker import default_tracker, estimate_output_tokens, estimate_request_tokens
 
 # Alias for backward compatibility - backup API keys will be managed in llm_client.py
 analyze_with_gemini = analyze_with_llm
@@ -105,7 +106,9 @@ def _demo_route_gate():
     path = request.path.rstrip("/") or "/"
     allowed = (
         path == "/"
+        or path == "/token-dashboard.html"
         or path == "/healthz"
+        or path == "/api/token-usage"
         or path.startswith("/api/demo/")
     )
     if path.startswith("/api/") and not allowed:
@@ -263,8 +266,134 @@ def _listing_sort_timestamp(parsed, car_info_path):
         return 0
 
 
-def get_listings():
-    """Scan Auta/ directory and return list of all car listings."""
+def _read_text_file(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _listing_car_info_path(slug_dir):
+    return os.path.join(slug_dir, "car_info.md")
+
+
+def _listing_analysis_result_path(slug_dir):
+    return os.path.join(slug_dir, "analysis_result.md")
+
+
+def _listing_images_dir(slug_dir):
+    return os.path.join(slug_dir, "images")
+
+
+def _listing_dir_or_raise(slug):
+    slug_dir = _safe_slug_dir(slug)
+    if not os.path.isdir(slug_dir):
+        raise FileNotFoundError("Listing not found")
+    return slug_dir
+
+
+def _load_listing_parsed(slug_dir):
+    car_info_path = _listing_car_info_path(slug_dir)
+    if not os.path.exists(car_info_path):
+        raise FileNotFoundError("Listing data not found")
+    md_text = _read_text_file(car_info_path)
+    return md_text, parse_car_info_md(md_text), car_info_path
+
+
+def _ordered_listing_images(slug_dir):
+    images_dir = _listing_images_dir(slug_dir)
+    if not os.path.isdir(images_dir):
+        return []
+    return [
+        name for name in sorted(os.listdir(images_dir))
+        if _is_supported_image(name) and os.path.isfile(os.path.join(images_dir, name))
+    ]
+
+
+def _listing_image_url(route_prefix, slug, filename):
+    return f"{route_prefix}/{urllib.parse.quote(slug)}/image/{urllib.parse.quote(filename)}"
+
+
+def _read_listing_analysis_content(slug_dir, required=False):
+    result_path = _listing_analysis_result_path(slug_dir)
+    if not os.path.exists(result_path):
+        if required:
+            raise FileNotFoundError("Analysis result not found")
+        return None
+    return _read_text_file(result_path)
+
+
+def _build_listing_summary(slug, slug_dir, image_route_prefix="/api/listings"):
+    _md_text, parsed, car_info_path = _load_listing_parsed(slug_dir)
+    images = _ordered_listing_images(slug_dir)
+    first_image = images[0] if images else None
+    has_analysis = os.path.exists(_listing_analysis_result_path(slug_dir))
+
+    summary = {
+        "slug": slug,
+        "title": parsed["title"],
+        "price": parsed["price"],
+        "currency": parsed["currency"],
+        "year": parsed["specs"].get("Year", ""),
+        "mileage": parsed["specs"].get("Mileage", ""),
+        "vin": parsed["vin"],
+        "photos_count": parsed["photos_count"] or len(images),
+        "first_image": first_image,
+        "source_url": parsed["source_url"],
+        "scraped_at": parsed["scraped_at"],
+        "sort_timestamp": _listing_sort_timestamp(parsed, car_info_path),
+        "has_analysis": has_analysis,
+    }
+    if first_image:
+        summary["first_image_url"] = _listing_image_url(image_route_prefix, slug, first_image)
+    else:
+        summary["first_image_url"] = None
+    return summary
+
+
+def _build_listing_detail_payload(slug, image_route_prefix="/api/listings", require_analysis=False):
+    slug_dir = _listing_dir_or_raise(slug)
+    car_info_md, parsed, _car_info_path = _load_listing_parsed(slug_dir)
+    images = _ordered_listing_images(slug_dir)
+    payload = {
+        "slug": slug,
+        "car_info_md": car_info_md,
+        "parsed": parsed,
+        "source_url": parsed.get("source_url", ""),
+        "scraped_at": parsed.get("scraped_at", ""),
+        "images": [
+            {
+                "filename": filename,
+                "url": _listing_image_url(image_route_prefix, slug, filename),
+            }
+            for filename in images
+        ],
+    }
+    analysis_content = _read_listing_analysis_content(slug_dir, required=require_analysis)
+    if analysis_content is not None:
+        payload["analysis_content"] = analysis_content
+    return payload
+
+
+def _send_listing_image_file(slug, filename):
+    if ".." in filename or "/" in filename or "\\" in filename:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    slug_dir = _listing_dir_or_raise(slug)
+    images_dir = _listing_images_dir(slug_dir)
+    if not os.path.isdir(images_dir):
+        return jsonify({"error": "Not found"}), 404
+    if not _is_supported_image(filename):
+        return jsonify({"error": "Not found"}), 404
+
+    image_path = os.path.abspath(os.path.join(images_dir, filename))
+    if os.path.commonpath([os.path.abspath(images_dir), image_path]) != os.path.abspath(images_dir):
+        return jsonify({"error": "Invalid filename"}), 400
+    if not os.path.isfile(image_path):
+        return jsonify({"error": "Not found"}), 404
+    return send_from_directory(images_dir, filename)
+
+
+def get_listings(require_analysis=False, image_route_prefix="/api/listings"):
+    """Scan Auta/ directory and return listing summaries."""
     listings = []
     if not os.path.isdir(AUTA_DIR):
         return listings
@@ -273,46 +402,17 @@ def get_listings():
         slug_dir = os.path.join(AUTA_DIR, slug)
         if not os.path.isdir(slug_dir):
             continue
-
-        car_info_path = os.path.join(slug_dir, "car_info.md")
-        if not os.path.exists(car_info_path):
+        try:
+            summary = _build_listing_summary(slug, slug_dir, image_route_prefix=image_route_prefix)
+        except FileNotFoundError:
             continue
 
-        with open(car_info_path, "r", encoding="utf-8") as f:
-            md_text = f.read()
-
-        parsed = parse_car_info_md(md_text)
-
-        # Get first image
-        images_dir = os.path.join(slug_dir, "images")
-        first_image = None
-        if os.path.isdir(images_dir):
-            images = sorted(os.listdir(images_dir))
-            if images:
-                first_image = images[0]
-
-        # Get year from specs
-        year = parsed["specs"].get("Year", "")
-        mileage = parsed["specs"].get("Mileage", "")
-
-        listings.append({
-            "slug": slug,
-            "title": parsed["title"],
-            "price": parsed["price"],
-            "currency": parsed["currency"],
-            "year": year,
-            "mileage": mileage,
-            "vin": parsed["vin"],
-            "photos_count": parsed["photos_count"],
-            "first_image": first_image,
-            "source_url": parsed["source_url"],
-            "scraped_at": parsed["scraped_at"],
-            "sort_timestamp": _listing_sort_timestamp(parsed, car_info_path),
-        })
+        if require_analysis and not summary["has_analysis"]:
+            continue
+        listings.append(summary)
 
     # Newest first. Prefer explicit scraped_at; fall back to car_info.md mtime.
     listings.sort(key=lambda x: (x.get("sort_timestamp", 0), x.get("slug", "")), reverse=True)
-
     return listings
 
 
@@ -623,28 +723,40 @@ def index():
     return send_from_directory(WEB_DIR, "index.html")
 
 
+@app.route("/token-dashboard.html")
+def token_dashboard():
+    return send_from_directory(WEB_DIR, "token-dashboard.html")
+
+
+@app.route("/api/token-usage")
+def api_token_usage():
+    try:
+        limit = int(request.args.get("limit", "50"))
+    except ValueError:
+        limit = 50
+    return jsonify(default_tracker.get_stats(recent_limit=limit))
+
+
 @app.route("/api/listings")
 def api_listings():
     return jsonify(get_listings())
 
 
+@app.route("/api/demo/listings")
+def api_demo_listings():
+    return jsonify(get_listings(require_analysis=True, image_route_prefix="/api/demo/listings"))
+
+
 @app.route("/api/listings/<slug>")
 def api_listing_detail(slug):
-    slug_dir = os.path.join(AUTA_DIR, slug)
-    if not os.path.isdir(slug_dir):
+    try:
+        result = _build_listing_detail_payload(slug)
+        slug_dir = _listing_dir_or_raise(slug)
+    except FileNotFoundError:
         return jsonify({"error": "Listing not found"}), 404
 
-    car_info_path = os.path.join(slug_dir, "car_info.md")
     raw_data_path = os.path.join(slug_dir, "raw_data.json")
     vin_decoded_path = os.path.join(slug_dir, "vin_decoded.json")
-
-    result = {"slug": slug}
-
-    if os.path.exists(car_info_path):
-        with open(car_info_path, "r", encoding="utf-8") as f:
-            md_text = f.read()
-        result["car_info_md"] = md_text
-        result["parsed"] = parse_car_info_md(md_text)
 
     # Include decoded VIN data if available
     if os.path.exists(vin_decoded_path):
@@ -659,6 +771,19 @@ def api_listing_detail(slug):
             result["raw_data"] = json.load(f)
 
     return jsonify(result)
+
+
+@app.route("/api/demo/listings/<slug>")
+def api_demo_listing_detail(slug):
+    try:
+        payload = _build_listing_detail_payload(
+            slug,
+            image_route_prefix="/api/demo/listings",
+            require_analysis=True,
+        )
+    except FileNotFoundError:
+        return jsonify({"error": "Saved analysis not found"}), 404
+    return jsonify(payload)
 
 
 @app.route("/api/listings/<slug>", methods=["PUT"])
@@ -766,17 +891,21 @@ def api_update_listing_detail(slug):
 
 @app.route("/api/listings/<slug>/images")
 def api_listing_images(slug):
-    images_dir = os.path.join(AUTA_DIR, slug, "images")
+    try:
+        slug_dir = _listing_dir_or_raise(slug)
+    except FileNotFoundError:
+        return jsonify([])
+    images_dir = _listing_images_dir(slug_dir)
     if not os.path.isdir(images_dir):
         return jsonify([])
 
     images = []
-    for f in sorted(os.listdir(images_dir)):
-        filepath = os.path.join(images_dir, f)
+    for filename in _ordered_listing_images(slug_dir):
+        filepath = os.path.join(images_dir, filename)
         if os.path.isfile(filepath):
             size_kb = os.path.getsize(filepath) / 1024
             images.append({
-                "filename": f,
+                "filename": filename,
                 "size_kb": round(size_kb, 1),
             })
 
@@ -785,10 +914,18 @@ def api_listing_images(slug):
 
 @app.route("/api/listings/<slug>/image/<filename>")
 def api_listing_image(slug, filename):
-    images_dir = os.path.join(AUTA_DIR, slug, "images")
-    if not os.path.isdir(images_dir):
+    try:
+        return _send_listing_image_file(slug, filename)
+    except FileNotFoundError:
         return jsonify({"error": "Not found"}), 404
-    return send_from_directory(images_dir, filename)
+
+
+@app.route("/api/demo/listings/<slug>/image/<filename>")
+def api_demo_listing_image(slug, filename):
+    try:
+        return _send_listing_image_file(slug, filename)
+    except FileNotFoundError:
+        return jsonify({"error": "Not found"}), 404
 
 
 @app.route("/api/listings/<slug>/analysis-images")
@@ -1543,7 +1680,7 @@ def _demo_analysis_events(slug, output_language="sk"):
             yield f"data: {json.dumps({'status': f'Using {label} Gemini key.'})}\n\n"
             try:
                 yield f"data: {json.dumps({'status': 'Running web verification...'})}\n\n"
-                grounded_research = run_grounded_web_research(api_key, user_content)
+                grounded_research = run_grounded_web_research(api_key, user_content, listing_slug=slug)
                 if grounded_research:
                     analysis_user_content = f"""{user_content}
 
@@ -1561,11 +1698,19 @@ Use the web verification above only when it contains concrete evidence. Never in
                 safe_log(f"Demo grounding warning: {grounding_error}")
                 yield f"data: {json.dumps({'status': 'Web verification unavailable; continuing with listing data.'})}\n\n"
 
-            yield f"data: {json.dumps({'status': 'Generating analysis...'})}\n\n"
-            for chunk in _call_gemini(api_key, system_prompt, analysis_user_content, image_data_list):
+            input_tokens = estimate_request_tokens(system_prompt, analysis_user_content, image_data_list)
+            output_tokens = 0
+            next_token_update = 250
+            yield f"data: {json.dumps({'status': f'Generating analysis... Tokens sent: ~{input_tokens}'})}\n\n"
+            yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
+            for chunk in _call_gemini(api_key, system_prompt, analysis_user_content, image_data_list, listing_slug=slug):
                 full_text += chunk
+                output_tokens += estimate_output_tokens(chunk)
                 if chunk:
                     yield f"data: {json.dumps({'text': chunk})}\n\n"
+                if output_tokens >= next_token_update:
+                    yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
+                    next_token_update += 250
 
             raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
             with open(raw_path, "w", encoding="utf-8") as f:
@@ -1758,7 +1903,7 @@ def api_analyze(slug):
                 if prompt_version == "v3":
                     yield f"data: {json.dumps({'status': 'Spustam webove overenie cez Gemini Google Search...'})}\n\n"
                     try:
-                        grounded_research = run_grounded_web_research(api_key, user_content)
+                        grounded_research = run_grounded_web_research(api_key, user_content, listing_slug=slug)
                         if grounded_research:
                             analysis_user_content = f"""{user_content}
 
@@ -1796,13 +1941,23 @@ Online zdroje nie sú dostupné. Nepredstieraj webové overenie ani nevymýšľa
 """
                         yield f"data: {json.dumps({'status': grounding_warning})}\n\n"
 
-                for chunk in _call_gemini(api_key, system_prompt, analysis_user_content, image_data_list):
+                input_tokens = estimate_request_tokens(system_prompt, analysis_user_content, image_data_list)
+                output_tokens = 0
+                next_token_update = 250
+                yield f"data: {json.dumps({'status': f'Tokens sent: ~{input_tokens}. Generujem analyzu...'})}\n\n"
+                yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
+
+                for chunk in _call_gemini(api_key, system_prompt, analysis_user_content, image_data_list, listing_slug=slug):
                     candidate_text = full_text + chunk
                     trimmed_text, stopped_repetition = _trim_repeated_analysis_after_kb(candidate_text)
                     chunk_to_emit = trimmed_text[len(full_text):]
                     if chunk_to_emit:
                         full_text = trimmed_text
+                        output_tokens += estimate_output_tokens(chunk_to_emit)
                         yield f"data: {json.dumps({'text': chunk_to_emit})}\n\n"
+                    if output_tokens >= next_token_update:
+                        yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
+                        next_token_update += 250
                     if stopped_repetition:
                         safe_log("Stopped repeated analysis loop after KB update.")
                         yield f"data: {json.dumps({'status': 'Zastavil som opakovanie analýzy po KB sekcii.'})}\n\n"

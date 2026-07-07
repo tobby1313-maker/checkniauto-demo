@@ -1,52 +1,56 @@
-## Token Tracker Implementation Plan
+# Header Actions + Recent Analyses Dashboard
 
-I'll implement a comprehensive token tracking system for the Gemini API calls.
+## Summary
+- Add two permanent header buttons to the demo app: `Nová Analýza` and `Dashboard`.
+- `Nová Analýza` returns the UI to the analyzer landing state, clears the current rendered result, and closes any dashboard overlay/detail state.
+- `Dashboard` opens a right-side slide-over panel. Its default view is a newest-first list of recent ads that already have a saved `analysis_result.md`.
+- Clicking a card opens a dedicated detail view inside the slide-over with listing summary data, numbered original-image gallery, rendered saved analysis, and an `Otvoriť v hlavnom výsledku` action to load that saved analysis back into the main result area.
 
-### Architecture
+## Implementation Changes
+- Frontend:
+  - Replace the temporary runtime-created `+ New listing` button with permanent header actions and add SK/EN translation keys for both buttons plus dashboard empty/error/detail labels.
+  - Add a slide-over panel with three UI states: list, detail, and loading/error. On desktop it opens from the right; on mobile it becomes full-screen.
+  - Extend client state to track `dashboardOpen`, `dashboardListings`, `dashboardSelectedSlug`, `currentAnalysisSlug`, and the latest saved analysis content.
+  - Capture `slug` from demo SSE `status` and `done` events during analysis so the just-finished run can be reopened without re-analysis.
+  - Reuse the existing markdown renderer for dashboard detail and for hydrating the main result panel when `Otvoriť v hlavnom výsledku` is clicked.
+  - Show a small dashboard note that recent analyses are temporary and can disappear after demo cleanup.
 
-**1. New `token_tracker.py` module** - Core tracking logic
-- Track per-request: model, timestamp, input tokens, output tokens, status, duration
-- Store usage in `token_usage.json` in AUTA_DIR
-- Thread-safe with file locking
-- Methods: `record_request()`, `get_stats()`, `get_recent_requests()`
+- Backend:
+  - Keep the private `/api/listings*` routes blocked in demo mode; add demo-safe read-only history routes instead.
+  - Add `GET /api/demo/listings` for dashboard cards. Return only listings with a saved `analysis_result.md`, sorted newest first, with card-safe fields and prebuilt image URLs.
+  - Add `GET /api/demo/listings/<slug>` for dashboard detail. Return parsed listing info, source URL, scraped time, ordered image URLs, and saved `analysis_content`.
+  - Add a demo-safe image route such as `GET /api/demo/listings/<slug>/image/<filename>` so thumbnails and gallery images work without opening the private routes.
+  - Factor shared file-loading/image-serving helpers so demo and private endpoints use the same logic and validation.
 
-**2. Integration in `llm_client.py`**
-- Add token estimation for requests (system_prompt + user_content + images)
-- Count actual output tokens from streaming response
-- Wrap `_call_gemini()` and `run_grounded_web_research()` with tracking
+- Dashboard card/detail behavior:
+  - List cards show first image, title, price, year, mileage, photo count, and scraped timestamp.
+  - Detail view shows metadata first, then numbered original photos in stored order, then the rendered saved analysis below.
+  - If a listing was cleaned up by TTL between list load and detail open, show a friendly “analysis no longer available” message and return to the list.
 
-**3. Integration in `web_server.py`**
-- Add `/api/token-usage` endpoint returning JSON stats
-- Pass listing slug to tracker for per-listing attribution
-- Stream token updates during analysis (e.g., "Tokens sent: X, received: Y")
+## Public API / Interface Additions
+- `GET /api/demo/listings`
+  - Returns: `slug`, `title`, `price`, `currency`, `year`, `mileage`, `vin`, `photos_count`, `scraped_at`, `sort_timestamp`, `first_image_url`, `has_analysis`.
+- `GET /api/demo/listings/<slug>`
+  - Returns: `slug`, `parsed`, `source_url`, `scraped_at`, `images` (ordered image URLs + filenames), `analysis_content`.
+- Header UI adds permanent `Nová Analýza` and `Dashboard` actions.
+- Dashboard detail adds `Otvoriť v hlavnom výsledku` to restore a saved analysis into the existing output panel with copy/download/PDF enabled.
 
-**4. Simple Dashboard UI**
-- Add new page/tab showing token statistics
-- Table with recent API calls (model, tokens sent/received, cost estimate, timestamp)
-- Summary cards (total requests today, total tokens, estimated cost)
-- Per-listing breakdown
+## Test Plan
+- Backend:
+  - Verify demo listings endpoint returns only folders with `analysis_result.md`.
+  - Verify newest-first ordering still prefers `scraped_at` and falls back to mtime.
+  - Verify demo detail returns `404` for missing/expired listings or listings without saved analysis.
+  - Verify demo image route rejects traversal and serves only files inside the target listing image folder.
 
-### Token Counting Strategy
+- Frontend manual:
+  - Run a supported URL analysis and confirm the finished item appears in Dashboard immediately.
+  - Run a manual listing with uploaded photos and confirm the dashboard detail shows the gallery in the same order.
+  - Open Dashboard, open a card, confirm saved analysis renders, then click `Otvoriť v hlavnom výsledku` and confirm the main result panel is populated without rerunning AI.
+  - Use `Nová Analýza` from both result mode and dashboard-open state and confirm the app resets cleanly.
+  - Check responsive behavior so the panel is usable on mobile and does not break the sticky header.
 
-Since Gemini API doesn't always return exact token counts in streaming mode, we'll:
-- **Input**: Approximate via `len(text) / 4` for text, base64 byte count for images
-- **Output**: Count characters received and divide by 4 (rough char-to-token ratio)
-- Log actual API response usage metadata when available
-
-### File Changes Required
-
-- **New**: `token_tracker.py` (~150 lines)
-- **Modify**: `llm_client.py` (~30 lines added)
-- **Modify**: `web_server.py` (~50 lines added for endpoint + streaming updates)
-- **New**: `web/token-dashboard.html` (simple stats page)
-
-### Safety Considerations
-- No modifications to existing analysis logic
-- Tracking is additive and can be disabled
-- Uses existing AUTA_DIR for storage
-- Thread-safe file operations
-
-Does this approach match your expectations? Should I add any specific features like:
-- Per-day quota warnings?
-- Cost estimation in EUR?
-- Export to CSV?
+## Assumptions
+- Dashboard scope is `finished analyses only`.
+- The dashboard stays temporary; no change to `DEMO_JOB_TTL_MINUTES` or long-term persistence is included.
+- v1 dashboard detail uses original listing photos, not the `.analysis_images` collage set.
+- The main result area remains the source of truth for copy/Markdown/PDF actions; dashboard detail is for browsing and reopening saved analyses.

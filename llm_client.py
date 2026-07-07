@@ -15,6 +15,8 @@ import re
 import sys
 import time
 
+from token_tracker import default_tracker, estimate_output_tokens, estimate_request_tokens, estimate_text_tokens
+
 
 def _configure_console_encoding():
     """Prefer UTF-8 console output, but never fail app startup over logging."""
@@ -59,7 +61,7 @@ GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 
 
 
-def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None):
+def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None):
     """
     Send a request to Google Gemini and yield response chunks.
     """
@@ -72,6 +74,7 @@ def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_
         user_content,
         image_data_list=image_data_list,
         model=model,
+        listing_slug=listing_slug,
     )
 
 
@@ -192,7 +195,7 @@ def _clean_citation_label(value: str) -> str:
     return label[:120]
 
 
-def run_grounded_web_research(api_key: str, listing_context: str, model: str = None) -> str:
+def run_grounded_web_research(api_key: str, listing_context: str, model: str = None, listing_slug: str = None) -> str:
     """Run a text-only Gemini Interactions API pass with Google Search grounding."""
     if not api_key or not api_key.strip():
         raise ApiKeyError("API kluc nie je nastaveny. Pridaj ho v Nastaveniach.")
@@ -208,6 +211,8 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
     unavailable_models = []
 
     for candidate_model in model_candidates:
+        started_at = time.perf_counter()
+        input_tokens = estimate_text_tokens(prompt)
         payload = {
             "model": candidate_model,
             "input": prompt,
@@ -226,8 +231,28 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
                 timeout=120,
             )
         except requests.exceptions.Timeout:
+            default_tracker.record_request(
+                model=candidate_model,
+                request_type="grounded_search",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="timeout",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error="Google Search grounding timeout.",
+            )
             raise ConnectionError("Google Search grounding casovy limit (120s).")
         except requests.exceptions.ConnectionError:
+            default_tracker.record_request(
+                model=candidate_model,
+                request_type="grounded_search",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="connection_error",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error="Google Search grounding connection error.",
+            )
             raise ConnectionError("Nie je pripojenie k internetu pre Google Search grounding.")
 
         last_error_text = response.text[:600] if response.text else ""
@@ -244,18 +269,48 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
 
         if response.status_code == 429:
             detail = last_error_text[:300].replace("\n", " ").strip()
+            default_tracker.record_request(
+                model=candidate_model,
+                request_type="grounded_search",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="rate_limited",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=detail,
+            )
             raise RateLimitError(
                 "Gemini Google Search grounding limit prekroceny."
                 + (f" Detail: {detail}" if detail else "")
             )
 
         if response.status_code in {401, 403}:
+            default_tracker.record_request(
+                model=candidate_model,
+                request_type="grounded_search",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="auth_error",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=last_error_text[:200],
+            )
             raise ApiKeyError(
                 f"Google Search grounding odmietol API kluc (HTTP {response.status_code}). "
                 f"Gemini odpoved: {last_error_text[:200]}"
             )
 
         if response.status_code != 200:
+            default_tracker.record_request(
+                model=candidate_model,
+                request_type="grounded_search",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status=f"http_{response.status_code}",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=last_error_text[:300],
+            )
             break
 
         try:
@@ -269,6 +324,16 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
             raise ConnectionError(f"Gemini Google Search grounding chyba: {message}")
 
         research_text = _extract_interaction_text_and_citations(data)
+        output_text = research_text or "Google Search grounding prebehol, ale nevratil pouzitelny text."
+        default_tracker.record_request(
+            model=candidate_model,
+            request_type="grounded_search",
+            listing_slug=listing_slug,
+            input_tokens=input_tokens,
+            output_tokens=estimate_output_tokens(output_text),
+            status="success",
+            duration_ms=round((time.perf_counter() - started_at) * 1000),
+        )
         if research_text:
             return research_text
         return "Google Search grounding prebehol, ale nevratil pouzitelny text."
@@ -284,7 +349,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
     )
 
 
-def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None):
+def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None):
     """Call Google Gemini API with proper system_instruction support.
     
     Args:
@@ -344,7 +409,12 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
         response = None
         unavailable_errors = []
         error_text = ""
+        started_at = time.perf_counter()
+        request_model = model_to_use
+        input_tokens = estimate_request_tokens(system_prompt, user_content, image_data_list)
         for candidate_model in model_candidates:
+            request_model = candidate_model
+            started_at = time.perf_counter()
             url = f"{GEMINI_API_BASE}/{candidate_model}:streamGenerateContent?key={api_key.strip()}&alt=sse"
             response = requests.post(
                 url,
@@ -375,6 +445,16 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
 
         if response is not None and response.status_code == 503:
             tried_models = ", ".join(model for model, _ in unavailable_errors)
+            default_tracker.record_request(
+                model=request_model,
+                request_type="stream_generate_content",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="unavailable",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=error_text[:300],
+            )
             raise RateLimitError(
                 "⚠️ Gemini je momentálne preťažený (HTTP 503: high demand). "
                 f"Skúsil som tieto modely: {tried_models}. "
@@ -385,6 +465,16 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
             # Check if it's actually a quota/rate limit or something else
             if "quota" in error_text.lower() or "rate limit" in error_text.lower():
                 if image_data_list:
+                    default_tracker.record_request(
+                        model=request_model,
+                        request_type="stream_generate_content",
+                        listing_slug=listing_slug,
+                        input_tokens=input_tokens,
+                        output_tokens=0,
+                        status="rate_limited_retrying_text_only",
+                        duration_ms=round((time.perf_counter() - started_at) * 1000),
+                        error=error_text[:300],
+                    )
                     safe_log("Gemini quota/rate limit hit with images; retrying text-only.")
                     yield (
                         "\n\n⚠️ **Gemini narazil na limit pri spracovaní fotografií. "
@@ -401,10 +491,21 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                         text_only_content,
                         image_data_list=None,
                         model=model_to_use,
+                        listing_slug=listing_slug,
                     )
                     return
 
                 detail = error_text[:300].replace("\n", " ").strip()
+                default_tracker.record_request(
+                    model=request_model,
+                    request_type="stream_generate_content",
+                    listing_slug=listing_slug,
+                    input_tokens=input_tokens,
+                    output_tokens=0,
+                    status="rate_limited",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000),
+                    error=detail,
+                )
                 raise RateLimitError(
                     "⚠️ Gemini API limit prekročený. Môže ísť o per-minute, per-model, "
                     "tokenový alebo denný quota limit, nie nutne o počet požiadaviek. "
@@ -413,6 +514,16 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                 )
             else:
                 # 429 might actually be an auth error
+                default_tracker.record_request(
+                    model=request_model,
+                    request_type="stream_generate_content",
+                    listing_slug=listing_slug,
+                    input_tokens=input_tokens,
+                    output_tokens=0,
+                    status="auth_error",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000),
+                    error=error_text[:300],
+                )
                 raise ApiKeyError(
                     f"❌ Prístup zamietnutý (HTTP 429). API kľúč je pravdepodobne neplatný alebo expirovaný.\n\n"
                     f"Gemini odpoveď: {error_text[:200]}\n\n"
@@ -423,6 +534,16 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                 )
 
         if response.status_code == 401 or response.status_code == 403:
+            default_tracker.record_request(
+                model=request_model,
+                request_type="stream_generate_content",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="auth_error",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=error_text[:300],
+            )
             raise ApiKeyError(
                 f"❌ Google Gemini API kľúč je neplatný (HTTP {response.status_code}).\n\n"
                 f"Gemini odpoveď: {error_text[:200]}\n\n"
@@ -430,6 +551,16 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
             )
 
         if response.status_code != 200:
+            default_tracker.record_request(
+                model=request_model,
+                request_type="stream_generate_content",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status=f"http_{response.status_code}",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=error_text[:300],
+            )
             raise ConnectionError(
                 f"❌ Google Gemini chyba API ({response.status_code}): {error_text}"
             )
@@ -439,6 +570,8 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
         
         # Parse SSE stream
         full_text = ""
+        actual_prompt_tokens = None
+        actual_output_tokens = None
         for line in response.iter_lines():
             if isinstance(line, bytes):
                 line = line.decode('utf-8')
@@ -451,6 +584,18 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
 
             try:
                 data = json.loads(data_str)
+                usage_metadata = data.get("usageMetadata") or data.get("usage_metadata") or {}
+                if usage_metadata:
+                    actual_prompt_tokens = (
+                        usage_metadata.get("promptTokenCount")
+                        or usage_metadata.get("prompt_token_count")
+                        or actual_prompt_tokens
+                    )
+                    actual_output_tokens = (
+                        usage_metadata.get("candidatesTokenCount")
+                        or usage_metadata.get("candidates_token_count")
+                        or actual_output_tokens
+                    )
                 
                 # Check for errors in the response
                 if "error" in data:
@@ -485,11 +630,43 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
             except json.JSONDecodeError:
                 continue
 
+        default_tracker.record_request(
+            model=request_model,
+            request_type="stream_generate_content",
+            listing_slug=listing_slug,
+            input_tokens=input_tokens,
+            output_tokens=estimate_output_tokens(full_text),
+            actual_input_tokens=actual_prompt_tokens,
+            actual_output_tokens=actual_output_tokens,
+            status="success",
+            duration_ms=round((time.perf_counter() - started_at) * 1000),
+        )
+
     except requests.exceptions.Timeout:
+        default_tracker.record_request(
+            model=locals().get("request_model", model if model else GEMINI_MODEL),
+            request_type="stream_generate_content",
+            listing_slug=listing_slug,
+            input_tokens=locals().get("input_tokens", estimate_request_tokens(system_prompt, user_content, image_data_list)),
+            output_tokens=0,
+            status="timeout",
+            duration_ms=round((time.perf_counter() - locals().get("started_at", time.perf_counter())) * 1000),
+            error="Gemini API timeout.",
+        )
         raise ConnectionError(
             "❌ Google Gemini API časový limit (120s). Skús znova alebo skontroluj internet."
         )
     except requests.exceptions.ConnectionError:
+        default_tracker.record_request(
+            model=locals().get("request_model", model if model else GEMINI_MODEL),
+            request_type="stream_generate_content",
+            listing_slug=listing_slug,
+            input_tokens=locals().get("input_tokens", estimate_request_tokens(system_prompt, user_content, image_data_list)),
+            output_tokens=0,
+            status="connection_error",
+            duration_ms=round((time.perf_counter() - locals().get("started_at", time.perf_counter())) * 1000),
+            error="Gemini API connection error.",
+        )
         raise ConnectionError(
             "❌ Nie je pripojenie k internetu. Skontroluj sieť pre Google API."
         )

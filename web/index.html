@@ -141,6 +141,14 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .language-select,
@@ -610,8 +618,17 @@
                 justify-content: space-between;
             }
 
+            .nav-actions {
+                width: 100%;
+            }
+
+            .nav-actions .btn {
+                flex: 1;
+            }
+
             .language-select {
                 flex: 1;
+                min-width: 0;
             }
 
             .layout,
@@ -635,6 +652,31 @@
 
             .result-tools {
                 justify-content: flex-start;
+            }
+
+            .dashboard-panel {
+                width: 100%;
+            }
+
+            .dashboard-body {
+                padding: 14px;
+            }
+
+            .dashboard-card {
+                grid-template-columns: 88px minmax(0, 1fr);
+            }
+
+            .dashboard-card-thumb,
+            .dashboard-card-placeholder {
+                width: 88px;
+            }
+
+            .dashboard-meta-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .dashboard-result {
+                padding: 18px;
             }
         }
 
@@ -943,12 +985,280 @@
             align-items: center;
         }
 
+        .dashboard-shell {
+            position: fixed;
+            inset: 0;
+            z-index: 80;
+            pointer-events: none;
+        }
+
+        .dashboard-backdrop {
+            position: absolute;
+            inset: 0;
+            border: 0;
+            background: rgba(18, 24, 32, 0.46);
+            opacity: 0;
+            transition: opacity 180ms ease;
+        }
+
+        .dashboard-panel {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: min(540px, 100vw);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+            border-left: 1px solid var(--line);
+            box-shadow: 0 30px 80px rgba(18, 24, 32, 0.24);
+            transform: translateX(100%);
+            transition: transform 220ms ease;
+        }
+
+        .dashboard-shell.open {
+            pointer-events: auto;
+        }
+
+        .dashboard-shell.open .dashboard-backdrop {
+            opacity: 1;
+        }
+
+        .dashboard-shell.open .dashboard-panel {
+            transform: translateX(0);
+        }
+
+        .dashboard-head {
+            padding: 18px 20px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .dashboard-head strong {
+            display: block;
+            font-size: 18px;
+            line-height: 1.15;
+        }
+
+        .dashboard-head span {
+            display: block;
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .dashboard-body {
+            flex: 1;
+            overflow: auto;
+            padding: 18px;
+            background: color-mix(in srgb, var(--surface) 96%, transparent);
+        }
+
+        .dashboard-status {
+            margin-bottom: 14px;
+            padding: 12px 14px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface-soft);
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .dashboard-status.error {
+            border-color: color-mix(in srgb, var(--danger) 26%, var(--line));
+            color: var(--danger);
+        }
+
+        .dashboard-view {
+            display: grid;
+            gap: 14px;
+        }
+
+        .dashboard-note {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .dashboard-cards {
+            display: grid;
+            gap: 12px;
+        }
+
+        .dashboard-card {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--surface);
+            display: grid;
+            grid-template-columns: 96px minmax(0, 1fr);
+            gap: 12px;
+            text-align: left;
+            box-shadow: 0 10px 26px rgba(18, 24, 32, 0.07);
+            transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .dashboard-card:hover {
+            transform: translateY(-1px);
+            border-color: color-mix(in srgb, var(--orange) 40%, var(--line));
+            box-shadow: 0 16px 34px rgba(18, 24, 32, 0.12);
+        }
+
+        .dashboard-card.active {
+            border-color: var(--orange);
+            box-shadow: 0 0 0 1px var(--orange-soft), 0 16px 34px rgba(18, 24, 32, 0.12);
+        }
+
+        .dashboard-card-thumb,
+        .dashboard-card-placeholder {
+            width: 96px;
+            aspect-ratio: 4 / 3;
+            border-radius: 10px;
+            object-fit: cover;
+            background: var(--surface-soft);
+        }
+
+        .dashboard-card-placeholder {
+            display: grid;
+            place-items: center;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .dashboard-card-copy {
+            display: grid;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .dashboard-card-title {
+            font-size: 15px;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .dashboard-card-price {
+            color: var(--orange-dark);
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .dashboard-card-facts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 10px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .dashboard-card-time {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .dashboard-empty {
+            padding: 18px;
+            border: 1px dashed var(--line);
+            border-radius: 12px;
+            background: var(--surface);
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .dashboard-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .dashboard-meta-item {
+            padding: 12px 13px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface);
+        }
+
+        .dashboard-meta-item span {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .dashboard-meta-item strong,
+        .dashboard-meta-item a {
+            display: block;
+            margin-top: 6px;
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
+        .dashboard-meta-item a {
+            color: var(--orange);
+        }
+
+        .dashboard-gallery {
+            display: grid;
+            gap: 12px;
+        }
+
+        .dashboard-gallery-item {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            overflow: hidden;
+            background: var(--surface);
+        }
+
+        .dashboard-gallery-item img {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+            background: var(--surface-soft);
+        }
+
+        .dashboard-gallery-label {
+            padding: 10px 12px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .dashboard-detail-tools {
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .dashboard-result {
+            min-height: 0;
+            padding: 20px 22px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--surface);
+            box-shadow: none;
+        }
+
         @media print {
             .topbar,
             .layout,
             .log-panel,
             .panel-head .status,
-            .result-tools {
+            .result-tools,
+            .dashboard-shell {
                 display: none !important;
             }
 
@@ -989,6 +1299,10 @@
                 </button>
 
                 <div class="nav-tools">
+                    <div class="nav-actions">
+                        <button class="btn ghost small" id="newAnalysisBtn" type="button">Nova analyza</button>
+                        <button class="btn ghost small" id="dashboardBtn" type="button">Dashboard</button>
+                    </div>
                     <select id="outputLanguage" class="language-select" aria-label="Jazyk vystupu">
                         <option value="sk">Slovencina</option>
                         <option value="en">English</option>
@@ -1080,6 +1394,39 @@
         </main>
     </div>
 
+    <div class="dashboard-shell" id="dashboardShell" aria-hidden="true">
+        <button class="dashboard-backdrop" id="dashboardBackdrop" type="button" aria-label="Close dashboard"></button>
+        <aside class="dashboard-panel" aria-labelledby="dashboardTitle" aria-modal="true" role="dialog">
+            <div class="dashboard-head">
+                <div>
+                    <strong id="dashboardTitle">Dashboard</strong>
+                    <span id="dashboardSubtitle">Nedavne analyzy</span>
+                </div>
+                <button class="btn ghost small" id="dashboardCloseBtn" type="button">Zavriet</button>
+            </div>
+            <div class="dashboard-body">
+                <div class="dashboard-status hidden" id="dashboardStatus"></div>
+
+                <section class="dashboard-view" id="dashboardListView">
+                    <p class="dashboard-note" id="dashboardNote">Nedavne analyzy su docasne a po demo cleanup-e mozu zmiznut.</p>
+                    <div class="dashboard-cards" id="dashboardCards"></div>
+                </section>
+
+                <section class="dashboard-view hidden" id="dashboardDetailView">
+                    <div class="dashboard-detail-tools">
+                        <button class="btn ghost small" id="dashboardBackBtn" type="button">Spat na zoznam</button>
+                    </div>
+                    <div class="dashboard-meta-grid" id="dashboardMeta"></div>
+                    <div class="dashboard-gallery" id="dashboardGallery"></div>
+                    <div class="dashboard-detail-tools">
+                        <button class="btn" id="dashboardOpenMainBtn" type="button">Otvorit v hlavnom vysledku</button>
+                    </div>
+                    <article class="result dashboard-result" id="dashboardResult" data-empty=""></article>
+                </section>
+            </div>
+        </aside>
+    </div>
+
     <!-- Progress Overlay -->
     <div id="progressOverlay">
         <div class="backdrop"></div>
@@ -1133,6 +1480,23 @@
         const pdfBtn = document.querySelector("#pdfBtn");
         const outputLanguage = document.querySelector("#outputLanguage");
         const imagesInput = document.querySelector("#images");
+        const newAnalysisBtn = document.querySelector("#newAnalysisBtn");
+        const dashboardBtn = document.querySelector("#dashboardBtn");
+        const dashboardShell = document.querySelector("#dashboardShell");
+        const dashboardBackdrop = document.querySelector("#dashboardBackdrop");
+        const dashboardCloseBtn = document.querySelector("#dashboardCloseBtn");
+        const dashboardTitleEl = document.querySelector("#dashboardTitle");
+        const dashboardSubtitleEl = document.querySelector("#dashboardSubtitle");
+        const dashboardStatusEl = document.querySelector("#dashboardStatus");
+        const dashboardNoteEl = document.querySelector("#dashboardNote");
+        const dashboardListView = document.querySelector("#dashboardListView");
+        const dashboardCardsEl = document.querySelector("#dashboardCards");
+        const dashboardDetailView = document.querySelector("#dashboardDetailView");
+        const dashboardBackBtn = document.querySelector("#dashboardBackBtn");
+        const dashboardMetaEl = document.querySelector("#dashboardMeta");
+        const dashboardGalleryEl = document.querySelector("#dashboardGallery");
+        const dashboardResultEl = document.querySelector("#dashboardResult");
+        const dashboardOpenMainBtn = document.querySelector("#dashboardOpenMainBtn");
         const submitButtons = [document.querySelector("#urlSubmit"), document.querySelector("#manualSubmit")];
         const maxManualImages = 12;
         const analyzerSection = document.querySelector("#analyzerSection");
@@ -1143,6 +1507,15 @@
         let resultText = "";
         let currentLanguage = outputLanguage.value || "sk";
         let abortController = null;
+        let dashboardOpen = false;
+        let dashboardListings = [];
+        let dashboardSelectedSlug = "";
+        let dashboardDetail = null;
+        let dashboardStatusText = "";
+        let dashboardStatusError = false;
+        let dashboardLoading = false;
+        let currentAnalysisSlug = "";
+        let latestSavedAnalysisContent = "";
 
         const carJargon = {
             sk: [
@@ -1205,6 +1578,28 @@
                 manualSubmit: "Analyzovat",
                 progressTitle: "Priebeh",
                 resultTitle: "Vysledok",
+                newAnalysis: "Nova analyza",
+                dashboard: "Dashboard",
+                dashboardTitle: "Dashboard",
+                dashboardSubtitle: "Nedavne analyzy",
+                dashboardClose: "Zavriet",
+                dashboardBack: "Spat na zoznam",
+                dashboardOpenMain: "Otvorit v hlavnom vysledku",
+                dashboardNote: "Nedavne analyzy su docasne a po demo cleanup-e mozu zmiznut.",
+                dashboardLoading: "Nacitavam nedavne analyzy...",
+                dashboardLoadingDetail: "Nacitavam ulozenu analyzu...",
+                dashboardEmpty: "Zatial tu nie je ziadna dokoncena analyza.",
+                dashboardUnavailable: "Analyza uz nie je k dispozicii. Pravdepodobne ju odstranil demo cleanup.",
+                dashboardLoadedStatus: "Ulozena analyza otvorena",
+                dashboardPrice: "Cena",
+                dashboardYear: "Rok",
+                dashboardMileage: "Najazd",
+                dashboardVin: "VIN",
+                dashboardPhotos: "Fotky",
+                dashboardScraped: "Stiahnute",
+                dashboardSource: "Zdroj",
+                dashboardNoPhotos: "Bez fotiek",
+                dashboardPhotoLabel: (index) => "Foto " + index,
                 copy: "Kopirovat",
                 resultEmpty: "Vysledok analyzy sa zobrazi tu.",
                 ready: "Pripravene",
@@ -1239,6 +1634,28 @@
                 manualSubmit: "Analyse",
                 progressTitle: "Progress",
                 resultTitle: "Result",
+                newAnalysis: "New analysis",
+                dashboard: "Dashboard",
+                dashboardTitle: "Dashboard",
+                dashboardSubtitle: "Recent analyses",
+                dashboardClose: "Close",
+                dashboardBack: "Back to list",
+                dashboardOpenMain: "Open in main result",
+                dashboardNote: "Recent analyses are temporary and may disappear after demo cleanup.",
+                dashboardLoading: "Loading recent analyses...",
+                dashboardLoadingDetail: "Loading saved analysis...",
+                dashboardEmpty: "There are no finished analyses yet.",
+                dashboardUnavailable: "This saved analysis is no longer available. It was likely removed by demo cleanup.",
+                dashboardLoadedStatus: "Saved analysis opened",
+                dashboardPrice: "Price",
+                dashboardYear: "Year",
+                dashboardMileage: "Mileage",
+                dashboardVin: "VIN",
+                dashboardPhotos: "Photos",
+                dashboardScraped: "Scraped",
+                dashboardSource: "Source",
+                dashboardNoPhotos: "No photos",
+                dashboardPhotoLabel: (index) => "Photo " + index,
                 copy: "Copy",
                 resultEmpty: "The analysis result will appear here.",
                 ready: "Ready",
@@ -1287,16 +1704,322 @@
             setText("#manualSubmit", tr("manualSubmit"));
             setText(".log-panel .panel-head strong", tr("progressTitle"));
             setText(".output-panel .panel-head strong", tr("resultTitle"));
+            setText("#newAnalysisBtn", tr("newAnalysis"));
+            setText("#dashboardBtn", tr("dashboard"));
+            setText("#dashboardTitle", tr("dashboardTitle"));
+            setText("#dashboardSubtitle", tr("dashboardSubtitle"));
+            setText("#dashboardCloseBtn", tr("dashboardClose"));
+            setText("#dashboardBackBtn", tr("dashboardBack"));
+            setText("#dashboardOpenMainBtn", tr("dashboardOpenMain"));
+            setText("#dashboardNote", tr("dashboardNote"));
             setText("#copyBtn", tr("copy"));
 
             document.querySelector("#title").placeholder = tr("titlePlaceholder");
             document.querySelector("#sourceUrl").placeholder = tr("sourceUrlPlaceholder");
             document.querySelector("#manualText").placeholder = tr("manualTextPlaceholder");
             resultEl.dataset.empty = tr("resultEmpty");
+            dashboardResultEl.dataset.empty = "";
 
             if (!resultText && !logEl.textContent.trim()) {
                 statusEl.textContent = tr("ready");
             }
+
+            renderDashboard();
+        }
+
+        function formatNumber(value) {
+            const number = Number(value);
+            if (!Number.isFinite(number)) return "";
+            return new Intl.NumberFormat(currentLanguage === "en" ? "en-US" : "sk-SK").format(number);
+        }
+
+        function formatPrice(value, currency) {
+            if (!value) return "—";
+            return formatNumber(value) + " " + (currency || "EUR");
+        }
+
+        function formatValue(value) {
+            return value || "—";
+        }
+
+        function updateResultActions() {
+            const hasContent = !!resultText;
+            copyBtn.disabled = !hasContent;
+            downloadBtn.disabled = !hasContent;
+            pdfBtn.disabled = !hasContent;
+        }
+
+        function renderMainResult(content, options) {
+            const settings = options || {};
+            resultText = String(content || "");
+            if (Object.prototype.hasOwnProperty.call(settings, "slug")) {
+                currentAnalysisSlug = settings.slug || "";
+            }
+            if (resultText) {
+                latestSavedAnalysisContent = resultText;
+            }
+            resultEl.innerHTML = mdToHtml(resultText);
+            updateResultActions();
+        }
+
+        function clearRenderedAnalysis() {
+            resultText = "";
+            currentAnalysisSlug = "";
+            latestSavedAnalysisContent = "";
+            resultEl.innerHTML = "";
+            updateResultActions();
+        }
+
+        function syncBodyScrollLock() {
+            const overlayActive = document.getElementById("progressOverlay").classList.contains("active");
+            document.body.style.overflow = overlayActive || dashboardOpen ? "hidden" : "";
+        }
+
+        function setDashboardStatus(message, isError) {
+            dashboardStatusText = message || "";
+            dashboardStatusError = !!isError;
+        }
+
+        function escapeCardText(value) {
+            return escapeHtml(value || "");
+        }
+
+        function renderDashboardCards() {
+            if (!dashboardListings.length) {
+                dashboardCardsEl.innerHTML = '<div class="dashboard-empty">' + escapeCardText(tr("dashboardEmpty")) + '</div>';
+                return;
+            }
+
+            dashboardCardsEl.innerHTML = dashboardListings.map((listing) => {
+                const imageHtml = listing.first_image_url
+                    ? '<img class="dashboard-card-thumb" src="' + escapeAttribute(listing.first_image_url) + '" alt="' + escapeAttribute(listing.title || listing.slug) + '">'
+                    : '<div class="dashboard-card-placeholder">' + escapeCardText(tr("dashboardNoPhotos")) + '</div>';
+                const facts = [
+                    listing.year,
+                    listing.mileage,
+                    (listing.photos_count || 0) ? String(listing.photos_count) + " " + tr("dashboardPhotos").toLowerCase() : ""
+                ].filter(Boolean);
+                const active = listing.slug === currentAnalysisSlug || listing.slug === dashboardSelectedSlug ? " active" : "";
+                return '' +
+                    '<button class="dashboard-card' + active + '" type="button" data-dashboard-slug="' + escapeAttribute(listing.slug) + '">' +
+                        imageHtml +
+                        '<div class="dashboard-card-copy">' +
+                            '<div class="dashboard-card-title">' + escapeCardText(listing.title || listing.slug) + '</div>' +
+                            '<div class="dashboard-card-price">' + escapeCardText(formatPrice(listing.price, listing.currency)) + '</div>' +
+                            '<div class="dashboard-card-facts">' + facts.map((fact) => '<span>' + escapeCardText(fact) + '</span>').join("") + '</div>' +
+                            '<div class="dashboard-card-time">' + escapeCardText(formatValue(listing.scraped_at)) + '</div>' +
+                        '</div>' +
+                    '</button>';
+            }).join("");
+
+            dashboardCardsEl.querySelectorAll("[data-dashboard-slug]").forEach((button) => {
+                button.addEventListener("click", () => openDashboardDetail(button.getAttribute("data-dashboard-slug") || ""));
+            });
+        }
+
+        function renderDashboardDetail() {
+            if (!dashboardDetail) {
+                dashboardMetaEl.innerHTML = "";
+                dashboardGalleryEl.innerHTML = "";
+                dashboardResultEl.innerHTML = "";
+                return;
+            }
+
+            const parsed = dashboardDetail.parsed || {};
+            const metaItems = [
+                [tr("dashboardPrice"), formatPrice(parsed.price, parsed.currency)],
+                [tr("dashboardYear"), parsed.specs?.Year || ""],
+                [tr("dashboardMileage"), parsed.specs?.Mileage || ""],
+                [tr("dashboardVin"), parsed.vin || ""],
+                [tr("dashboardPhotos"), String(parsed.photos_count || dashboardDetail.images?.length || 0)],
+                [tr("dashboardScraped"), dashboardDetail.scraped_at || ""]
+            ];
+
+            if (dashboardDetail.source_url) {
+                metaItems.push([tr("dashboardSource"), dashboardDetail.source_url, true]);
+            }
+
+            dashboardMetaEl.innerHTML = metaItems.map((item) => {
+                if (item[2]) {
+                    return '' +
+                        '<div class="dashboard-meta-item">' +
+                            '<span>' + escapeCardText(item[0]) + '</span>' +
+                            '<a href="' + escapeAttribute(item[1]) + '" target="_blank" rel="noopener">' + escapeCardText(item[1]) + '</a>' +
+                        '</div>';
+                }
+                return '' +
+                    '<div class="dashboard-meta-item">' +
+                        '<span>' + escapeCardText(item[0]) + '</span>' +
+                        '<strong>' + escapeCardText(formatValue(item[1])) + '</strong>' +
+                    '</div>';
+            }).join("");
+
+            const images = Array.isArray(dashboardDetail.images) ? dashboardDetail.images : [];
+            if (!images.length) {
+                dashboardGalleryEl.innerHTML = '<div class="dashboard-empty">' + escapeCardText(tr("dashboardNoPhotos")) + '</div>';
+            } else {
+                dashboardGalleryEl.innerHTML = images.map((image, index) => {
+                    const photoLabel = translations[currentLanguage]?.dashboardPhotoLabel?.(index + 1) || translations.sk.dashboardPhotoLabel(index + 1);
+                    return '' +
+                        '<div class="dashboard-gallery-item">' +
+                            '<img src="' + escapeAttribute(image.url) + '" alt="' + escapeAttribute((parsed.title || dashboardDetail.slug || "listing") + " " + (index + 1)) + '">' +
+                            '<div class="dashboard-gallery-label">' + escapeCardText(photoLabel) + '</div>' +
+                        '</div>';
+                }).join("");
+            }
+
+            dashboardResultEl.innerHTML = mdToHtml(dashboardDetail.analysis_content || "");
+        }
+
+        function renderDashboard() {
+            dashboardShell.classList.toggle("open", dashboardOpen);
+            dashboardShell.setAttribute("aria-hidden", dashboardOpen ? "false" : "true");
+            dashboardTitleEl.textContent = tr("dashboardTitle");
+            dashboardSubtitleEl.textContent = dashboardDetail?.parsed?.title || tr("dashboardSubtitle");
+            dashboardNoteEl.textContent = tr("dashboardNote");
+            dashboardCloseBtn.textContent = tr("dashboardClose");
+            dashboardBackBtn.textContent = tr("dashboardBack");
+            dashboardOpenMainBtn.textContent = tr("dashboardOpenMain");
+
+            dashboardStatusEl.classList.toggle("hidden", !dashboardStatusText);
+            dashboardStatusEl.classList.toggle("error", dashboardStatusError);
+            dashboardStatusEl.textContent = dashboardStatusText;
+
+            const showDetail = !!dashboardDetail;
+            dashboardListView.classList.toggle("hidden", showDetail);
+            dashboardDetailView.classList.toggle("hidden", !showDetail);
+
+            if (!showDetail) {
+                renderDashboardCards();
+            } else {
+                renderDashboardDetail();
+            }
+
+            syncBodyScrollLock();
+        }
+
+        async function fetchJson(url, options) {
+            const response = await fetch(url, options);
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = new Error(payload.error || ("Request failed (" + response.status + ")"));
+                error.status = response.status;
+                throw error;
+            }
+            return payload;
+        }
+
+        async function refreshDashboardListings(options) {
+            const settings = options || {};
+            dashboardLoading = true;
+            if (!settings.silent) {
+                dashboardDetail = null;
+                dashboardSelectedSlug = "";
+                setDashboardStatus(tr("dashboardLoading"), false);
+                renderDashboard();
+            }
+
+            try {
+                const listings = await fetchJson("/api/demo/listings");
+                dashboardListings = Array.isArray(listings) ? listings : [];
+                if (!dashboardSelectedSlug) {
+                    dashboardDetail = null;
+                }
+                if (!settings.silent) {
+                    setDashboardStatus("", false);
+                }
+            } catch (error) {
+                if (!settings.silent || dashboardOpen) {
+                    setDashboardStatus(error.message || tr("dashboardLoading"), true);
+                }
+            } finally {
+                dashboardLoading = false;
+                if (dashboardOpen) {
+                    renderDashboard();
+                }
+            }
+        }
+
+        async function openDashboardDetail(slug) {
+            if (!slug) return;
+            dashboardSelectedSlug = slug;
+            dashboardDetail = null;
+            setDashboardStatus(tr("dashboardLoadingDetail"), false);
+            renderDashboard();
+
+            try {
+                dashboardDetail = await fetchJson("/api/demo/listings/" + encodeURIComponent(slug));
+                setDashboardStatus("", false);
+            } catch (error) {
+                dashboardSelectedSlug = "";
+                dashboardDetail = null;
+                if (error.status === 404) {
+                    setDashboardStatus(tr("dashboardUnavailable"), true);
+                    await refreshDashboardListings({ silent: true });
+                } else {
+                    setDashboardStatus(error.message || tr("dashboardLoadingDetail"), true);
+                }
+            } finally {
+                renderDashboard();
+            }
+        }
+
+        function closeDashboard() {
+            dashboardOpen = false;
+            dashboardDetail = null;
+            dashboardSelectedSlug = "";
+            setDashboardStatus("", false);
+            renderDashboard();
+        }
+
+        async function toggleDashboard() {
+            if (dashboardOpen) {
+                closeDashboard();
+                return;
+            }
+
+            dashboardOpen = true;
+            dashboardDetail = null;
+            dashboardSelectedSlug = "";
+            setDashboardStatus(tr("dashboardLoading"), false);
+            renderDashboard();
+            await refreshDashboardListings();
+        }
+
+        function openSavedAnalysisInMain() {
+            if (!dashboardDetail?.analysis_content) return;
+            renderMainResult(dashboardDetail.analysis_content, { slug: dashboardDetail.slug || "" });
+            logEl.textContent = "";
+            statusEl.textContent = tr("dashboardLoadedStatus");
+            statusEl.classList.remove("error");
+            closeDashboard();
+            showResultMode();
+            document.querySelector("#analysis").scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function resetForms() {
+            urlForm.reset();
+            manualForm.reset();
+            setMode("url");
+        }
+
+        function resetWorkspace() {
+            clearRenderedAnalysis();
+            logEl.textContent = "";
+            statusEl.textContent = tr("ready");
+            statusEl.classList.remove("error");
+        }
+
+        function resetToLandingState() {
+            if (abortController) {
+                abortController.abort();
+                hideOverlay();
+            }
+            closeDashboard();
+            pageEl.classList.remove("result-mode");
+            resetWorkspace();
+            resetForms();
+            window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
         function initialTheme() {
@@ -1319,14 +2042,11 @@
         }
 
         function resetOutput() {
-            resultText = "";
-            resultEl.innerHTML = "";
+            clearRenderedAnalysis();
             logEl.textContent = "";
             statusEl.textContent = tr("starting");
             statusEl.classList.remove("error");
-            copyBtn.disabled = true;
-            downloadBtn.disabled = true;
-            pdfBtn.disabled = true;
+            closeDashboard();
             document.querySelector("#analysis").scrollIntoView({ behavior: "smooth", block: "start" });
             showOverlay();
         }
@@ -1341,7 +2061,6 @@
 
         function showOverlay() {
             const overlay = document.getElementById('progressOverlay');
-            document.body.style.overflow = 'hidden';
             document.getElementById('overlayCancelBtn').disabled = false;
             document.getElementById('overlayCar').style.left = '0%';
             document.getElementById('overlayProgressFill').style.width = '0%';
@@ -1352,6 +2071,7 @@
             document.querySelectorAll('.road-checkpoint').forEach(cp => cp.classList.remove('reached'));
             document.querySelectorAll('.checkpoint-labels .cl').forEach(cl => cl.classList.remove('active'));
             overlay.classList.add('active');
+            syncBodyScrollLock();
             abortController = new AbortController();
             const j = getJargon(tr('starting'), currentLanguage);
             if (j) appendOverlayLog(j.icon, j.msg);
@@ -1361,10 +2081,10 @@
         function hideOverlay() {
             const overlay = document.getElementById('progressOverlay');
             overlay.classList.remove('active');
-            document.body.style.overflow = '';
             abortController = null;
             stopFakeProgress();
             clearCheckpointTimeout();
+            syncBodyScrollLock();
         }
 
         function appendOverlayLog(icon, text, isDone) {
@@ -1518,13 +2238,13 @@
 
         function escapeHtml(value) {
             return String(value ?? '')
-                .replace(/&/g, '&amp;amp;')
-                .replace(/&lt;/g, '&lt;')
-                .replace(/&gt;/g, '&gt;');
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
         }
 
         function escapeAttribute(value) {
-            return escapeHtml(value).replace(/&quot;/g, '&quot;');
+            return escapeHtml(value).replace(/"/g, '&quot;');
         }
 
         function isBlockStartForCleanup(line) {
@@ -1769,9 +2489,7 @@
             resultText += text;
             resultEl.innerHTML = mdToHtml(resultText);
             resultEl.scrollTop = resultEl.scrollHeight;
-            copyBtn.disabled = !resultText;
-            downloadBtn.disabled = !resultText;
-            pdfBtn.disabled = !resultText;
+            updateResultActions();
         }
 
         function enforceImageLimit() {
@@ -1795,41 +2513,16 @@
 
         function showResultMode() {
             pageEl.classList.add('result-mode');
-            let newBtn = document.querySelector('#newListingBtn');
-            if (!newBtn) {
-                newBtn = document.createElement('button');
-                newBtn.id = 'newListingBtn';
-                newBtn.className = 'btn ghost small';
-                newBtn.textContent = '+ New listing';
-                newBtn.addEventListener('click', hideResultMode);
-                const navTools = document.querySelector('.nav-tools');
-                navTools.insertBefore(newBtn, navTools.firstChild);
-            }
-            newBtn.classList.remove('hidden');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function hideResultMode() {
             pageEl.classList.remove('result-mode');
-            const newBtn = document.querySelector('#newListingBtn');
-            if (newBtn) newBtn.classList.add('hidden');
-            resultText = '';
-            resultEl.innerHTML = '';
-            logEl.textContent = '';
-            statusEl.textContent = tr('ready');
-            statusEl.classList.remove('error');
-            copyBtn.disabled = true;
-            downloadBtn.disabled = true;
-            pdfBtn.disabled = true;
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function returnToLandingPage() {
-            if (abortController) {
-                abortController.abort();
-                hideOverlay();
-            }
-            hideResultMode();
+            resetToLandingState();
         }
 
         async function readSse(response) {
@@ -1843,6 +2536,7 @@
             let net = '';
             let sawDoneSignal = false;
             let fullResult = '';
+            let currentRunSlug = '';
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -1857,16 +2551,13 @@
                     const payload = line.slice(6);
                     if (payload === '[DONE]') {
                         sawDoneSignal = true;
-                        resultText = fullResult;
+                        renderMainResult(fullResult, { slug: currentRunSlug });
                         console.log('SSE assembled fullResult:', fullResult);
                         window.__debugSseResultText = resultText;
-                        resultEl.innerHTML = mdToHtml(resultText);
-                        copyBtn.disabled = false;
-                        downloadBtn.disabled = false;
-                        pdfBtn.disabled = false;
                         statusEl.textContent = tr('finish');
                         finishProgress();
                         updateProgress(100, tr('finish'));
+                        refreshDashboardListings({ silent: true }).catch(() => {});
                         setTimeout(() => {
                             hideOverlay();
                             showResultMode();
@@ -1875,11 +2566,18 @@
                     }
                     const data = JSON.parse(payload);
                     if (data.error) throw new Error(data.error);
+                    if (data.slug) {
+                        currentRunSlug = data.slug;
+                    }
                     if (data.status) {
                         statusEl.textContent = data.status;
                         appendLog(data.status);
                         const p = getProgressForStatus(data.status);
                         if (p !== null) updateProgress(p, data.status);
+                    }
+                    if (data.token_usage) {
+                        const usage = data.token_usage;
+                        appendLog('Tokens sent: ~' + (usage.input_tokens || 0) + ', received: ~' + (usage.output_tokens || 0));
                     }
                     if (data.log) appendLog(data.log);
                     if (data.line) appendLog(data.line);
@@ -1891,14 +2589,11 @@
 
             if (!sawDoneSignal) {
                 if (fullResult) {
-                    resultText = fullResult;
-                    resultEl.innerHTML = mdToHtml(resultText);
-                    copyBtn.disabled = false;
-                    downloadBtn.disabled = false;
-                    pdfBtn.disabled = false;
+                    renderMainResult(fullResult, { slug: currentRunSlug });
                     statusEl.textContent = tr('finish');
                     finishProgress();
                     updateProgress(100, tr('finish'));
+                    refreshDashboardListings({ silent: true }).catch(() => {});
                     setTimeout(() => {
                         hideOverlay();
                         showResultMode();
@@ -1994,6 +2689,22 @@
         });
 
         pdfBtn.addEventListener('click', () => window.print());
+        newAnalysisBtn.addEventListener('click', resetToLandingState);
+        dashboardBtn.addEventListener('click', () => {
+            toggleDashboard().catch((error) => {
+                setDashboardStatus(error.message || tr("dashboardLoading"), true);
+                renderDashboard();
+            });
+        });
+        dashboardBackdrop.addEventListener('click', closeDashboard);
+        dashboardCloseBtn.addEventListener('click', closeDashboard);
+        dashboardBackBtn.addEventListener('click', () => {
+            dashboardDetail = null;
+            dashboardSelectedSlug = "";
+            setDashboardStatus("", false);
+            renderDashboard();
+        });
+        dashboardOpenMainBtn.addEventListener('click', openSavedAnalysisInMain);
         urlTab.addEventListener('click', () => setMode('url'));
         manualTab.addEventListener('click', () => setMode('manual'));
         brandHomeBtn.addEventListener('click', returnToLandingPage);
