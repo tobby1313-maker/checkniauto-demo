@@ -658,6 +658,10 @@
                 width: 100%;
             }
 
+            .dashboard-resize-handle {
+                display: none;
+            }
+
             .dashboard-body {
                 padding: 14px;
             }
@@ -1016,6 +1020,44 @@
             transition: transform 220ms ease;
         }
 
+        .dashboard-shell.resizing {
+            user-select: none;
+        }
+
+        .dashboard-shell.resizing .dashboard-panel {
+            transition: none;
+        }
+
+        .dashboard-resize-handle {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 18px;
+            transform: translateX(-50%);
+            cursor: col-resize;
+            touch-action: none;
+            z-index: 2;
+        }
+
+        .dashboard-resize-handle::before {
+            content: "";
+            position: absolute;
+            top: 24px;
+            bottom: 24px;
+            left: 50%;
+            width: 4px;
+            transform: translateX(-50%);
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--line) 76%, transparent);
+            transition: background 160ms ease;
+        }
+
+        .dashboard-panel:hover .dashboard-resize-handle::before,
+        .dashboard-shell.resizing .dashboard-resize-handle::before {
+            background: color-mix(in srgb, var(--orange) 56%, var(--line));
+        }
+
         .dashboard-shell.open {
             pointer-events: auto;
         }
@@ -1294,17 +1336,17 @@
                     <img src="assets/checkni-auto-logo.png" alt="Checkni Auto logo">
                     <div>
                         <strong>Checkni Auto</strong>
-                        <span id="brandSubtitle">Vloz inzerat alebo vlastny text s fotkami. Dostanes strucnu analyzu rizik, ceny a otazok pre predajcu.</span>
+                        <span id="brandSubtitle">Vlož inzerát alebo vlastný text s fotkami. Dostaneš stručnú analýzu rizík, ceny a otázok pre predajcu.</span>
                     </div>
                 </button>
 
                 <div class="nav-tools">
                     <div class="nav-actions">
-                        <button class="btn ghost small" id="newAnalysisBtn" type="button">Nova analyza</button>
+                        <button class="btn ghost small" id="newAnalysisBtn" type="button">Nová analýza</button>
                         <button class="btn ghost small" id="dashboardBtn" type="button">Dashboard</button>
                     </div>
-                    <select id="outputLanguage" class="language-select" aria-label="Jazyk vystupu">
-                        <option value="sk">Slovencina</option>
+                    <select id="outputLanguage" class="language-select" aria-label="Jazyk výstupu">
+                        <option value="sk">Slovenčina</option>
                         <option value="en">English</option>
                     </select>
                     <button class="theme-toggle" id="themeToggle" type="button" aria-label="Prepnúť svetlý alebo tmavý režim" title="Prepnúť tému">
@@ -1322,29 +1364,29 @@
 
         <main>
             <section class="layout">
-                <section class="analyzer" id="analyzerSection" aria-label="Analyzator inzeratu">
+                <section class="analyzer" id="analyzerSection" aria-label="Analyzátor inzerátu">
                     <div class="analyzer-head">
                         <strong id="analyzerTitle">Analyzovať inzerát</strong>
                     </div>
 
                     <div class="tabs" role="tablist">
                         <button class="tab active" id="urlTab" type="button">URL</button>
-                        <button class="tab" id="manualTab" type="button">Manualne</button>
+                        <button class="tab" id="manualTab" type="button">Manuálne</button>
                     </div>
 
                     <form id="urlForm">
                         <div class="field">
                             <label for="listingUrl">Odkaz na inzerát</label>
                             <input id="listingUrl" name="url" type="url" placeholder="https://www.bazos.sk/..." autocomplete="url">
-                            <div class="hint" id="supportedHint">Podporovane: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.</div>
+                            <div class="hint" id="supportedHint">Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.</div>
                         </div>
                         <button class="btn primary" id="urlSubmit" type="submit">Analyzovať</button>
                     </form>
 
                     <form id="manualForm" class="hidden">
                         <div class="field">
-                            <label for="title">Nazov auta</label>
-                            <input id="title" name="title" placeholder="Skoda Octavia 2.0 TDI">
+                            <label for="title">Názov auta</label>
+                            <input id="title" name="title" placeholder="Škoda Octavia 2.0 TDI">
                         </div>
                         <div class="row">
                             <div class="field">
@@ -1352,18 +1394,18 @@
                                 <input id="price" name="price" inputmode="numeric" placeholder="12900">
                             </div>
                             <div class="field">
-                                <label for="sourceUrl">Zdrojovy odkaz</label>
-                                <input id="sourceUrl" name="source_url" type="url" placeholder="Volitelne">
+                                <label for="sourceUrl">Zdrojový odkaz</label>
+                                <input id="sourceUrl" name="source_url" type="url" placeholder="Voliteľné">
                             </div>
                         </div>
                         <div class="field">
-                            <label for="manualText">Text inzeratu</label>
-                            <textarea id="manualText" name="manual_text" placeholder="Vloz popis, parametre, VIN, vybavu, servisnu historiu a poznamku predajcu..."></textarea>
+                            <label for="manualText">Text inzerátu</label>
+                            <textarea id="manualText" name="manual_text" placeholder="Vlož popis, parametre, VIN, výbavu, servisnú históriu a poznámku predajcu..."></textarea>
                         </div>
                         <div class="field">
                             <label for="images">Fotky</label>
                             <input id="images" name="images" type="file" accept="image/*" multiple>
-                            <div class="hint" id="imagesHint">Maximalne 12 fotiek.</div>
+                            <div class="hint" id="imagesHint">Maximálne 12 fotiek.</div>
                         </div>
                         <button class="btn primary" id="manualSubmit" type="submit">Analyzovať</button>
                     </form>
@@ -1374,21 +1416,21 @@
                 <aside class="log-panel">
                     <div class="panel-head">
                         <strong>Priebeh</strong>
-                        <span class="status" id="status">Pripravene</span>
+                        <span class="status" id="status">Pripravené</span>
                     </div>
                     <pre class="log" id="log"></pre>
                 </aside>
 
                 <section class="output-panel">
                     <div class="panel-head">
-                        <strong>Vysledok</strong>
+                        <strong>Výsledok</strong>
                         <div class="result-tools">
                             <button class="btn" id="copyBtn" type="button" disabled>Kopírovať</button>
                             <button class="btn" id="downloadBtn" type="button" disabled>Markdown</button>
                             <button class="btn" id="pdfBtn" type="button" disabled>PDF</button>
                         </div>
                     </div>
-                    <article class="result" id="result" data-empty="Vysledok analyzy sa zobrazi tu."></article>
+                    <article class="result" id="result" data-empty="Výsledok analýzy sa zobrazí tu."></article>
                 </section>
             </section>
         </main>
@@ -1397,29 +1439,30 @@
     <div class="dashboard-shell" id="dashboardShell" aria-hidden="true">
         <button class="dashboard-backdrop" id="dashboardBackdrop" type="button" aria-label="Close dashboard"></button>
         <aside class="dashboard-panel" aria-labelledby="dashboardTitle" aria-modal="true" role="dialog">
+            <div class="dashboard-resize-handle" id="dashboardResizeHandle" aria-hidden="true"></div>
             <div class="dashboard-head">
                 <div>
                     <strong id="dashboardTitle">Dashboard</strong>
-                    <span id="dashboardSubtitle">Nedavne analyzy</span>
+                    <span id="dashboardSubtitle">Nedávne analýzy</span>
                 </div>
-                <button class="btn ghost small" id="dashboardCloseBtn" type="button">Zavriet</button>
+                <button class="btn ghost small" id="dashboardCloseBtn" type="button">Zavrieť</button>
             </div>
             <div class="dashboard-body">
                 <div class="dashboard-status hidden" id="dashboardStatus"></div>
 
                 <section class="dashboard-view" id="dashboardListView">
-                    <p class="dashboard-note" id="dashboardNote">Nedavne analyzy su docasne a po demo cleanup-e mozu zmiznut.</p>
+                    <p class="dashboard-note" id="dashboardNote">Nedávne analýzy sú dočasné a po demo cleanup-e môžu zmiznúť.</p>
                     <div class="dashboard-cards" id="dashboardCards"></div>
                 </section>
 
                 <section class="dashboard-view hidden" id="dashboardDetailView">
                     <div class="dashboard-detail-tools">
-                        <button class="btn ghost small" id="dashboardBackBtn" type="button">Spat na zoznam</button>
+                        <button class="btn ghost small" id="dashboardBackBtn" type="button">Späť na zoznam</button>
                     </div>
                     <div class="dashboard-meta-grid" id="dashboardMeta"></div>
                     <div class="dashboard-gallery" id="dashboardGallery"></div>
                     <div class="dashboard-detail-tools">
-                        <button class="btn" id="dashboardOpenMainBtn" type="button">Otvorit v hlavnom vysledku</button>
+                        <button class="btn" id="dashboardOpenMainBtn" type="button">Otvoriť v hlavnom výsledku</button>
                     </div>
                     <article class="result dashboard-result" id="dashboardResult" data-empty=""></article>
                 </section>
@@ -1431,7 +1474,7 @@
     <div id="progressOverlay">
         <div class="backdrop"></div>
         <div class="modal">
-            <div class="modal-title" id="overlayTitle">🏎️ Checkni Auto – Analyza v priebehu</div>
+            <div class="modal-title" id="overlayTitle">🏎️ Checkni Auto – Analýza v priebehu</div>
             <div class="road-wrap">
                 <div class="road-surface">
                     <div class="road-curbs top"></div>
@@ -1448,10 +1491,10 @@
             </div>
             <div class="checkpoint-labels">
                 <span class="cl" style="left:0%">Start</span>
-                <span class="cl" style="left:25%">Prva kontrola</span>
+                <span class="cl" style="left:25%">Prvá kontrola</span>
                 <span class="cl" style="left:50%">Diagnostika</span>
-                <span class="cl" style="left:75%">Detailny servis</span>
-                <span class="cl" style="left:93%">Zaverečna</span>
+                <span class="cl" style="left:75%">Detailný servis</span>
+                <span class="cl" style="left:93%">Záverečná</span>
                 <span class="cl" style="left:100%">Cieľ</span>
             </div>
             <div class="progress-track">
@@ -1460,7 +1503,7 @@
             <div class="progress-pct" id="overlayProgressPct">0%</div>
             <div class="overlay-msg" id="overlayMsg">Starting engine...</div>
             <div class="overlay-log" id="overlayLog"></div>
-            <button class="overlay-cancel" id="overlayCancelBtn">Zrusiť</button>
+            <button class="overlay-cancel" id="overlayCancelBtn">Zrušiť</button>
         </div>
     </div>
 
@@ -1485,6 +1528,8 @@
         const dashboardShell = document.querySelector("#dashboardShell");
         const dashboardBackdrop = document.querySelector("#dashboardBackdrop");
         const dashboardCloseBtn = document.querySelector("#dashboardCloseBtn");
+        const dashboardPanel = document.querySelector(".dashboard-panel");
+        const dashboardResizeHandle = document.querySelector("#dashboardResizeHandle");
         const dashboardTitleEl = document.querySelector("#dashboardTitle");
         const dashboardSubtitleEl = document.querySelector("#dashboardSubtitle");
         const dashboardStatusEl = document.querySelector("#dashboardStatus");
@@ -1516,6 +1561,13 @@
         let dashboardLoading = false;
         let currentAnalysisSlug = "";
         let latestSavedAnalysisContent = "";
+        let dashboardWidth = 540;
+        let dashboardResizeActive = false;
+
+        const DASHBOARD_WIDTH_STORAGE_KEY = "checkni-auto-dashboard-width";
+        const DASHBOARD_DEFAULT_WIDTH = 540;
+        const DASHBOARD_MIN_WIDTH = 420;
+        const DASHBOARD_VIEWPORT_GAP = 32;
 
         const carJargon = {
             sk: [
@@ -1554,59 +1606,59 @@
 
         const translations = {
             sk: {
-                documentTitle: "Checkni Auto - AI kontrola auta pred kupou",
-                languageLabel: "Jazyk vystupu",
-                brandSubtitle: "Vloz inzerat alebo vlastny text s fotkami. Dostanes strucnu analyzu rizik, ceny a otazok pre predajcu.",
-                themeLabel: "Prepnut svetly alebo tmavy rezim",
-                themeTitle: "Prepnut temu",
-                analyzerLabel: "Analyzator inzeratu",
-                analyzerTitle: "Analyzovat inzerat",
-                manualTab: "Manualne",
-                listingUrlLabel: "Odkaz na inzerat",
-                supportedHint: "Podporovane: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
-                urlSubmit: "Analyzovat",
-                titleLabel: "Nazov auta",
-                titlePlaceholder: "Skoda Octavia 2.0 TDI",
+                documentTitle: "Checkni Auto - AI kontrola auta pred kúpou",
+                languageLabel: "Jazyk výstupu",
+                brandSubtitle: "Vlož inzerát alebo vlastný text s fotkami. Dostaneš stručnú analýzu rizík, ceny a otázok pre predajcu.",
+                themeLabel: "Prepnúť svetlý alebo tmavý režim",
+                themeTitle: "Prepnúť tému",
+                analyzerLabel: "Analyzátor inzerátu",
+                analyzerTitle: "Analyzovať inzerát",
+                manualTab: "Manuálne",
+                listingUrlLabel: "Odkaz na inzerát",
+                supportedHint: "Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
+                urlSubmit: "Analyzovať",
+                titleLabel: "Názov auta",
+                titlePlaceholder: "Škoda Octavia 2.0 TDI",
                 priceLabel: "Cena v EUR",
-                sourceUrlLabel: "Zdrojovy odkaz",
-                sourceUrlPlaceholder: "Volitelne",
-                manualTextLabel: "Text inzeratu",
-                manualTextPlaceholder: "Vloz popis, parametre, VIN, vybavu, servisnu historiu a poznamku predajcu...",
+                sourceUrlLabel: "Zdrojový odkaz",
+                sourceUrlPlaceholder: "Voliteľné",
+                manualTextLabel: "Text inzerátu",
+                manualTextPlaceholder: "Vlož popis, parametre, VIN, výbavu, servisnú históriu a poznámku predajcu...",
                 imagesLabel: "Fotky",
-                imagesHint: "Maximalne 12 fotiek.",
-                tooManyImages: "Vyber najviac 12 fotiek. Ponechal som prvych 12.",
-                manualSubmit: "Analyzovat",
+                imagesHint: "Maximálne 12 fotiek.",
+                tooManyImages: "Vyber najviac 12 fotiek. Ponechal som prvých 12.",
+                manualSubmit: "Analyzovať",
                 progressTitle: "Priebeh",
-                resultTitle: "Vysledok",
-                newAnalysis: "Nova analyza",
+                resultTitle: "Výsledok",
+                newAnalysis: "Nová analýza",
                 dashboard: "Dashboard",
                 dashboardTitle: "Dashboard",
-                dashboardSubtitle: "Nedavne analyzy",
-                dashboardClose: "Zavriet",
-                dashboardBack: "Spat na zoznam",
-                dashboardOpenMain: "Otvorit v hlavnom vysledku",
-                dashboardNote: "Nedavne analyzy su docasne a po demo cleanup-e mozu zmiznut.",
-                dashboardLoading: "Nacitavam nedavne analyzy...",
-                dashboardLoadingDetail: "Nacitavam ulozenu analyzu...",
-                dashboardEmpty: "Zatial tu nie je ziadna dokoncena analyza.",
-                dashboardUnavailable: "Analyza uz nie je k dispozicii. Pravdepodobne ju odstranil demo cleanup.",
-                dashboardLoadedStatus: "Ulozena analyza otvorena",
+                dashboardSubtitle: "Nedávne analýzy",
+                dashboardClose: "Zavrieť",
+                dashboardBack: "Späť na zoznam",
+                dashboardOpenMain: "Otvoriť v hlavnom výsledku",
+                dashboardNote: "Nedávne analýzy sú dočasné a po demo cleanup-e môžu zmiznúť.",
+                dashboardLoading: "Načítavam nedávne analýzy...",
+                dashboardLoadingDetail: "Načítavam uloženú analýzu...",
+                dashboardEmpty: "Zatiaľ tu nie je žiadna dokončená analýza.",
+                dashboardUnavailable: "Analýza už nie je k dispozícii. Pravdepodobne ju odstránil demo cleanup.",
+                dashboardLoadedStatus: "Uložená analýza otvorená",
                 dashboardPrice: "Cena",
                 dashboardYear: "Rok",
-                dashboardMileage: "Najazd",
+                dashboardMileage: "Nájazd",
                 dashboardVin: "VIN",
                 dashboardPhotos: "Fotky",
-                dashboardScraped: "Stiahnute",
+                dashboardScraped: "Stiahnuté",
                 dashboardSource: "Zdroj",
                 dashboardNoPhotos: "Bez fotiek",
                 dashboardPhotoLabel: (index) => "Foto " + index,
-                copy: "Kopirovat",
-                resultEmpty: "Vysledok analyzy sa zobrazi tu.",
-                ready: "Pripravene",
+                copy: "Kopírovať",
+                resultEmpty: "Výsledok analýzy sa zobrazí tu.",
+                ready: "Pripravené",
                 starting: "Starting the engine",
                 done: "Hotovo",
                 finish: "FINISH",
-                copied: "Skopirovane",
+                copied: "Skopírované",
                 markdownFilename: "checkni-auto-analyza"
             },
             en: {
@@ -1622,7 +1674,7 @@
                 supportedHint: "Supported: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.",
                 urlSubmit: "Analyse",
                 titleLabel: "Car title",
-                titlePlaceholder: "Skoda Octavia 2.0 TDI",
+                titlePlaceholder: "Škoda Octavia 2.0 TDI",
                 priceLabel: "Price in EUR",
                 sourceUrlLabel: "Source URL",
                 sourceUrlPlaceholder: "Optional",
@@ -1770,6 +1822,66 @@
             updateResultActions();
         }
 
+        function isDashboardResizable() {
+            return window.innerWidth > 620;
+        }
+
+        function getDashboardMaxWidth() {
+            return Math.max(DASHBOARD_MIN_WIDTH, window.innerWidth - DASHBOARD_VIEWPORT_GAP);
+        }
+
+        function clampDashboardWidth(value) {
+            const numericValue = Number(value);
+            if (!Number.isFinite(numericValue)) {
+                return DASHBOARD_DEFAULT_WIDTH;
+            }
+            return Math.min(getDashboardMaxWidth(), Math.max(DASHBOARD_MIN_WIDTH, Math.round(numericValue)));
+        }
+
+        function loadDashboardWidthPreference() {
+            const savedWidth = Number(localStorage.getItem(DASHBOARD_WIDTH_STORAGE_KEY));
+            dashboardWidth = clampDashboardWidth(savedWidth || DASHBOARD_DEFAULT_WIDTH);
+        }
+
+        function applyDashboardWidth() {
+            if (!dashboardPanel) return;
+            if (!isDashboardResizable()) {
+                dashboardPanel.style.width = "100%";
+                return;
+            }
+            dashboardWidth = clampDashboardWidth(dashboardWidth);
+            dashboardPanel.style.width = dashboardWidth + "px";
+        }
+
+        function saveDashboardWidthPreference() {
+            if (!isDashboardResizable()) return;
+            localStorage.setItem(DASHBOARD_WIDTH_STORAGE_KEY, String(clampDashboardWidth(dashboardWidth)));
+        }
+
+        function stopDashboardResize() {
+            if (!dashboardResizeActive) return;
+            dashboardResizeActive = false;
+            dashboardShell.classList.remove("resizing");
+            document.body.style.cursor = "";
+            saveDashboardWidthPreference();
+        }
+
+        function handleDashboardResizeMove(event) {
+            if (!dashboardResizeActive || !isDashboardResizable()) return;
+            dashboardWidth = clampDashboardWidth(window.innerWidth - event.clientX);
+            applyDashboardWidth();
+        }
+
+        function startDashboardResize(event) {
+            if (!isDashboardResizable()) return;
+            dashboardResizeActive = true;
+            dashboardShell.classList.add("resizing");
+            document.body.style.cursor = "col-resize";
+            dashboardWidth = clampDashboardWidth(window.innerWidth - event.clientX);
+            applyDashboardWidth();
+            event.preventDefault();
+        }
+
         function syncBodyScrollLock() {
             const overlayActive = document.getElementById("progressOverlay").classList.contains("active");
             document.body.style.overflow = overlayActive || dashboardOpen ? "hidden" : "";
@@ -1874,6 +1986,7 @@
         function renderDashboard() {
             dashboardShell.classList.toggle("open", dashboardOpen);
             dashboardShell.setAttribute("aria-hidden", dashboardOpen ? "false" : "true");
+            applyDashboardWidth();
             dashboardTitleEl.textContent = tr("dashboardTitle");
             dashboardSubtitleEl.textContent = dashboardDetail?.parsed?.title || tr("dashboardSubtitle");
             dashboardNoteEl.textContent = tr("dashboardNote");
@@ -1965,6 +2078,7 @@
         }
 
         function closeDashboard() {
+            stopDashboardResize();
             dashboardOpen = false;
             dashboardDetail = null;
             dashboardSelectedSlug = "";
@@ -2015,6 +2129,7 @@
                 abortController.abort();
                 hideOverlay();
             }
+            stopDashboardResize();
             closeDashboard();
             pageEl.classList.remove("result-mode");
             resetWorkspace();
@@ -2705,6 +2820,16 @@
             renderDashboard();
         });
         dashboardOpenMainBtn.addEventListener('click', openSavedAnalysisInMain);
+        dashboardResizeHandle.addEventListener('pointerdown', startDashboardResize);
+        window.addEventListener('pointermove', handleDashboardResizeMove);
+        window.addEventListener('pointerup', stopDashboardResize);
+        window.addEventListener('pointercancel', stopDashboardResize);
+        window.addEventListener('resize', () => {
+            applyDashboardWidth();
+            if (!isDashboardResizable()) {
+                stopDashboardResize();
+            }
+        });
         urlTab.addEventListener('click', () => setMode('url'));
         manualTab.addEventListener('click', () => setMode('manual'));
         brandHomeBtn.addEventListener('click', returnToLandingPage);
@@ -2721,6 +2846,7 @@
 
         urlForm.addEventListener('submit', runUrl);
         manualForm.addEventListener('submit', runManual);
+        loadDashboardWidthPreference();
         applyLanguage(localStorage.getItem('checkni-auto-language') || outputLanguage.value);
         setTheme(initialTheme());
     </script>
