@@ -895,6 +895,36 @@ def api_listing_analysis_result(slug):
     })
 
 
+@app.route("/api/listings/<slug>/analysis-result/raw")
+def api_listing_analysis_result_raw(slug):
+    slug_dir = os.path.join(AUTA_DIR, slug)
+    raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
+    if not os.path.exists(raw_path):
+        return jsonify({"error": "Raw result not found"}), 404
+
+    with open(raw_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    return jsonify({
+        "content": content,
+    })
+
+
+@app.route("/api/demo/listings/<slug>/analysis-result/raw")
+def api_demo_listing_analysis_result_raw(slug):
+    slug_dir = os.path.join(AUTA_DIR, slug)
+    raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
+    if not os.path.exists(raw_path):
+        return jsonify({"error": "Raw result not found"}), 404
+
+    with open(raw_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    return jsonify({
+        "content": content,
+    })
+
+
 @app.route("/api/listings/<slug>/analysis-result/export")
 def api_listing_analysis_export(slug):
     slug_dir = os.path.join(AUTA_DIR, slug)
