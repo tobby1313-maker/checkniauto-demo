@@ -1304,6 +1304,21 @@
                 display: none !important;
             }
 
+            :root {
+                --bg: #ffffff;
+                --surface: #ffffff;
+                --surface-soft: #f3f4f6;
+                --text: #000000;
+                --muted: #333333;
+                --line: #dddddd;
+                --result-heading-border: #e1e5ea;
+                --result-table-header-bg: #f3f4f6;
+                --result-table-stripe: #fafafa;
+                --result-code-bg: #f3f4f6;
+                --result-block-border: #e1e5ea;
+                --result-strong: #000000;
+            }
+
             body {
                 background: #fff;
                 color: #000;
@@ -1324,6 +1339,23 @@
                 min-height: 0;
                 padding: 0;
                 overflow: visible;
+                color: #000;
+            }
+
+            .result h1,
+            .result h2,
+            .result h3,
+            .result h4,
+            .result strong,
+            .result code,
+            .result pre {
+                color: #000;
+            }
+
+            .result th,
+            .result td,
+            .result blockquote {
+                color: #000;
             }
         }
     </style>
@@ -1456,14 +1488,12 @@
                 </section>
 
                 <section class="dashboard-view hidden" id="dashboardDetailView">
-                    <div class="dashboard-detail-tools">
+                    <div class="dashboard-detail-tools" style="position: sticky; top: 0; background: var(--surface); z-index: 10; padding: 10px 0; margin: -10px 0 10px 0;">
                         <button class="btn ghost small" id="dashboardBackBtn" type="button">Späť na zoznam</button>
+                        <button class="btn primary small" id="dashboardOpenMainBtn" type="button" style="margin-left: auto;">Otvoriť v hlavnom okne</button>
                     </div>
                     <div class="dashboard-meta-grid" id="dashboardMeta"></div>
                     <div class="dashboard-gallery" id="dashboardGallery"></div>
-                    <div class="dashboard-detail-tools">
-                        <button class="btn" id="dashboardOpenMainBtn" type="button">Otvoriť v hlavnom výsledku</button>
-                    </div>
                     <article class="result dashboard-result" id="dashboardResult" data-empty=""></article>
                 </section>
             </div>
