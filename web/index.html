@@ -1857,9 +1857,8 @@
                     const payload = line.slice(6);
                     if (payload === '[DONE]') {
                         sawDoneSignal = true;
-                        resultText = cleanBrokenText(fullResult);
+                        resultText = fullResult;
                         console.log('SSE assembled fullResult:', fullResult);
-                        console.log('SSE cleaned resultText:', resultText);
                         window.__debugSseResultText = resultText;
                         resultEl.innerHTML = mdToHtml(resultText);
                         copyBtn.disabled = false;
@@ -1892,7 +1891,7 @@
 
             if (!sawDoneSignal) {
                 if (fullResult) {
-                    resultText = cleanBrokenText(fullResult);
+                    resultText = fullResult;
                     resultEl.innerHTML = mdToHtml(resultText);
                     copyBtn.disabled = false;
                     downloadBtn.disabled = false;

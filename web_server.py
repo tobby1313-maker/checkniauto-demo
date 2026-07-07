@@ -1564,11 +1564,8 @@ Use the web verification above only when it contains concrete evidence. Never in
             yield f"data: {json.dumps({'status': 'Generating analysis...'})}\n\n"
             for chunk in _call_gemini(api_key, system_prompt, analysis_user_content, image_data_list):
                 full_text += chunk
-                public_chunk = _strip_kb_section(full_text)
-                already_public = _strip_kb_section(full_text[:-len(chunk)] if chunk else full_text)
-                emit = public_chunk[len(already_public):]
-                if emit:
-                    yield f"data: {json.dumps({'text': emit})}\n\n"
+                if chunk:
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
 
             raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
             with open(raw_path, "w", encoding="utf-8") as f:
