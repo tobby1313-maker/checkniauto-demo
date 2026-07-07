@@ -28,6 +28,8 @@ def validate_vin(vin: str) -> dict:
         "wmi": "", "manufacturer": "", "vds": "", "vis": "",
         "model_year_hint": None, "region": "", "plant_hint": "",
         "check_digit_valid": False,
+        "check_digit_policy": "unknown",
+        "check_digit_severity": "error",
     }
 
     if not vin or not isinstance(vin, str):
@@ -55,34 +57,46 @@ def validate_vin(vin: str) -> dict:
     vis = cleaned[9:17]
     manufacturer = WMI_MAP.get(wmi, "Unknown/Unmapped")
 
-    year_char = cleaned[9]
-    year_hint = None
-    if year_char in MODEL_YEAR_MAP:
-        year_hint = MODEL_YEAR_MAP[year_char]
-    elif year_char in MODEL_YEAR_MAP_LEGACY:
-        year_hint = MODEL_YEAR_MAP_LEGACY[year_char]
-
     region = REGION_MAP.get(wmi[0], "Unknown")
     plant_key = wmi + cleaned[3]
     plant_hint = PLANT_MAP.get(plant_key, "")
+    check_digit_policy = _check_digit_policy(region)
+    check_digit_severity = _check_digit_severity(check_digit_valid, check_digit_policy)
+
+    year_char = cleaned[9]
+    year_hint = None
+    if check_digit_policy == "mandatory_na":
+        if year_char in MODEL_YEAR_MAP:
+            year_hint = MODEL_YEAR_MAP[year_char]
+        elif year_char in MODEL_YEAR_MAP_LEGACY:
+            year_hint = MODEL_YEAR_MAP_LEGACY[year_char]
 
     result.update({
-        "vin": cleaned, "valid": check_digit_valid,
+        "vin": cleaned, "valid": True,
         "wmi": wmi, "manufacturer": manufacturer,
         "vds": vds, "vis": vis,
         "model_year_hint": year_hint,
         "region": region, "plant_hint": plant_hint,
         "check_digit_valid": check_digit_valid,
+        "check_digit_policy": check_digit_policy,
+        "check_digit_severity": check_digit_severity,
     })
 
     if check_digit_valid:
         result["validation_message"] = (
-            f"Valid checksum. Manufacturer: {manufacturer}. Region: {region}."
+            f"VIN parsed successfully. Valid checksum. Manufacturer: {manufacturer}. Region: {region}."
         )
     else:
-        result["validation_message"] = (
-            "Invalid check digit (position 9). Possible typo or fraudulent VIN."
-        )
+        if check_digit_policy == "mandatory_na":
+            result["validation_message"] = (
+                "VIN parsed successfully, but the check digit does not match standard ISO 3779 validation. "
+                "For North American VINs this mismatch is more likely to indicate an invalid VIN."
+            )
+        else:
+            result["validation_message"] = (
+                "VIN parsed successfully. The North American check digit does not match, but European/rest-of-world "
+                "VINs often do not use that convention; this alone should not be treated as a risk."
+            )
 
     return result
 
@@ -112,7 +126,14 @@ def vin_to_markdown(vin_info: dict) -> str:
         return ""
 
     valid = vin_info.get("valid", False)
-    status_icon = "✅" if valid else "❌"
+    severity = vin_info.get("check_digit_severity", "error")
+    if valid and severity == "warning":
+        status_icon = "[WARN]"
+    elif valid:
+        status_icon = "[OK]"
+    else:
+        status_icon = "[INVALID]"
+
     lines = ["## VIN Validation", "",
              "| Field | Value |", "|-------|-------|",
              f"| **VIN** | `{vin_info['vin']}` |",
@@ -129,10 +150,30 @@ def vin_to_markdown(vin_info: dict) -> str:
         lines.append(f"| **Model year (approx)** | {vin_info['model_year_hint']} |")
     if vin_info.get("plant_hint"):
         lines.append(f"| **Assembly plant** | {vin_info['plant_hint']} |")
-    ck = '✅ Valid' if vin_info.get('check_digit_valid') else '❌ Invalid'
+    if vin_info.get('check_digit_valid'):
+        ck = 'Valid'
+    elif vin_info.get('check_digit_severity') == 'info':
+        ck = 'Not matched / optional outside North America'
+    else:
+        ck = 'Invalid'
     lines.append(f"| **Check digit (pos 9)** | {ck} |")
     lines.append("")
     return "\n".join(lines)
+
+
+def _check_digit_policy(region: str) -> str:
+    """Return how strongly the ISO/SAE check digit should be interpreted."""
+    if region in {"USA", "Canada", "Mexico"}:
+        return "mandatory_na"
+    return "optional_row"
+
+
+def _check_digit_severity(check_digit_valid: bool, policy: str) -> str:
+    if check_digit_valid:
+        return "ok"
+    if policy == "mandatory_na":
+        return "warning"
+    return "info"
 
 
 def _verify_check_digit(vin: str) -> bool:
