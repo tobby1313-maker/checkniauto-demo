@@ -1858,6 +1858,9 @@
                     if (payload === '[DONE]') {
                         sawDoneSignal = true;
                         resultText = cleanBrokenText(fullResult);
+                        console.log('SSE assembled fullResult:', fullResult);
+                        console.log('SSE cleaned resultText:', resultText);
+                        window.__debugSseResultText = resultText;
                         resultEl.innerHTML = mdToHtml(resultText);
                         copyBtn.disabled = false;
                         downloadBtn.disabled = false;

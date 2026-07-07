@@ -933,11 +933,13 @@ def api_listing_analysis_export(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        content = _strip_kb_section(f.read())
+        stripped_content = _strip_kb_section(f.read())
+
+    embedded_content = _embed_collage_images(stripped_content, slug)
 
     return jsonify({
         "title": slug.replace("-", " ").title(),
-        "content": content,
+        "content": embedded_content,
     })
 
 
@@ -1131,6 +1133,31 @@ def prepare_llm_images(slug_dir):
         f for f in sorted(os.listdir(images_dir))
         if _is_supported_image(f) and os.path.isfile(os.path.join(images_dir, f))
     ]
+
+    try:
+        from PIL import Image  # noqa
+        _have_pillow = True
+    except ImportError:
+        _have_pillow = False
+        safe_log("Pillow not installed - sending original photos directly to Gemini (no collaging).")
+
+    if not _have_pillow:
+        _mimes = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".bmp": "image/bmp", ".avif": "image/avif"}
+        _out = []
+        _sent = 0
+        for _f in originals:
+            if _sent >= MAX_ANALYSIS_IMAGES:
+                break
+            _fp = os.path.join(images_dir, _f)
+            _mt = _mimes.get(os.path.splitext(_f)[1].lower(), "image/jpeg")
+            try:
+                with open(_fp, "rb") as _fb:
+                    _out.append((_f, base64.b64encode(_fb.read()).decode("utf-8"), _mt))
+                _sent += 1
+            except Exception as _e:
+                safe_log(f"Warning: could not read {_f}: {_e}")
+        return _out, {"original_count": len(originals), "selected_count": _sent, "collage_count": 0, "optimized_files": [_n for _n, _, _ in _out], "collage_groups": [], "error": "Pillow missing; sent original photos."}
+
     selected_indices = _select_representative_indices(len(originals))
     analysis_dir = os.path.join(slug_dir, ".analysis_images")
     os.makedirs(analysis_dir, exist_ok=True)
@@ -1164,8 +1191,6 @@ def prepare_llm_images(slug_dir):
                 "source_path": source_path,
             })
             selected_originals.append(original_name)
-        except ImportError:
-            raise
         except Exception as e:
             safe_log(f"Warning: Could not read image {original_name}: {e}")
 
@@ -1451,6 +1476,31 @@ def _strip_kb_section(text):
 
     text = text.replace("<!-- END_ANALYSIS -->", "")
     return text.rstrip() + "\n"
+
+
+def _embed_collage_images(content, slug):
+    """
+    Embed collage images into the analysis content for PDF/HTML export.
+    Returns the content with image markdown references added.
+    """
+    analysis_dir = os.path.join(AUTA_DIR, slug, ".analysis_images")
+    if not os.path.isdir(analysis_dir):
+        return content
+
+    collage_files = sorted([
+        f for f in os.listdir(analysis_dir)
+        if f.endswith(".jpg") or f.endswith(".png")
+    ])
+
+    if not collage_files:
+        return content
+
+    # Build image section to prepend to the analysis
+    image_section = "\n\n## 📸 Fotografie z inzerátu\n\n"
+    for collage in collage_files:
+        image_section += f"![{collage}]({slug}/analysis-image/{collage})\n\n"
+
+    return image_section + content
 
 
 @app.route("/healthz")
