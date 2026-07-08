@@ -1,0 +1,45 @@
+{
+  "title": "Backend Risk Score Output",
+  "type": "object",
+  "required": [
+    "risk_score",
+    "allowed_final_verdict",
+    "applied_rules",
+    "override_rules_applied",
+    "missing_data_flags",
+    "buyer_priority_checks"
+  ],
+  "properties": {
+    "risk_score": { "type": "integer", "minimum": 0 },
+    "allowed_final_verdict": { "type": "string" },
+    "applied_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule": { "type": "string" },
+          "points": { "type": "integer" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "override_rules_applied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule": { "type": "string" },
+          "effect": { "type": "string" }
+        }
+      }
+    },
+    "missing_data_flags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "buyer_priority_checks": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

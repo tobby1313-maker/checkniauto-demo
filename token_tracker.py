@@ -1,4 +1,4 @@
-"""Token usage tracking for Gemini API calls."""
+"""Token usage tracking for Gemini and Grok API calls."""
 
 from __future__ import annotations
 

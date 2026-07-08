@@ -27,7 +27,7 @@ from flask import Flask, jsonify, send_from_directory, request, Response, stream
 from werkzeug.utils import secure_filename
 
 # LLM Client for AI analysis
-from llm_client import analyze_with_llm, extract_kb_save_blocks, RateLimitError, ApiKeyError
+from llm_client import analyze_with_llm, analyze_with_grok, extract_kb_save_blocks, RateLimitError, ApiKeyError, GrokApiKeyError
 from token_tracker import default_tracker, estimate_output_tokens, estimate_request_tokens
 
 # Alias for backward compatibility - backup API keys will be managed in llm_client.py
@@ -1870,156 +1870,198 @@ def api_demo_analyze_manual():
 @app.route("/api/analyze/<slug>", methods=["POST"])
 def api_analyze(slug):
     """
-    Run AI analysis on a listing.
-    Uses Google Gemini only.
-    Expects JSON body: {"api_key": "..."}
-    Returns SSE stream of the analysis text.
+    Run AI analysis on a listing using the 3-stage pipeline:
+      1. Grok text + research (text-only)
+      2. Gemini vision (collage images only)
+      3. Grok final synthesis (tools OFF)
+
+    Expects JSON body: {"grok_api_key": "...", "gemini_api_key": "..."}
+    Returns SSE stream of progress and final report.
     """
     data = request.get_json()
-    if not data or "api_key" not in data:
-        return jsonify({"error": "Chýba API kľúč. Pridaj ho v Nastaveniach."}), 400
+    if not data:
+        return jsonify({"error": "Chýba požiadavka. Pošli oba API kľúče."}), 400
 
-    api_key = data["api_key"].strip()
-    if not api_key:
-        return jsonify({"error": "Chýba Gemini API kľúč. Pridaj ho v Nastaveniach."}), 400
+    grok_key = (data.get("grok_api_key") or "").strip()
+    gemini_key = (data.get("gemini_api_key") or "").strip()
+
+    if not grok_key:
+        return jsonify({"error": "Chýba Grok API kľúč (GROK_API_KEY)."}), 400
+    if not gemini_key:
+        return jsonify({"error": "Chýba Gemini API kľúč (GEMINI_API_KEY)."}), 400
 
     slug_dir = os.path.join(AUTA_DIR, slug)
     if not os.path.isdir(slug_dir):
         return jsonify({"error": "Inzerát nenájdený"}), 404
 
-    prompt_version = data.get("prompt_version", "v3")
-    system_prompt, user_content, image_data_list = _build_analysis_payload(slug_dir, slug, prompt_version)
-    if system_prompt is None:
-        return jsonify({"error": user_content}), 400
-
     def generate():
         try:
-            full_text = ""
-            
+            from llm_client import _call_gemini, _call_grok, run_grounded_web_research
+
+            # Read listing data
+            car_info_path = os.path.join(slug_dir, "car_info.md")
+            if not os.path.exists(car_info_path):
+                yield f"data: {json.dumps({'error': 'car_info.md not found.'})}\n\n"
+                return
+            with open(car_info_path, "r", encoding="utf-8") as f:
+                car_info_text = f.read()
+
+            # ── Stage 1: Grok Text + Research ──
+            yield f"data: {json.dumps({'status': '📝 Fáza 1/3: Textová analýza cez Grok...'})}\n\n"
+
+            # Read the Grok text research prompt
+            grok_text_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "grok_text_research_system.md")
+            if not os.path.exists(grok_text_prompt_path):
+                yield f"data: {json.dumps({'error': 'grok_text_research_system.md not found.'})}\n\n"
+                return
+            with open(grok_text_prompt_path, "r", encoding="utf-8") as f:
+                grok_text_system_prompt = f.read()
+
+            grok_text_content = f"Listing data:\n\n{car_info_text}"
+
+            grok_research_json_text = ""
             try:
-                from llm_client import _call_gemini, run_grounded_web_research
-
-                analysis_user_content = user_content
-                if prompt_version == "v3":
-                    yield f"data: {json.dumps({'status': 'Spustam webove overenie cez Gemini Google Search...'})}\n\n"
-                    try:
-                        grounded_research = run_grounded_web_research(api_key, user_content, listing_slug=slug)
-                        if grounded_research:
-                            analysis_user_content = f"""{user_content}
-
----
-
-## 🌐 WEBOVÉ OVERENIE CEZ GEMINI GOOGLE SEARCH
-
-{grounded_research}
-
----
-
-## ✅ DOPLŇUJÚCA INŠTRUKCIA PRE FINÁLNU ANALÝZU:
-Použi webové overenie vyššie ako zdroj s dôkazom `Web / Google Search`.
-Cituj konkrétne URL iba z tejto sekcie. Ak webové overenie niečo nenašlo, nepredstieraj opak.
-"""
-                            yield f"data: {json.dumps({'status': 'Webove overenie hotove. Spustam finalnu obrazovu analyzu...'})}\n\n"
-                    except Exception as grounding_error:
-                        grounding_warning = (
-                            "⚠️ Webové overenie cez Google Search sa nepodarilo. "
-                            f"Pokračujem bez online zdrojov. Detail: {str(grounding_error)}"
-                        )
-                        safe_log(grounding_warning)
-                        analysis_user_content = f"""{user_content}
-
----
-
-## 🌐 WEBOVÉ OVERENIE CEZ GEMINI GOOGLE SEARCH
-
-{grounding_warning}
-
----
-
-## ✅ DOPLŇUJÚCA INŠTRUKCIA PRE FINÁLNU ANALÝZU:
-Online zdroje nie sú dostupné. Nepredstieraj webové overenie ani nevymýšľaj URL.
-"""
-                        yield f"data: {json.dumps({'status': grounding_warning})}\n\n"
-
-                input_tokens = estimate_request_tokens(system_prompt, analysis_user_content, image_data_list)
-                output_tokens = 0
-                next_token_update = 250
-                yield f"data: {json.dumps({'status': f'Tokens sent: ~{input_tokens}. Generujem analyzu...'})}\n\n"
-                yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
-
-                for chunk in _call_gemini(api_key, system_prompt, analysis_user_content, image_data_list, listing_slug=slug):
-                    candidate_text = full_text + chunk
-                    trimmed_text, stopped_repetition = _trim_repeated_analysis_after_kb(candidate_text)
-                    chunk_to_emit = trimmed_text[len(full_text):]
-                    if chunk_to_emit:
-                        full_text = trimmed_text
-                        output_tokens += estimate_output_tokens(chunk_to_emit)
-                        yield f"data: {json.dumps({'text': chunk_to_emit})}\n\n"
-                    if output_tokens >= next_token_update:
-                        yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
-                        next_token_update += 250
-                    if stopped_repetition:
-                        safe_log("Stopped repeated analysis loop after KB update.")
-                        yield f"data: {json.dumps({'status': 'Zastavil som opakovanie analýzy po KB sekcii.'})}\n\n"
-                        break
-
-                # Save complete result
-                full_text, _ = _trim_repeated_analysis_after_kb(full_text)
-                result_path = os.path.join(slug_dir, "analysis_result.md")
-                with open(result_path, "w", encoding="utf-8") as f:
-                    f.write(full_text)
-
-                # Check for KB save blocks
-                kb_blocks = extract_kb_save_blocks(full_text)
-                saved_kb = []
-                if kb_blocks:
-                    try:
-                        saved_kb = _save_kb_blocks(kb_blocks)
-                        if saved_kb:
-                            kb_autosave_path = os.path.join(slug_dir, "kb_autosave.json")
-                            with open(kb_autosave_path, "w", encoding="utf-8") as f:
-                                json.dump(
-                                    {
-                                        "saved_at": datetime.now().isoformat(timespec="seconds"),
-                                        "saved": saved_kb,
-                                    },
-                                    f,
-                                    indent=2,
-                                    ensure_ascii=False,
-                                )
-                            saved_names = ", ".join(
-                                f"{item['category']}/{item['filename']}"
-                                for item in saved_kb
-                            )
-                            yield f"data: {json.dumps({'status': f'KB záznamy automaticky uložené: {saved_names}'})}\n\n"
-                    except Exception as e:
-                        safe_log(f"KB autosave error: {e}")
-                        yield f"data: {json.dumps({'status': f'⚠️ Analýza je hotová, ale automatické uloženie KB zlyhalo: {str(e)}'})}\n\n"
-
-                yield f"data: {json.dumps({'done': True, 'has_kb_blocks': len(kb_blocks) > 0, 'saved_kb': saved_kb})}\n\n"
-                
-            except ApiKeyError as e:
-                yield f"data: {json.dumps({'error': str(e), 'api_key_error': True})}\n\n"
-                return
-            except RateLimitError as e:
-                yield f"data: {json.dumps({'error': str(e), 'rate_limited': True})}\n\n"
-                return
-            except ConnectionError as e:
-                yield f"data: {json.dumps({'error': str(e), 'connection_error': True})}\n\n"
+                for chunk in _call_grok(grok_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
+                    grok_research_json_text += chunk
+                # Save intermediate JSON
+                grok_json_path = os.path.join(slug_dir, "grok_research.json")
+                with open(grok_json_path, "w", encoding="utf-8") as f:
+                    f.write(grok_research_json_text)
+                yield f"data: {json.dumps({'status': '✅ Textová analýza hotová.'})}\n\n"
+            except (GrokApiKeyError, ApiKeyError) as e:
+                yield f"data: {json.dumps({'error': f'Grok API chyba: {str(e)}'})}\n\n"
                 return
             except Exception as e:
-                # Catch any other exceptions during API call
-                import traceback
-                error_detail = f"{str(e)}\n{traceback.format_exc()}"
-                safe_log(f"ERROR in generate(): {error_detail}")  # Debug log
-                yield f"data: {json.dumps({'error': f'❌ Chyba API: {str(e)}'})}\n\n"
+                yield f"data: {json.dumps({'error': f'Grok text analysis failed: {str(e)}. Skúšam Gemini fallback...'})}\n\n"
+                # Fallback: use Gemini for text too
+                grok_research_json_text = f'{{"error": "Grok unavailable", "fallback": true, "message": "{str(e)}"}}'
+
+            # ── Stage 1b: Web Research via Gemini (optional, runs in parallel conceptually) ──
+            web_research_text = ""
+            try:
+                yield f"data: {json.dumps({'status': '🌐 Spúšťam webové overenie cez Gemini...'})}\n\n"
+                grounded = run_grounded_web_research(gemini_key, car_info_text, listing_slug=slug)
+                if grounded:
+                    web_research_text = grounded
+                    web_research_path = os.path.join(slug_dir, "web_research.md")
+                    with open(web_research_path, "w", encoding="utf-8") as f:
+                        f.write(grounded)
+                    yield f"data: {json.dumps({'status': '✅ Webové overenie hotové.'})}\n\n"
+            except Exception as e:
+                safe_log(f"Web research warning: {e}")
+                yield f"data: {json.dumps({'status': 'Webové overenie nedostupné, pokračujem bez neho.'})}\n\n"
+
+            # ── Stage 2: Gemini Vision ──
+            yield f"data: {json.dumps({'status': '📸 Fáza 2/3: Vizuálna analýza cez Gemini...'})}\n\n"
+
+            # Read the Gemini vision prompt
+            vision_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "gemini_vision_system.md")
+            if not os.path.exists(vision_prompt_path):
+                yield f"data: {json.dumps({'error': 'gemini_vision_system.md not found.'})}\n\n"
+                return
+            with open(vision_prompt_path, "r", encoding="utf-8") as f:
+                vision_system_prompt = f.read()
+
+            # Prepare image collages
+            image_data_list, _image_meta = prepare_llm_images(slug_dir)
+            vision_content = f"Listing details:\n\n{car_info_text}"
+
+            vision_result_json = ""
+            if image_data_list:
+                try:
+                    for chunk in _call_gemini(gemini_key, vision_system_prompt, vision_content, image_data_list=image_data_list, listing_slug=slug):
+                        vision_result_json += chunk
+                    # Save intermediate JSON
+                    vision_json_path = os.path.join(slug_dir, "gemini_vision.json")
+                    with open(vision_json_path, "w", encoding="utf-8") as f:
+                        f.write(vision_result_json)
+                    yield f"data: {json.dumps({'status': '✅ Vizuálna analýza hotová.'})}\n\n"
+                except Exception as e:
+                    safe_log(f"Gemini vision error: {e}")
+                    vision_result_json = '{"photos_provided": false, "visual_verdict": "Nedostatočné fotografie", "photo_limitations": ["Fotografie sa nepodarilo spoľahlivo analyzovať."]}'
+                    yield f"data: {json.dumps({'status': '⚠️ Vizuálna analýza zlyhala, pokračujem bez nej.'})}\n\n"
+            else:
+                vision_result_json = '{"photos_provided": false, "visual_verdict": "Nedostatočné fotografie", "photo_limitations": []}'
+                yield f"data: {json.dumps({'status': 'ℹ️ Žiadne fotografie na analýzu.'})}\n\n"
+
+            # ── Stage 3: Grok Final Synthesis ──
+            yield f"data: {json.dumps({'status': '📋 Fáza 3/3: Generujem finálnu správu cez Grok...'})}\n\n"
+
+            final_synthesis_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "grok_final_synthesis_system.md")
+            if not os.path.exists(final_synthesis_prompt_path):
+                yield f"data: {json.dumps({'error': 'grok_final_synthesis_system.md not found.'})}\n\n"
+                return
+            with open(final_synthesis_prompt_path, "r", encoding="utf-8") as f:
+                final_system_prompt = f.read()
+
+            web_section = ""
+            if web_research_text:
+                web_section = f"\n## Webové overenie\n{web_research_text}\n"
+
+            final_content = f"""## Original listing data
+{car_info_text}
+
+## Grok text/research JSON
+{grok_research_json_text}
+
+## Gemini vision JSON
+{vision_result_json}
+{web_section}
+"""
+
+            full_report = ""
+            try:
+                for chunk in _call_grok(grok_key, final_system_prompt, final_content, listing_slug=slug):
+                    full_report += chunk
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
+            except (GrokApiKeyError, ApiKeyError) as e:
+                yield f"data: {json.dumps({'error': f'Grok final synthesis chyba: {str(e)}'})}\n\n"
+                return
+            except Exception as e:
+                yield f"data: {json.dumps({'error': f'Final synthesis failed: {str(e)}'})}\n\n"
                 return
 
+            # Save result
+            result_path = os.path.join(slug_dir, "analysis_result.md")
+            raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
+            with open(raw_path, "w", encoding="utf-8") as f:
+                f.write(full_report)
+            public_text = _strip_kb_section(full_report)
+            with open(result_path, "w", encoding="utf-8") as f:
+                f.write(public_text)
+
+            # Check for KB save blocks
+            kb_blocks = extract_kb_save_blocks(full_report)
+            saved_kb = []
+            if kb_blocks:
+                try:
+                    saved_kb = _save_kb_blocks(kb_blocks)
+                    if saved_kb:
+                        kb_autosave_path = os.path.join(slug_dir, "kb_autosave.json")
+                        with open(kb_autosave_path, "w", encoding="utf-8") as f:
+                            json.dump(
+                                {
+                                    "saved_at": datetime.now().isoformat(timespec="seconds"),
+                                    "saved": saved_kb,
+                                },
+                                f,
+                                indent=2,
+                                ensure_ascii=False,
+                            )
+                        saved_names = ", ".join(
+                            f"{item['category']}/{item['filename']}"
+                            for item in saved_kb
+                        )
+                        yield f"data: {json.dumps({'status': f'KB záznamy automaticky uložené: {saved_names}'})}\n\n"
+                except Exception as e:
+                    safe_log(f"KB autosave error: {e}")
+
+            yield f"data: {json.dumps({'done': True, 'has_kb_blocks': len(kb_blocks) > 0, 'saved_kb': saved_kb})}\n\n"
+
         except Exception as e:
-            # Catch any exceptions in the generator itself
             import traceback
             error_detail = f"{str(e)}\n{traceback.format_exc()}"
-            safe_log(f"CRITICAL ERROR in generate(): {error_detail}")  # Debug log
+            safe_log(f"CRITICAL ERROR in api_analyze generate(): {error_detail}")
             yield f"data: {json.dumps({'error': f'❌ Kritická chyba: {str(e)}'})}\n\n"
 
         yield "data: [DONE]\n\n"
