@@ -75,12 +75,13 @@ LLM_COLLAGE_CELL_SIZE = 896
 LLM_COLLAGE_LABEL_HEIGHT = 34
 LLM_COLLAGE_MARGIN = 10
 LLM_COLLAGE_QUALITY = 90
-LLM_IMAGE_END_POSITION = 0.98
+LLM_IMAGE_END_POSITION = 1.0
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".avif"}
 SUPPORTED_SCRAPER_HOSTS = ("autobazar.eu", "autobazar.sk", "bazos.sk", "bazos.cz")
 UNSUPPORTED_DEMO_HOSTS = ("mobile.de",)
 MAX_MANUAL_IMAGES = int(os.environ.get("DEMO_MAX_MANUAL_IMAGES", "12"))
-DEMO_MAX_SCRAPED_IMAGES = max(1, int(os.environ.get("DEMO_MAX_SCRAPED_IMAGES", "20")))
+# 0 means unlimited downloads; the LLM payload is capped separately by MAX_ANALYSIS_IMAGES.
+DEMO_MAX_SCRAPED_IMAGES = max(0, int(os.environ.get("DEMO_MAX_SCRAPED_IMAGES", "0")))
 DEMO_PROMPT_FILE = os.environ.get("DEMO_PROMPT_FILE", "analyze_prompt_v4_koyeb.txt")
 DEMO_RATE_LIMIT_PER_IP = os.environ.get("DEMO_RATE_LIMIT_PER_IP", "3/day")
 DEMO_MAX_CONCURRENT_JOBS = max(1, int(os.environ.get("DEMO_MAX_CONCURRENT_JOBS", "1")))
@@ -1865,7 +1866,61 @@ def _model_display_name(provider):
     return "Grok" if provider == "grok" else "Gemini"
 
 
-def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk"):
+def _gemini_key_entries(gemini_keys):
+    """Normalize one or more Gemini keys into labeled, de-duplicated entries."""
+    if isinstance(gemini_keys, str):
+        raw_keys = [gemini_keys]
+    else:
+        raw_keys = list(gemini_keys or [])
+
+    entries = []
+    seen = set()
+    for key in raw_keys:
+        key = (key or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        index = len(entries)
+        label = "primary" if index == 0 else "backup" if index == 1 else f"backup {index}"
+        entries.append({"key": key, "label": label})
+    return entries
+
+
+def _gemini_retry_status(failed_entry, next_entry, phase_name, exc):
+    safe_log(
+        f"Gemini {failed_entry['label']} key failed during {phase_name}: {exc}. "
+        f"Trying {next_entry['label']} key."
+    )
+    return (
+        f"Gemini {failed_entry['label']} key failed during {phase_name}. "
+        f"Trying {next_entry['label']} Gemini key..."
+    )
+
+
+def _collect_gemini_with_key_fallback(key_entries, phase_name, stream_factory):
+    """Collect a non-user-visible Gemini stream, retrying the next key on key/quota failures."""
+    last_exc = None
+    for index, entry in enumerate(key_entries):
+        chunks = []
+        try:
+            for chunk in stream_factory(entry["key"]):
+                chunks.append(chunk)
+            return "".join(chunks), entry
+        except (ApiKeyError, RateLimitError) as exc:
+            if chunks:
+                raise
+            last_exc = exc
+            if index >= len(key_entries) - 1:
+                raise
+            status = _gemini_retry_status(entry, key_entries[index + 1], phase_name, exc)
+            yield f"data: {json.dumps({'status': status})}\n\n"
+
+    if last_exc:
+        raise last_exc
+    return "", None
+
+
+def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="sk"):
     """Run separated text/research, Gemini vision, scoring, and final synthesis."""
     slug_dir = _safe_slug_dir(slug)
     if not os.path.isdir(slug_dir):
@@ -1878,6 +1933,10 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
         return
 
     from llm_client import _call_gemini, run_grounded_web_research
+    gemini_key_entries = _gemini_key_entries(gemini_keys)
+    if not gemini_key_entries:
+        yield f"data: {json.dumps({'error': 'Gemini API keys are not configured on the server.'})}\n\n"
+        return
 
     with open(car_info_path, "r", encoding="utf-8") as f:
         car_info_text = f.read()
@@ -1885,7 +1944,11 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
     web_research_text = ""
     try:
         yield f"data: {json.dumps({'status': 'Preparing web research via Gemini Google Search...'})}\n\n"
-        grounded = run_grounded_web_research(gemini_key, car_info_text, listing_slug=slug)
+        grounded, _grounding_key = yield from _collect_gemini_with_key_fallback(
+            gemini_key_entries,
+            "web research",
+            lambda key: [run_grounded_web_research(key, car_info_text, listing_slug=slug)],
+        )
         if grounded:
             web_research_text = grounded
             with open(os.path.join(slug_dir, "web_research.md"), "w", encoding="utf-8") as f:
@@ -1896,7 +1959,6 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
         yield f"data: {json.dumps({'status': 'Web research unavailable; continuing with listing data.'})}\n\n"
 
     text_provider = "grok" if grok_key else "gemini"
-    text_key = grok_key if grok_key else gemini_key
     text_model_name = _model_display_name(text_provider)
 
     yield f"data: {json.dumps({'status': f'Phase 1/4: {text_model_name} text and research analysis...'})}\n\n"
@@ -1911,8 +1973,21 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
     grok_text_content = _build_text_research_context(car_info_text, output_language, web_research_text)
     input_tokens = estimate_request_tokens(grok_text_system_prompt, grok_text_content)
     yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': 0}})}\n\n"
-    for chunk in _stream_text_model(text_provider, text_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
-        grok_research_json_text += chunk
+    if text_provider == "gemini":
+        grok_research_json_text, _text_key = yield from _collect_gemini_with_key_fallback(
+            gemini_key_entries,
+            "text/research analysis",
+            lambda key: _call_gemini(
+                key,
+                grok_text_system_prompt,
+                grok_text_content,
+                image_data_list=None,
+                listing_slug=slug,
+            ),
+        )
+    else:
+        for chunk in _stream_text_model(text_provider, grok_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
+            grok_research_json_text += chunk
     with open(os.path.join(slug_dir, "grok_research.json"), "w", encoding="utf-8") as f:
         f.write(grok_research_json_text)
     yield f"data: {json.dumps({'status': f'{text_model_name} text/research JSON saved.'})}\n\n"
@@ -1934,14 +2009,17 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
             f"{car_info_text}"
         )
         try:
-            for chunk in _call_gemini(
-                gemini_key,
-                vision_system_prompt,
-                vision_content,
-                image_data_list=image_data_list,
-                listing_slug=slug,
-            ):
-                vision_result_json += chunk
+            vision_result_json, _vision_key = yield from _collect_gemini_with_key_fallback(
+                gemini_key_entries,
+                "vision analysis",
+                lambda key: _call_gemini(
+                    key,
+                    vision_system_prompt,
+                    vision_content,
+                    image_data_list=image_data_list,
+                    listing_slug=slug,
+                ),
+            )
         except Exception as exc:
             safe_log(f"Gemini vision error: {exc}")
             vision_result_json = _no_photos_vision_result("Fotografie sa nepodarilo spolahlivo analyzovat.")
@@ -1999,14 +2077,47 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
     next_token_update = 250
     final_input_tokens = estimate_request_tokens(final_system_prompt, final_content)
     yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
-    for chunk in _stream_text_model(text_provider, text_key, final_system_prompt, final_content, listing_slug=slug):
-        full_report += chunk
-        output_tokens += estimate_output_tokens(chunk)
-        if chunk:
-            yield f"data: {json.dumps({'text': chunk})}\n\n"
-        if output_tokens >= next_token_update:
-            yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
-            next_token_update += 250
+    if text_provider == "gemini":
+        final_done = False
+        for index, entry in enumerate(gemini_key_entries):
+            attempt_text = ""
+            attempt_output_tokens = 0
+            try:
+                for chunk in _call_gemini(
+                    entry["key"],
+                    final_system_prompt,
+                    final_content,
+                    image_data_list=None,
+                    listing_slug=slug,
+                ):
+                    attempt_text += chunk
+                    attempt_output_tokens += estimate_output_tokens(chunk)
+                    if chunk:
+                        yield f"data: {json.dumps({'text': chunk})}\n\n"
+                    if attempt_output_tokens >= next_token_update:
+                        yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': attempt_output_tokens}})}\n\n"
+                        next_token_update += 250
+                full_report = attempt_text
+                output_tokens = attempt_output_tokens
+                final_done = True
+                break
+            except (ApiKeyError, RateLimitError) as exc:
+                if attempt_text or index >= len(gemini_key_entries) - 1:
+                    raise
+                status = _gemini_retry_status(entry, gemini_key_entries[index + 1], "final synthesis", exc)
+                yield f"data: {json.dumps({'status': status})}\n\n"
+
+        if not final_done:
+            raise RateLimitError("Gemini final synthesis failed for all configured API keys.")
+    else:
+        for chunk in _stream_text_model(text_provider, grok_key, final_system_prompt, final_content, listing_slug=slug):
+            full_report += chunk
+            output_tokens += estimate_output_tokens(chunk)
+            if chunk:
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            if output_tokens >= next_token_update:
+                yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
+                next_token_update += 250
 
     with open(os.path.join(slug_dir, "analysis_result_raw.md"), "w", encoding="utf-8") as f:
         f.write(full_report)
@@ -2045,9 +2156,10 @@ def _demo_analysis_events(slug, output_language="sk"):
         return
 
     text_provider = "Grok" if grok_key else "Gemini"
-    yield f"data: {json.dumps({'status': f'Using {text_provider} for text/final synthesis and Gemini for vision.'})}\n\n"
+    backup_status = " Backup Gemini retry is enabled." if len(keys) > 1 else ""
+    yield f"data: {json.dumps({'status': f'Using {text_provider} for text/final synthesis and Gemini for vision.{backup_status}'})}\n\n"
     try:
-        yield from _multi_model_analysis_events(slug, grok_key, keys[0], output_language)
+        yield from _multi_model_analysis_events(slug, grok_key, keys, output_language)
     except (ApiKeyError, GrokApiKeyError, RateLimitError) as exc:
         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
     except Exception as exc:
@@ -2209,9 +2321,12 @@ def api_analyze(slug):
     data = request.get_json(silent=True) or {}
     demo_gemini_keys = _demo_api_keys()
     grok_key = (data.get("grok_api_key") or _demo_grok_api_key()).strip()
-    gemini_key = (data.get("gemini_api_key") or (demo_gemini_keys[0] if demo_gemini_keys else "")).strip()
+    provided_gemini_key = (data.get("gemini_api_key") or "").strip()
+    gemini_keys = _gemini_key_entries(
+        ([provided_gemini_key] if provided_gemini_key else []) + demo_gemini_keys
+    )
 
-    if not gemini_key:
+    if not gemini_keys:
         return jsonify({"error": "Chýba Gemini API kľúč (GEMINI_API_KEY)."}), 400
 
     slug_dir = os.path.join(AUTA_DIR, slug)
@@ -2220,7 +2335,7 @@ def api_analyze(slug):
 
     def generate():
         try:
-            yield from _multi_model_analysis_events(slug, grok_key, gemini_key)
+            yield from _multi_model_analysis_events(slug, grok_key, [entry["key"] for entry in gemini_keys])
             return
 
             from llm_client import _call_gemini, _call_grok, run_grounded_web_research

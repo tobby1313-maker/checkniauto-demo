@@ -163,6 +163,12 @@ class DemoDashboardApiTest(unittest.TestCase):
         good.close()
         bad.close()
 
+    def test_representative_image_selection_includes_last_photo(self):
+        indices = web_server._select_representative_indices(42, limit=20)
+
+        self.assertEqual(len(indices), 20)
+        self.assertEqual(indices[-1], 41)
+
 
 if __name__ == "__main__":
     unittest.main()
