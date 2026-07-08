@@ -323,6 +323,24 @@
                 </div>
             </section>
         </section>
+
+        <section class="panel" id="progressPanel">
+            <div class="panel-head">
+                <strong>Live Analysis Progress</strong>
+                <span class="status" id="progressStatus">Waiting for analysis...</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody id="progressBody"></tbody>
+                </table>
+            </div>
+        </section>
     </main>
 
     <script>
@@ -343,13 +361,10 @@
         }
 
         function escapeHtml(value) {
-            return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[char]));
+            return String(value ?? '').replace(/[&<>"']/g, function(char) {
+                const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+                return map[char] || char;
+            });
         }
 
         function timeLabel(value) {
@@ -427,6 +442,27 @@
         loadUsage().catch((error) => {
             byId('updatedAt').innerHTML = '<span class="error">' + escapeHtml(error.message) + '</span>';
         });
+
+        async function loadProgress() {
+            try {
+                const response = await fetch('/api/demo/current-progress');
+                if (!response.ok) return;
+                const data = await response.json();
+                const statusEl = byId('progressStatus');
+                const bodyEl = byId('progressBody');
+                if (statusEl) {
+                    statusEl.textContent = data.status || 'Waiting for analysis...';
+                    statusEl.className = 'status' + (data.done ? ' success' : '');
+                }
+                if (bodyEl && Array.isArray(data.log_lines)) {
+                    bodyEl.innerHTML = data.log_lines.map((line, index) => '<tr><td>#' + (index + 1) + '</td><td>' + escapeHtml(line) + '</td></tr>').join('') || '<tr><td colspan="2" class="muted">No log entries yet.</td></tr>';
+                }
+            } catch (e) {
+                // ignore progress polling errors
+            }
+        }
+        setInterval(loadProgress, 2000);
+        loadProgress();
     </script>
 </body>
 </html>

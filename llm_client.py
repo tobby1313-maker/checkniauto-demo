@@ -410,7 +410,6 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
             "topP": 0.95,
             "topK": 40,
             "maxOutputTokens": 65536,
-            "stopSequences": ["<!-- END_ANALYSIS -->"],
         }
     }
 
@@ -740,7 +739,6 @@ def _call_grok(api_key: str, system_prompt: str, user_content: str, model: str =
         "stream": True,
         "temperature": 0.7,
         "max_tokens": 65536,
-        "stop": ["<!-- END_ANALYSIS -->"],
     }
 
     try:

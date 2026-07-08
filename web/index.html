@@ -23,12 +23,6 @@
             --danger: #b42318;
             --shadow: 0 22px 60px rgba(18, 24, 32, 0.08);
             --focus: 0 0 0 4px rgba(249, 115, 22, 0.20);
-            --result-heading-border: #e1e5ea;
-            --result-table-header-bg: #f3f4f6;
-            --result-table-stripe: #fafafa;
-            --result-code-bg: #f3f4f6;
-            --result-block-border: #e1e5ea;
-            --result-strong: #121820;
         }
 
         :root[data-theme="dark"] {
@@ -47,12 +41,6 @@
             --danger: #ff8a80;
             --shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
             --focus: 0 0 0 4px rgba(249, 115, 22, 0.25);
-            --result-heading-border: #333840;
-            --result-table-header-bg: #24282d;
-            --result-table-stripe: #1e2126;
-            --result-code-bg: #24282d;
-            --result-block-border: #333840;
-            --result-strong: #f4f4f5;
         }
 
         * { box-sizing: border-box; }
@@ -231,12 +219,6 @@
             justify-content: center;
         }
 
-        .intro {
-            display: none;
-            align-content: start;
-            padding-top: 10px;
-        }
-
         h1 {
             margin: 0;
             max-width: 480px;
@@ -246,7 +228,6 @@
         }
 
         .analyzer,
-        .output-panel,
         .log-panel {
             background: color-mix(in srgb, var(--surface) 96%, transparent);
             border: 1px solid var(--line);
@@ -396,21 +377,18 @@
             width: 100%;
             margin: 0 auto;
             padding: 0 20px 42px;
-            display: grid;
-            grid-template-columns: minmax(280px, 350px) minmax(0, 1fr);
-            gap: 22px;
         }
 
         .log {
             min-height: 260px;
-            max-height: 430px;
+            max-height: 70vh;
             overflow: auto;
             margin: 0;
             padding: 14px 16px;
             background: var(--surface);
             color: var(--text);
             white-space: pre-wrap;
-            font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+            font: 14px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
         }
 
         :root[data-theme="dark"] .log {
@@ -418,192 +396,190 @@
             color: var(--text);
         }
 
-        .result-tools {
+        /* ========== Progress Overlay ========== */
+        #progressOverlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.35s ease, visibility 0.35s ease;
+            pointer-events: none;
+        }
+
+        #progressOverlay.active {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        #progressOverlay .backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        #progressOverlay .modal {
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 28px 32px 20px;
+            max-width: 400px;
+            width: 92%;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            pointer-events: auto;
+        }
+
+        #progressOverlay .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        .road-wrap {
+            position: relative;
+            height: 56px;
+            margin: 0 8px 12px;
+            overflow: visible;
+        }
+
+        .road-surface {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 50%;
+            height: 28px;
+            background: #3d4a5c;
+            border-radius: 6px;
+            transform: translateY(-50%);
+            overflow: hidden;
+        }
+
+        .road-curbs {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #a0aec0;
+            border-radius: 2px;
+        }
+
+        .road-curbs.top { top: 2px; }
+        .road-curbs.bottom { bottom: 2px; }
+
+        .road-marks {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: repeating-linear-gradient(
+                90deg,
+                #f7fafc 0px,
+                #f7fafc 16px,
+                transparent 16px,
+                transparent 32px
+            );
+            transform: translateY(-50%);
+        }
+
+        .road-car {
+            position: absolute;
+            top: 50%;
+            font-size: 28px;
+            line-height: 1;
+            transform: translate(-50%, -50%) scaleX(-1);
+            left: 0%;
+            transition: left 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 5;
+            filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3));
+        }
+
+        .road-finish {
+            position: absolute;
+            right: -8px;
+            top: 50%;
+            font-size: 26px;
+            line-height: 1;
+            transform: translateY(-50%);
+            z-index: 2;
+        }
+
+        .progress-track {
+            height: 5px;
+            background: var(--surface-soft);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 6px;
+        }
+
+        .progress-track-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--orange), var(--orange-dark));
+            border-radius: 4px;
+            transition: width 0.45s ease;
+            width: 0%;
+        }
+
+        .progress-pct {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 10px;
+        }
+
+        .overlay-cancel {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            min-height: 36px;
+            padding: 7px 18px;
+            background: transparent;
+            color: var(--muted);
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .overlay-cancel:hover {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .btn.small {
+            min-height: 34px;
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        .btn.ghost {
+            background: transparent;
+            border-color: var(--line);
+            color: var(--muted);
+        }
+
+        .btn.ghost:hover {
+            border-color: var(--orange);
+            color: var(--orange);
+        }
+
+        .btn-group {
             display: flex;
             gap: 8px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-
-        /* ========== Styled analysis output ========== */
-        .result {
-            min-height: 520px;
-            padding: 24px 28px;
-            overflow: auto;
-            line-height: 1.65;
-            font-size: 15px;
-        }
-
-        .result:empty::before {
-            content: attr(data-empty);
-            color: var(--muted);
-            display: block;
-        }
-
-        /* Headings */
-        .result h1 {
-            margin: 0 0 18px;
-            max-width: none;
-            font-size: clamp(26px, 4vw, 36px);
-            line-height: 1.15;
-            font-weight: 800;
-            color: var(--text);
-            padding-bottom: 12px;
-            border-bottom: 2px solid var(--result-heading-border);
-        }
-
-        .result h2 {
-            margin: 28px 0 14px;
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--text);
-            padding-bottom: 8px;
-            border-bottom: 2px solid var(--result-heading-border);
-        }
-
-        .result h3 {
-            margin: 22px 0 10px;
-            font-size: 17px;
-            font-weight: 700;
-            color: var(--text);
-        }
-
-        .result h4 {
-            margin: 18px 0 8px;
-            font-size: 15px;
-            font-weight: 700;
-            color: var(--text);
-        }
-
-        /* Inline elements */
-        .result strong {
-            color: var(--result-strong);
-            font-weight: 700;
-        }
-
-        .result em {
-            font-style: italic;
-        }
-
-        .result code {
-            background: var(--result-code-bg);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-            font-size: 13px;
-        }
-
-        .result pre {
-            background: var(--result-code-bg);
-            border: 1px solid var(--result-block-border);
-            border-radius: 6px;
-            padding: 12px 14px;
-            overflow-x: auto;
-            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-            font-size: 13px;
-            line-height: 1.5;
-            white-space: pre-wrap;
-        }
-
-        /* Paragraphs */
-        .result p {
-            margin: 8px 0;
-        }
-
-        /* Lists */
-        .result ul,
-        .result ol {
-            margin: 8px 0;
-            padding-left: 22px;
-        }
-
-        .result li {
-            margin: 3px 0;
-        }
-
-        /* Horizontal rule (separators) */
-        .result hr {
-            border: 0;
-            border-top: 1px solid var(--result-block-border);
-            margin: 20px 0;
-        }
-
-        /* Tables */
-        .result .table-wrap {
-            width: 100%;
-            overflow-x: auto;
-            margin: 12px 0;
-            border: 1px solid var(--result-block-border);
-            border-radius: 6px;
-        }
-
-        .result table {
-            border-collapse: collapse;
-            width: 100%;
-            min-width: 620px;
-            margin: 0;
-            font-size: 14px;
-        }
-
-        .result th,
-        .result td {
-            border: 1px solid var(--result-block-border);
-            padding: 8px 10px;
-            text-align: left;
-            vertical-align: top;
-        }
-
-        .result th {
-            background: var(--result-table-header-bg);
-            font-weight: 700;
-            white-space: nowrap;
-        }
-
-        .result tr:nth-child(even) td {
-            background: var(--result-table-stripe);
-        }
-
-        /* Blockquotes (for warning/note boxes) */
-        .result blockquote {
-            margin: 12px 0;
-            padding: 10px 14px;
-            border-left: 4px solid var(--orange);
-            background: var(--orange-soft);
-            border-radius: 4px;
-        }
-
-        .result blockquote p {
-            margin: 4px 0;
-        }
-
-        /* Rating badges (ZELENA, ZLTA, ORANZOVA, CERVENA, STOP) */
-        .result .rating-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-weight: 700;
-            font-size: 14px;
-        }
-
-        /* Links */
-        .result a {
-            color: var(--orange);
-            text-decoration: underline;
-            text-underline-offset: 2px;
-        }
-
-        .result a:hover {
-            color: var(--orange-dark);
+            align-items: center;
         }
 
         @media (max-width: 920px) {
             .layout,
             .workspace {
                 grid-template-columns: 1fr;
-            }
-
-            .intro {
-                padding-top: 0;
             }
         }
 
@@ -648,714 +624,6 @@
             .panel-head {
                 align-items: flex-start;
                 flex-direction: column;
-            }
-
-            .result-tools {
-                justify-content: flex-start;
-            }
-
-            .dashboard-panel {
-                width: 100%;
-            }
-
-            .dashboard-resize-handle {
-                display: none;
-            }
-
-            .dashboard-body {
-                padding: 14px;
-            }
-
-            .dashboard-card {
-                grid-template-columns: 88px minmax(0, 1fr);
-            }
-
-            .dashboard-card-thumb,
-            .dashboard-card-placeholder {
-                width: 88px;
-            }
-
-            .dashboard-meta-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .dashboard-result {
-                padding: 18px;
-            }
-        }
-
-        /* ========== Progress Overlay ========== */
-        #progressOverlay {
-            position: fixed;
-            inset: 0;
-            z-index: 999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity 0.35s ease, visibility 0.35s ease;
-            pointer-events: none;
-        }
-
-        #progressOverlay.active {
-            opacity: 1;
-            visibility: visible;
-            pointer-events: auto;
-        }
-
-        #progressOverlay .backdrop {
-            position: absolute;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(5px);
-        }
-
-        #progressOverlay .modal {
-            position: relative;
-            background: var(--surface);
-            border: 1px solid var(--line);
-            border-radius: 16px;
-            padding: 32px 36px 24px;
-            max-width: 520px;
-            width: 92%;
-            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
-            text-align: center;
-            pointer-events: auto;
-        }
-
-        #progressOverlay .modal-title {
-            font-size: 19px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            color: var(--text);
-        }
-
-        .road-wrap {
-            position: relative;
-            height: 72px;
-            margin: 0 8px 14px;
-            overflow: visible;
-        }
-
-        .road-surface {
-            position: absolute;
-            left: 0;
-            right: 0;
-            top: 50%;
-            height: 36px;
-            background: #3d4a5c;
-            border-radius: 6px;
-            transform: translateY(-50%);
-            overflow: hidden;
-        }
-
-        .road-curbs {
-            position: absolute;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: #a0aec0;
-            border-radius: 2px;
-        }
-
-        .road-curbs.top { top: 3px; }
-        .road-curbs.bottom { bottom: 3px; }
-
-        .road-marks {
-            position: absolute;
-            top: 50%;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: repeating-linear-gradient(
-                90deg,
-                #f7fafc 0px,
-                #f7fafc 16px,
-                transparent 16px,
-                transparent 32px
-            );
-            transform: translateY(-50%);
-        }
-
-        .road-car {
-            position: absolute;
-            top: 50%;
-            font-size: 30px;
-            line-height: 1;
-            transform: translate(-50%, -50%) scaleX(-1);
-            left: 0%;
-            transition: left 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-            z-index: 5;
-            filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3));
-        }
-
-        .road-checkpoint {
-            position: absolute;
-            top: 50%;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #4a5568;
-            border: 2px solid #718096;
-            transform: translate(-50%, -50%);
-            transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
-            z-index: 3;
-        }
-
-        .road-checkpoint.reached {
-            background: #48bb78;
-            border-color: #48bb78;
-            box-shadow: 0 0 0 4px rgba(72, 187, 120, 0.2);
-        }
-
-        .road-finish {
-            position: absolute;
-            right: -10px;
-            top: 50%;
-            font-size: 30px;
-            line-height: 1;
-            transform: translateY(-50%);
-            z-index: 2;
-        }
-
-        .progress-track {
-            height: 5px;
-            background: var(--surface-soft);
-            border-radius: 4px;
-            overflow: hidden;
-            margin-bottom: 8px;
-        }
-
-        .progress-track-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--orange), var(--orange-dark));
-            border-radius: 4px;
-            transition: width 0.45s ease;
-            width: 0%;
-        }
-
-        .progress-pct {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--muted);
-            margin-bottom: 2px;
-        }
-
-        .overlay-msg {
-            font-size: 14px;
-            color: var(--text);
-            margin-bottom: 18px;
-            min-height: 20px;
-        }
-
-        .overlay-cancel {
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            min-height: 36px;
-            padding: 7px 18px;
-            background: transparent;
-            color: var(--muted);
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            transition: border-color 0.2s, color 0.2s;
-        }
-
-        .overlay-cancel:hover {
-            border-color: var(--danger);
-            color: var(--danger);
-        }
-
-        /* Checkpoint milestone labels */
-        .checkpoint-labels {
-            position: relative;
-            height: 20px;
-            margin: -6px 8px 14px;
-            font-size: 10px;
-            font-weight: 700;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-
-        .checkpoint-labels .cl {
-            position: absolute;
-            transform: translateX(-50%);
-            white-space: nowrap;
-            transition: color 0.4s;
-        }
-
-        .checkpoint-labels .cl.active {
-            color: #48bb78;
-        }
-
-        /* Palubny pocitac - overlay log */
-        .overlay-log {
-            background: var(--surface-soft);
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            padding: 8px 12px;
-            margin: 10px 0 16px;
-            min-height: 68px;
-            max-height: 130px;
-            overflow-y: auto;
-            text-align: left;
-            font-size: 13px;
-            line-height: 1.5;
-        }
-
-        .overlay-log .ol-entry {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 2px 0;
-            opacity: 0;
-            animation: olFadeIn 0.35s ease forwards;
-        }
-
-        .overlay-log .ol-entry.done {
-            color: #48bb78;
-        }
-
-        .overlay-log .ol-entry .ol-icon {
-            flex-shrink: 0;
-            width: 20px;
-            text-align: center;
-            font-size: 14px;
-        }
-
-        @keyframes olFadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-
-        /* ========== Full-screen result mode ========== */
-        .result-mode .layout,
-        .result-mode .log-panel {
-            display: none !important;
-        }
-
-        .result-mode .workspace {
-            grid-template-columns: 1fr;
-            max-width: 1120px;
-        }
-
-        .result-mode .output-panel {
-            max-width: 100%;
-        }
-
-        .result-mode .result {
-            min-height: 80vh;
-        }
-
-        .result-mode .result:empty::after {
-            content: "";
-        }
-
-        .result-mode .analyzer-head {
-            display: none;
-        }
-
-        .result-mode .nav-tools {
-            width: 100%;
-            justify-content: flex-end;
-        }
-
-        .result-mode .brand span {
-            display: none;
-        }
-
-        .btn.small {
-            min-height: 34px;
-            padding: 6px 12px;
-            font-size: 13px;
-        }
-
-        .btn.ghost {
-            background: transparent;
-            border-color: var(--line);
-            color: var(--muted);
-        }
-
-        .btn.ghost:hover {
-            border-color: var(--orange);
-            color: var(--orange);
-        }
-
-        .btn-group {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .dashboard-shell {
-            position: fixed;
-            inset: 0;
-            z-index: 80;
-            pointer-events: none;
-        }
-
-        .dashboard-backdrop {
-            position: absolute;
-            inset: 0;
-            border: 0;
-            background: rgba(18, 24, 32, 0.46);
-            opacity: 0;
-            transition: opacity 180ms ease;
-        }
-
-        .dashboard-panel {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: min(540px, 100vw);
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            background: var(--surface);
-            border-left: 1px solid var(--line);
-            box-shadow: 0 30px 80px rgba(18, 24, 32, 0.24);
-            transform: translateX(100%);
-            transition: transform 220ms ease;
-        }
-
-        .dashboard-shell.resizing {
-            user-select: none;
-        }
-
-        .dashboard-shell.resizing .dashboard-panel {
-            transition: none;
-        }
-
-        .dashboard-resize-handle {
-            position: absolute;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            width: 18px;
-            transform: translateX(-50%);
-            cursor: col-resize;
-            touch-action: none;
-            z-index: 2;
-        }
-
-        .dashboard-resize-handle::before {
-            content: "";
-            position: absolute;
-            top: 24px;
-            bottom: 24px;
-            left: 50%;
-            width: 4px;
-            transform: translateX(-50%);
-            border-radius: 999px;
-            background: color-mix(in srgb, var(--line) 76%, transparent);
-            transition: background 160ms ease;
-        }
-
-        .dashboard-panel:hover .dashboard-resize-handle::before,
-        .dashboard-shell.resizing .dashboard-resize-handle::before {
-            background: color-mix(in srgb, var(--orange) 56%, var(--line));
-        }
-
-        .dashboard-shell.open {
-            pointer-events: auto;
-        }
-
-        .dashboard-shell.open .dashboard-backdrop {
-            opacity: 1;
-        }
-
-        .dashboard-shell.open .dashboard-panel {
-            transform: translateX(0);
-        }
-
-        .dashboard-head {
-            padding: 18px 20px;
-            border-bottom: 1px solid var(--line);
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .dashboard-head strong {
-            display: block;
-            font-size: 18px;
-            line-height: 1.15;
-        }
-
-        .dashboard-head span {
-            display: block;
-            margin-top: 4px;
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.45;
-        }
-
-        .dashboard-body {
-            flex: 1;
-            overflow: auto;
-            padding: 18px;
-            background: color-mix(in srgb, var(--surface) 96%, transparent);
-        }
-
-        .dashboard-status {
-            margin-bottom: 14px;
-            padding: 12px 14px;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: var(--surface-soft);
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .dashboard-status.error {
-            border-color: color-mix(in srgb, var(--danger) 26%, var(--line));
-            color: var(--danger);
-        }
-
-        .dashboard-view {
-            display: grid;
-            gap: 14px;
-        }
-
-        .dashboard-note {
-            margin: 0;
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.5;
-        }
-
-        .dashboard-cards {
-            display: grid;
-            gap: 12px;
-        }
-
-        .dashboard-card {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            background: var(--surface);
-            display: grid;
-            grid-template-columns: 96px minmax(0, 1fr);
-            gap: 12px;
-            text-align: left;
-            box-shadow: 0 10px 26px rgba(18, 24, 32, 0.07);
-            transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-        }
-
-        .dashboard-card:hover {
-            transform: translateY(-1px);
-            border-color: color-mix(in srgb, var(--orange) 40%, var(--line));
-            box-shadow: 0 16px 34px rgba(18, 24, 32, 0.12);
-        }
-
-        .dashboard-card.active {
-            border-color: var(--orange);
-            box-shadow: 0 0 0 1px var(--orange-soft), 0 16px 34px rgba(18, 24, 32, 0.12);
-        }
-
-        .dashboard-card-thumb,
-        .dashboard-card-placeholder {
-            width: 96px;
-            aspect-ratio: 4 / 3;
-            border-radius: 10px;
-            object-fit: cover;
-            background: var(--surface-soft);
-        }
-
-        .dashboard-card-placeholder {
-            display: grid;
-            place-items: center;
-            color: var(--muted);
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .dashboard-card-copy {
-            display: grid;
-            gap: 8px;
-            min-width: 0;
-        }
-
-        .dashboard-card-title {
-            font-size: 15px;
-            font-weight: 700;
-            line-height: 1.35;
-        }
-
-        .dashboard-card-price {
-            color: var(--orange-dark);
-            font-size: 15px;
-            font-weight: 700;
-        }
-
-        .dashboard-card-facts {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px 10px;
-            color: var(--muted);
-            font-size: 12px;
-        }
-
-        .dashboard-card-time {
-            color: var(--muted);
-            font-size: 12px;
-        }
-
-        .dashboard-empty {
-            padding: 18px;
-            border: 1px dashed var(--line);
-            border-radius: 12px;
-            background: var(--surface);
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .dashboard-meta-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
-        }
-
-        .dashboard-meta-item {
-            padding: 12px 13px;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: var(--surface);
-        }
-
-        .dashboard-meta-item span {
-            display: block;
-            color: var(--muted);
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-        }
-
-        .dashboard-meta-item strong,
-        .dashboard-meta-item a {
-            display: block;
-            margin-top: 6px;
-            color: var(--text);
-            font-size: 14px;
-            line-height: 1.45;
-            overflow-wrap: anywhere;
-        }
-
-        .dashboard-meta-item a {
-            color: var(--orange);
-        }
-
-        .dashboard-gallery {
-            display: grid;
-            gap: 12px;
-        }
-
-        .dashboard-gallery-item {
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            overflow: hidden;
-            background: var(--surface);
-        }
-
-        .dashboard-gallery-item img {
-            width: 100%;
-            aspect-ratio: 4 / 3;
-            object-fit: cover;
-            background: var(--surface-soft);
-        }
-
-        .dashboard-gallery-label {
-            padding: 10px 12px;
-            color: var(--muted);
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .dashboard-detail-tools {
-            display: flex;
-            justify-content: flex-start;
-        }
-
-        .dashboard-result {
-            min-height: 0;
-            padding: 20px 22px;
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            background: var(--surface);
-            box-shadow: none;
-        }
-
-        @media print {
-            .topbar,
-            .layout,
-            .log-panel,
-            .panel-head .status,
-            .result-tools,
-            .dashboard-shell {
-                display: none !important;
-            }
-
-            :root {
-                --bg: #ffffff;
-                --surface: #ffffff;
-                --surface-soft: #f3f4f6;
-                --text: #000000;
-                --muted: #333333;
-                --line: #dddddd;
-                --result-heading-border: #e1e5ea;
-                --result-table-header-bg: #f3f4f6;
-                --result-table-stripe: #fafafa;
-                --result-code-bg: #f3f4f6;
-                --result-block-border: #e1e5ea;
-                --result-strong: #000000;
-            }
-
-            body {
-                background: #fff;
-                color: #000;
-            }
-
-            .workspace {
-                display: block;
-                max-width: none;
-                padding: 0;
-            }
-
-            .output-panel {
-                border: 0;
-                box-shadow: none;
-            }
-
-            .result {
-                min-height: 0;
-                padding: 0;
-                overflow: visible;
-                color: #000;
-            }
-
-            .result h1,
-            .result h2,
-            .result h3,
-            .result h4,
-            .result strong,
-            .result code,
-            .result pre {
-                color: #000;
-            }
-
-            .result th,
-            .result td,
-            .result blockquote {
-                color: #000;
             }
         }
     </style>
@@ -1447,92 +715,33 @@
             <section class="workspace" id="analysis">
                 <aside class="log-panel">
                     <div class="panel-head">
-                        <strong>Priebeh</strong>
+                        <strong>Priebeh / Výsledok</strong>
                         <span class="status" id="status">Pripravené</span>
                     </div>
-                    <pre class="log" id="log"></pre>
+                    <div class="log" id="log">Výsledok analýzy sa zobrazí tu.</div>
                 </aside>
-
-                <section class="output-panel">
-                    <div class="panel-head">
-                        <strong>Výsledok</strong>
-                        <div class="result-tools">
-                            <button class="btn" id="copyBtn" type="button" disabled>Kopírovať</button>
-                            <button class="btn" id="downloadBtn" type="button" disabled>Markdown</button>
-                            <button class="btn" id="pdfBtn" type="button" disabled>PDF</button>
-                        </div>
-                    </div>
-                    <article class="result" id="result" data-empty="Výsledok analýzy sa zobrazí tu."></article>
-                </section>
             </section>
         </main>
-    </div>
-
-    <div class="dashboard-shell" id="dashboardShell" aria-hidden="true">
-        <button class="dashboard-backdrop" id="dashboardBackdrop" type="button" aria-label="Close dashboard"></button>
-        <aside class="dashboard-panel" aria-labelledby="dashboardTitle" aria-modal="true" role="dialog">
-            <div class="dashboard-resize-handle" id="dashboardResizeHandle" aria-hidden="true"></div>
-            <div class="dashboard-head">
-                <div>
-                    <strong id="dashboardTitle">Dashboard</strong>
-                    <span id="dashboardSubtitle">Nedávne analýzy</span>
-                </div>
-                <button class="btn ghost small" id="dashboardCloseBtn" type="button">Zavrieť</button>
-            </div>
-            <div class="dashboard-body">
-                <div class="dashboard-status hidden" id="dashboardStatus"></div>
-
-                <section class="dashboard-view" id="dashboardListView">
-                    <p class="dashboard-note" id="dashboardNote">Nedávne analýzy sú dočasné a po demo cleanup-e môžu zmiznúť.</p>
-                    <div class="dashboard-cards" id="dashboardCards"></div>
-                </section>
-
-                <section class="dashboard-view hidden" id="dashboardDetailView">
-                    <div class="dashboard-detail-tools" style="position: sticky; top: 0; background: var(--surface); z-index: 10; padding: 10px 0; margin: -10px 0 10px 0;">
-                        <button class="btn ghost small" id="dashboardBackBtn" type="button">Späť na zoznam</button>
-                        <button class="btn primary small" id="dashboardOpenMainBtn" type="button" style="margin-left: auto;">Otvoriť v hlavnom okne</button>
-                    </div>
-                    <div class="dashboard-meta-grid" id="dashboardMeta"></div>
-                    <div class="dashboard-gallery" id="dashboardGallery"></div>
-                    <article class="result dashboard-result" id="dashboardResult" data-empty=""></article>
-                </section>
-            </div>
-        </aside>
     </div>
 
     <!-- Progress Overlay -->
     <div id="progressOverlay">
         <div class="backdrop"></div>
         <div class="modal">
-            <div class="modal-title" id="overlayTitle">🏎️ Checkni Auto – Analýza v priebehu</div>
+            <div class="modal-title" id="overlayTitle">🏎️ Analýza v priebehu</div>
             <div class="road-wrap">
                 <div class="road-surface">
                     <div class="road-curbs top"></div>
                     <div class="road-marks"></div>
                     <div class="road-curbs bottom"></div>
                 </div>
-                <div class="road-checkpoint" style="left: 0%"></div>
-                <div class="road-checkpoint" style="left: 25%"></div>
-                <div class="road-checkpoint" style="left: 50%"></div>
-                <div class="road-checkpoint" style="left: 75%"></div>
-                <div class="road-checkpoint" style="left: 93%"></div>
                 <div class="road-finish">🏁</div>
                 <div class="road-car" id="overlayCar">🚗</div>
-            </div>
-            <div class="checkpoint-labels">
-                <span class="cl" style="left:0%">Start</span>
-                <span class="cl" style="left:25%">Prvá kontrola</span>
-                <span class="cl" style="left:50%">Diagnostika</span>
-                <span class="cl" style="left:75%">Detailný servis</span>
-                <span class="cl" style="left:93%">Záverečná</span>
-                <span class="cl" style="left:100%">Cieľ</span>
             </div>
             <div class="progress-track">
                 <div class="progress-track-fill" id="overlayProgressFill"></div>
             </div>
             <div class="progress-pct" id="overlayProgressPct">0%</div>
-            <div class="overlay-msg" id="overlayMsg">Starting engine...</div>
-            <div class="overlay-log" id="overlayLog"></div>
             <button class="overlay-cancel" id="overlayCancelBtn">Zrušiť</button>
         </div>
     </div>
@@ -1547,101 +756,20 @@
         const manualForm = document.querySelector("#manualForm");
         const statusEl = document.querySelector("#status");
         const logEl = document.querySelector("#log");
-        const resultEl = document.querySelector("#result");
-        const copyBtn = document.querySelector("#copyBtn");
-        const downloadBtn = document.querySelector("#downloadBtn");
-        const pdfBtn = document.querySelector("#pdfBtn");
         const outputLanguage = document.querySelector("#outputLanguage");
         const imagesInput = document.querySelector("#images");
         const newAnalysisBtn = document.querySelector("#newAnalysisBtn");
         const dashboardBtn = document.querySelector("#dashboardBtn");
-        const dashboardShell = document.querySelector("#dashboardShell");
-        const dashboardBackdrop = document.querySelector("#dashboardBackdrop");
-        const dashboardCloseBtn = document.querySelector("#dashboardCloseBtn");
-        const dashboardPanel = document.querySelector(".dashboard-panel");
-        const dashboardResizeHandle = document.querySelector("#dashboardResizeHandle");
-        const dashboardTitleEl = document.querySelector("#dashboardTitle");
-        const dashboardSubtitleEl = document.querySelector("#dashboardSubtitle");
-        const dashboardStatusEl = document.querySelector("#dashboardStatus");
-        const dashboardNoteEl = document.querySelector("#dashboardNote");
-        const dashboardListView = document.querySelector("#dashboardListView");
-        const dashboardCardsEl = document.querySelector("#dashboardCards");
-        const dashboardDetailView = document.querySelector("#dashboardDetailView");
-        const dashboardBackBtn = document.querySelector("#dashboardBackBtn");
-        const dashboardMetaEl = document.querySelector("#dashboardMeta");
-        const dashboardGalleryEl = document.querySelector("#dashboardGallery");
-        const dashboardResultEl = document.querySelector("#dashboardResult");
-        const dashboardOpenMainBtn = document.querySelector("#dashboardOpenMainBtn");
-        const submitButtons = [document.querySelector("#urlSubmit"), document.querySelector("#manualSubmit")];
-        const maxManualImages = 12;
-        const analyzerSection = document.querySelector("#analyzerSection");
-        const brandSubtitle = document.querySelector("#brandSubtitle");
-        const brandHomeBtn = document.querySelector("#brandHomeBtn");
-        const outputPanelHead = document.querySelector(".output-panel .panel-head strong");
-        const resultTools = document.querySelector(".result-tools");
-        let resultText = "";
         let currentLanguage = outputLanguage.value || "sk";
         let abortController = null;
-        let dashboardOpen = false;
-        let dashboardListings = [];
-        let dashboardSelectedSlug = "";
-        let dashboardDetail = null;
-        let dashboardStatusText = "";
-        let dashboardStatusError = false;
-        let dashboardLoading = false;
-        let currentAnalysisSlug = "";
-        let latestSavedAnalysisContent = "";
-        let dashboardWidth = 540;
-        let dashboardResizeActive = false;
-
-        const DASHBOARD_WIDTH_STORAGE_KEY = "checkni-auto-dashboard-width";
-        const DASHBOARD_DEFAULT_WIDTH = 540;
-        const DASHBOARD_MIN_WIDTH = 420;
-        const DASHBOARD_VIEWPORT_GAP = 32;
-
-        const carJargon = {
-            sk: [
-                { match: (s) => /štartujem|spúšťam|start|priprav/i.test(s),                   icon: '\u{1F511}', msg: 'Starting engine...' },
-                { match: (s) => /sťahujem|download|načítavam|inzerát/i.test(s),                icon: '\u{1F4E1}', msg: 'Tuning into the listing signal' },
-                { match: (s) => /fotk|image|photo|obráz/i.test(s),                            icon: '\u{1F4F8}', msg: 'Snapping detail shots' },
-                { match: (s) => /spracúvam|process/i.test(s),                                 icon: '\u{1F5BC}', msg: 'Washing and waxing the photos' },
-                { match: (s) => /vin/i.test(s),                                               icon: '\u{1F50D}', msg: 'Reading VIN under the hood' },
-                { match: (s) => /analyz|skenujem|check/i.test(s),                             icon: '\u{1F9E0}', msg: 'Checking engine, gearbox, chassis' },
-                { match: (s) => /vyhodnoc|risk|nebezpečen/i.test(s),                          icon: '\u26A0', msg: 'Running full diagnostics' },
-                { match: (s) => /gener|vytvára|render|výsled|format/i.test(s),                icon: '\u{1F4DD}', msg: 'Writing the service record...' },
-                { match: (s) => /hotovo|done|dokončen|komplet|finished/i.test(s),             icon: '\u{1F3C1}', msg: 'FINISH! Crossed the finish line!' },
-            ],
-            en: [
-                { match: (s) => /start|štart|priprav/i.test(s),                              icon: '\u{1F511}', msg: 'Starting the engine...' },
-                { match: (s) => /download|sťahujem|listing|načítavam/i.test(s),               icon: '\u{1F4E1}', msg: 'Tuning into the listing signal' },
-                { match: (s) => /fotk|image|photo|obráz/i.test(s),                           icon: '\u{1F4F8}', msg: 'Snapping detail shots' },
-                { match: (s) => /spracúvam|process/i.test(s),                                icon: '\u{1F5BC}', msg: 'Washing and waxing the photos' },
-                { match: (s) => /vin/i.test(s),                                               icon: '\u{1F50D}', msg: 'Reading VIN under the hood' },
-                { match: (s) => /analyz|skenujem|check/i.test(s),                            icon: '\u{1F9E0}', msg: 'Checking engine, gearbox, chassis' },
-                { match: (s) => /vyhodnoc|risk|nebezpečen/i.test(s),                         icon: '\u26A0', msg: 'Running full diagnostics' },
-                { match: (s) => /gener|vytvára|render|výsled|format/i.test(s),               icon: '\u{1F4DD}', msg: 'Writing the service record...' },
-                { match: (s) => /hotovo|done|dokončen|komplet|finished/i.test(s),            icon: '\u{1F3C1}', msg: 'FINISH! Crossed the finish line!' },
-            ]
-        };
-
-        function getJargon(statusText, lang) {
-            const entries = carJargon[lang] || carJargon.sk;
-            for (const entry of entries) {
-                if (entry.match(statusText)) {
-                    return { icon: entry.icon, msg: entry.msg };
-                }
-            }
-            return null;
-        }
+        const maxManualImages = 12;
+        const submitButtons = [document.querySelector("#urlSubmit"), document.querySelector("#manualSubmit")];
+        let latestResultText = "";
 
         const translations = {
             sk: {
                 documentTitle: "Checkni Auto - AI kontrola auta pred kúpou",
-                languageLabel: "Jazyk výstupu",
                 brandSubtitle: "Vlož inzerát alebo vlastný text s fotkami. Dostaneš stručnú analýzu rizík, ceny a otázok pre predajcu.",
-                themeLabel: "Prepnúť svetlý alebo tmavý režim",
-                themeTitle: "Prepnúť tému",
-                analyzerLabel: "Analyzátor inzerátu",
                 analyzerTitle: "Analyzovať inzerát",
                 manualTab: "Manuálne",
                 listingUrlLabel: "Odkaz na inzerát",
@@ -1659,45 +787,20 @@
                 tooManyImages: "Vyber najviac 12 fotiek. Ponechal som prvých 12.",
                 manualSubmit: "Analyzovať",
                 progressTitle: "Priebeh",
-                resultTitle: "Výsledok",
                 newAnalysis: "Nová analýza",
                 dashboard: "Dashboard",
-                dashboardTitle: "Dashboard",
-                dashboardSubtitle: "Nedávne analýzy",
-                dashboardClose: "Zavrieť",
-                dashboardBack: "Späť na zoznam",
-                dashboardOpenMain: "Otvoriť v hlavnom výsledku",
-                dashboardNote: "Nedávne analýzy sú dočasné a po demo cleanup-e môžu zmiznúť.",
-                dashboardLoading: "Načítavam nedávne analýzy...",
-                dashboardLoadingDetail: "Načítavam uloženú analýzu...",
-                dashboardEmpty: "Zatiaľ tu nie je žiadna dokončená analýza.",
-                dashboardUnavailable: "Analýza už nie je k dispozícii. Pravdepodobne ju odstránil demo cleanup.",
-                dashboardLoadedStatus: "Uložená analýza otvorená",
-                dashboardPrice: "Cena",
-                dashboardYear: "Rok",
-                dashboardMileage: "Nájazd",
-                dashboardVin: "VIN",
-                dashboardPhotos: "Fotky",
-                dashboardScraped: "Stiahnuté",
-                dashboardSource: "Zdroj",
-                dashboardNoPhotos: "Bez fotiek",
-                dashboardPhotoLabel: (index) => "Foto " + index,
-                copy: "Kopírovať",
-                resultEmpty: "Výsledok analýzy sa zobrazí tu.",
                 ready: "Pripravené",
-                starting: "Starting the engine",
-                done: "Hotovo",
-                finish: "FINISH",
-                copied: "Skopírované",
-                markdownFilename: "checkni-auto-analyza"
+                starting: "Spúšťam analýzu...",
+                finish: "Hotovo",
+                resultEmpty: "Výsledok analýzy sa zobrazí tu.",
+                languageLabel: "Jazyk výstupu",
+                themeLabel: "Prepnúť svetlý alebo tmavý režim",
+                themeTitle: "Prepnúť tému",
+                analyzerLabel: "Analyzátor inzerátu"
             },
             en: {
                 documentTitle: "Checkni Auto - AI used car check before buying",
-                languageLabel: "Output language",
                 brandSubtitle: "Paste a listing or your own text with photos. Get a concise analysis of risks, price, and questions for the seller.",
-                themeLabel: "Switch light or dark mode",
-                themeTitle: "Switch theme",
-                analyzerLabel: "Listing analyzer",
                 analyzerTitle: "Analyze listing",
                 manualTab: "Manual",
                 listingUrlLabel: "Listing URL",
@@ -1715,43 +818,22 @@
                 tooManyImages: "Choose at most 12 photos. I kept the first 12.",
                 manualSubmit: "Analyse",
                 progressTitle: "Progress",
-                resultTitle: "Result",
                 newAnalysis: "New analysis",
                 dashboard: "Dashboard",
-                dashboardTitle: "Dashboard",
-                dashboardSubtitle: "Recent analyses",
-                dashboardClose: "Close",
-                dashboardBack: "Back to list",
-                dashboardOpenMain: "Open in main result",
-                dashboardNote: "Recent analyses are temporary and may disappear after demo cleanup.",
-                dashboardLoading: "Loading recent analyses...",
-                dashboardLoadingDetail: "Loading saved analysis...",
-                dashboardEmpty: "There are no finished analyses yet.",
-                dashboardUnavailable: "This saved analysis is no longer available. It was likely removed by demo cleanup.",
-                dashboardLoadedStatus: "Saved analysis opened",
-                dashboardPrice: "Price",
-                dashboardYear: "Year",
-                dashboardMileage: "Mileage",
-                dashboardVin: "VIN",
-                dashboardPhotos: "Photos",
-                dashboardScraped: "Scraped",
-                dashboardSource: "Source",
-                dashboardNoPhotos: "No photos",
-                dashboardPhotoLabel: (index) => "Photo " + index,
-                copy: "Copy",
-                resultEmpty: "The analysis result will appear here.",
                 ready: "Ready",
-                starting: "Starting the engine",
-                done: "Done",
-                finish: "FINISH",
-                copied: "Copied",
-                markdownFilename: "checkni-auto-analysis"
+                starting: "Starting analysis...",
+                finish: "Finished",
+                resultEmpty: "The analysis result will appear here.",
+                languageLabel: "Output language",
+                themeLabel: "Switch light or dark mode",
+                themeTitle: "Switch theme",
+                analyzerLabel: "Listing analyzer"
             }
         };
 
         function tr(key) {
-            const value = translations[currentLanguage]?.[key] || translations.sk[key] || key;
-            return typeof value === "function" ? value : value;
+            const val = translations[currentLanguage]?.[key] || translations.sk[key];
+            return val !== undefined ? val : key;
         }
 
         function setText(selector, value) {
@@ -1785,360 +867,17 @@
             setText("#imagesHint", tr("imagesHint"));
             setText("#manualSubmit", tr("manualSubmit"));
             setText(".log-panel .panel-head strong", tr("progressTitle"));
-            setText(".output-panel .panel-head strong", tr("resultTitle"));
             setText("#newAnalysisBtn", tr("newAnalysis"));
             setText("#dashboardBtn", tr("dashboard"));
-            setText("#dashboardTitle", tr("dashboardTitle"));
-            setText("#dashboardSubtitle", tr("dashboardSubtitle"));
-            setText("#dashboardCloseBtn", tr("dashboardClose"));
-            setText("#dashboardBackBtn", tr("dashboardBack"));
-            setText("#dashboardOpenMainBtn", tr("dashboardOpenMain"));
-            setText("#dashboardNote", tr("dashboardNote"));
-            setText("#copyBtn", tr("copy"));
 
             document.querySelector("#title").placeholder = tr("titlePlaceholder");
             document.querySelector("#sourceUrl").placeholder = tr("sourceUrlPlaceholder");
             document.querySelector("#manualText").placeholder = tr("manualTextPlaceholder");
-            resultEl.dataset.empty = tr("resultEmpty");
-            dashboardResultEl.dataset.empty = "";
 
-            if (!resultText && !logEl.textContent.trim()) {
+            if (!latestResultText && !logEl.textContent.trim()) {
                 statusEl.textContent = tr("ready");
+                logEl.textContent = tr("resultEmpty");
             }
-
-            renderDashboard();
-        }
-
-        function formatNumber(value) {
-            const number = Number(value);
-            if (!Number.isFinite(number)) return "";
-            return new Intl.NumberFormat(currentLanguage === "en" ? "en-US" : "sk-SK").format(number);
-        }
-
-        function formatPrice(value, currency) {
-            if (!value) return "—";
-            return formatNumber(value) + " " + (currency || "EUR");
-        }
-
-        function formatValue(value) {
-            return value || "—";
-        }
-
-        function updateResultActions() {
-            const hasContent = !!resultText;
-            copyBtn.disabled = !hasContent;
-            downloadBtn.disabled = !hasContent;
-            pdfBtn.disabled = !hasContent;
-        }
-
-        function renderMainResult(content, options) {
-            const settings = options || {};
-            resultText = String(content || "");
-            if (Object.prototype.hasOwnProperty.call(settings, "slug")) {
-                currentAnalysisSlug = settings.slug || "";
-            }
-            if (resultText) {
-                latestSavedAnalysisContent = resultText;
-            }
-            resultEl.innerHTML = mdToHtml(resultText);
-            updateResultActions();
-        }
-
-        function clearRenderedAnalysis() {
-            resultText = "";
-            currentAnalysisSlug = "";
-            latestSavedAnalysisContent = "";
-            resultEl.innerHTML = "";
-            updateResultActions();
-        }
-
-        function isDashboardResizable() {
-            return window.innerWidth > 620;
-        }
-
-        function getDashboardMaxWidth() {
-            return Math.max(DASHBOARD_MIN_WIDTH, window.innerWidth - DASHBOARD_VIEWPORT_GAP);
-        }
-
-        function clampDashboardWidth(value) {
-            const numericValue = Number(value);
-            if (!Number.isFinite(numericValue)) {
-                return DASHBOARD_DEFAULT_WIDTH;
-            }
-            return Math.min(getDashboardMaxWidth(), Math.max(DASHBOARD_MIN_WIDTH, Math.round(numericValue)));
-        }
-
-        function loadDashboardWidthPreference() {
-            const savedWidth = Number(localStorage.getItem(DASHBOARD_WIDTH_STORAGE_KEY));
-            dashboardWidth = clampDashboardWidth(savedWidth || DASHBOARD_DEFAULT_WIDTH);
-        }
-
-        function applyDashboardWidth() {
-            if (!dashboardPanel) return;
-            if (!isDashboardResizable()) {
-                dashboardPanel.style.width = "100%";
-                return;
-            }
-            dashboardWidth = clampDashboardWidth(dashboardWidth);
-            dashboardPanel.style.width = dashboardWidth + "px";
-        }
-
-        function saveDashboardWidthPreference() {
-            if (!isDashboardResizable()) return;
-            localStorage.setItem(DASHBOARD_WIDTH_STORAGE_KEY, String(clampDashboardWidth(dashboardWidth)));
-        }
-
-        function stopDashboardResize() {
-            if (!dashboardResizeActive) return;
-            dashboardResizeActive = false;
-            dashboardShell.classList.remove("resizing");
-            document.body.style.cursor = "";
-            saveDashboardWidthPreference();
-        }
-
-        function handleDashboardResizeMove(event) {
-            if (!dashboardResizeActive || !isDashboardResizable()) return;
-            dashboardWidth = clampDashboardWidth(window.innerWidth - event.clientX);
-            applyDashboardWidth();
-        }
-
-        function startDashboardResize(event) {
-            if (!isDashboardResizable()) return;
-            dashboardResizeActive = true;
-            dashboardShell.classList.add("resizing");
-            document.body.style.cursor = "col-resize";
-            dashboardWidth = clampDashboardWidth(window.innerWidth - event.clientX);
-            applyDashboardWidth();
-            event.preventDefault();
-        }
-
-        function syncBodyScrollLock() {
-            const overlayActive = document.getElementById("progressOverlay").classList.contains("active");
-            document.body.style.overflow = overlayActive || dashboardOpen ? "hidden" : "";
-        }
-
-        function setDashboardStatus(message, isError) {
-            dashboardStatusText = message || "";
-            dashboardStatusError = !!isError;
-        }
-
-        function escapeCardText(value) {
-            return escapeHtml(value || "");
-        }
-
-        function renderDashboardCards() {
-            if (!dashboardListings.length) {
-                dashboardCardsEl.innerHTML = '<div class="dashboard-empty">' + escapeCardText(tr("dashboardEmpty")) + '</div>';
-                return;
-            }
-
-            dashboardCardsEl.innerHTML = dashboardListings.map((listing) => {
-                const imageHtml = listing.first_image_url
-                    ? '<img class="dashboard-card-thumb" src="' + escapeAttribute(listing.first_image_url) + '" alt="' + escapeAttribute(listing.title || listing.slug) + '">'
-                    : '<div class="dashboard-card-placeholder">' + escapeCardText(tr("dashboardNoPhotos")) + '</div>';
-                const facts = [
-                    listing.year,
-                    listing.mileage,
-                    (listing.photos_count || 0) ? String(listing.photos_count) + " " + tr("dashboardPhotos").toLowerCase() : ""
-                ].filter(Boolean);
-                const active = listing.slug === currentAnalysisSlug || listing.slug === dashboardSelectedSlug ? " active" : "";
-                return '' +
-                    '<button class="dashboard-card' + active + '" type="button" data-dashboard-slug="' + escapeAttribute(listing.slug) + '">' +
-                        imageHtml +
-                        '<div class="dashboard-card-copy">' +
-                            '<div class="dashboard-card-title">' + escapeCardText(listing.title || listing.slug) + '</div>' +
-                            '<div class="dashboard-card-price">' + escapeCardText(formatPrice(listing.price, listing.currency)) + '</div>' +
-                            '<div class="dashboard-card-facts">' + facts.map((fact) => '<span>' + escapeCardText(fact) + '</span>').join("") + '</div>' +
-                            '<div class="dashboard-card-time">' + escapeCardText(formatValue(listing.scraped_at)) + '</div>' +
-                        '</div>' +
-                    '</button>';
-            }).join("");
-
-            dashboardCardsEl.querySelectorAll("[data-dashboard-slug]").forEach((button) => {
-                button.addEventListener("click", () => openDashboardDetail(button.getAttribute("data-dashboard-slug") || ""));
-            });
-        }
-
-        function renderDashboardDetail() {
-            if (!dashboardDetail) {
-                dashboardMetaEl.innerHTML = "";
-                dashboardGalleryEl.innerHTML = "";
-                dashboardResultEl.innerHTML = "";
-                return;
-            }
-
-            const parsed = dashboardDetail.parsed || {};
-            const metaItems = [
-                [tr("dashboardPrice"), formatPrice(parsed.price, parsed.currency)],
-                [tr("dashboardYear"), parsed.specs?.Year || ""],
-                [tr("dashboardMileage"), parsed.specs?.Mileage || ""],
-                [tr("dashboardVin"), parsed.vin || ""],
-                [tr("dashboardPhotos"), String(parsed.photos_count || dashboardDetail.images?.length || 0)],
-                [tr("dashboardScraped"), dashboardDetail.scraped_at || ""]
-            ];
-
-            if (dashboardDetail.source_url) {
-                metaItems.push([tr("dashboardSource"), dashboardDetail.source_url, true]);
-            }
-
-            dashboardMetaEl.innerHTML = metaItems.map((item) => {
-                if (item[2]) {
-                    return '' +
-                        '<div class="dashboard-meta-item">' +
-                            '<span>' + escapeCardText(item[0]) + '</span>' +
-                            '<a href="' + escapeAttribute(item[1]) + '" target="_blank" rel="noopener">' + escapeCardText(item[1]) + '</a>' +
-                        '</div>';
-                }
-                return '' +
-                    '<div class="dashboard-meta-item">' +
-                        '<span>' + escapeCardText(item[0]) + '</span>' +
-                        '<strong>' + escapeCardText(formatValue(item[1])) + '</strong>' +
-                    '</div>';
-            }).join("");
-
-            const images = Array.isArray(dashboardDetail.images) ? dashboardDetail.images : [];
-            if (!images.length) {
-                dashboardGalleryEl.innerHTML = '<div class="dashboard-empty">' + escapeCardText(tr("dashboardNoPhotos")) + '</div>';
-            } else {
-                dashboardGalleryEl.innerHTML = images.map((image, index) => {
-                    const photoLabel = translations[currentLanguage]?.dashboardPhotoLabel?.(index + 1) || translations.sk.dashboardPhotoLabel(index + 1);
-                    return '' +
-                        '<div class="dashboard-gallery-item">' +
-                            '<img src="' + escapeAttribute(image.url) + '" alt="' + escapeAttribute((parsed.title || dashboardDetail.slug || "listing") + " " + (index + 1)) + '">' +
-                            '<div class="dashboard-gallery-label">' + escapeCardText(photoLabel) + '</div>' +
-                        '</div>';
-                }).join("");
-            }
-
-            dashboardResultEl.innerHTML = mdToHtml(dashboardDetail.analysis_content || "");
-        }
-
-        function renderDashboard() {
-            dashboardShell.classList.toggle("open", dashboardOpen);
-            dashboardShell.setAttribute("aria-hidden", dashboardOpen ? "false" : "true");
-            applyDashboardWidth();
-            dashboardTitleEl.textContent = tr("dashboardTitle");
-            dashboardSubtitleEl.textContent = dashboardDetail?.parsed?.title || tr("dashboardSubtitle");
-            dashboardNoteEl.textContent = tr("dashboardNote");
-            dashboardCloseBtn.textContent = tr("dashboardClose");
-            dashboardBackBtn.textContent = tr("dashboardBack");
-            dashboardOpenMainBtn.textContent = tr("dashboardOpenMain");
-
-            dashboardStatusEl.classList.toggle("hidden", !dashboardStatusText);
-            dashboardStatusEl.classList.toggle("error", dashboardStatusError);
-            dashboardStatusEl.textContent = dashboardStatusText;
-
-            const showDetail = !!dashboardDetail;
-            dashboardListView.classList.toggle("hidden", showDetail);
-            dashboardDetailView.classList.toggle("hidden", !showDetail);
-
-            if (!showDetail) {
-                renderDashboardCards();
-            } else {
-                renderDashboardDetail();
-            }
-
-            syncBodyScrollLock();
-        }
-
-        async function fetchJson(url, options) {
-            const response = await fetch(url, options);
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const error = new Error(payload.error || ("Request failed (" + response.status + ")"));
-                error.status = response.status;
-                throw error;
-            }
-            return payload;
-        }
-
-        async function refreshDashboardListings(options) {
-            const settings = options || {};
-            dashboardLoading = true;
-            if (!settings.silent) {
-                dashboardDetail = null;
-                dashboardSelectedSlug = "";
-                setDashboardStatus(tr("dashboardLoading"), false);
-                renderDashboard();
-            }
-
-            try {
-                const listings = await fetchJson("/api/demo/listings");
-                dashboardListings = Array.isArray(listings) ? listings : [];
-                if (!dashboardSelectedSlug) {
-                    dashboardDetail = null;
-                }
-                if (!settings.silent) {
-                    setDashboardStatus("", false);
-                }
-            } catch (error) {
-                if (!settings.silent || dashboardOpen) {
-                    setDashboardStatus(error.message || tr("dashboardLoading"), true);
-                }
-            } finally {
-                dashboardLoading = false;
-                if (dashboardOpen) {
-                    renderDashboard();
-                }
-            }
-        }
-
-        async function openDashboardDetail(slug) {
-            if (!slug) return;
-            dashboardSelectedSlug = slug;
-            dashboardDetail = null;
-            setDashboardStatus(tr("dashboardLoadingDetail"), false);
-            renderDashboard();
-
-            try {
-                dashboardDetail = await fetchJson("/api/demo/listings/" + encodeURIComponent(slug));
-                setDashboardStatus("", false);
-            } catch (error) {
-                dashboardSelectedSlug = "";
-                dashboardDetail = null;
-                if (error.status === 404) {
-                    setDashboardStatus(tr("dashboardUnavailable"), true);
-                    await refreshDashboardListings({ silent: true });
-                } else {
-                    setDashboardStatus(error.message || tr("dashboardLoadingDetail"), true);
-                }
-            } finally {
-                renderDashboard();
-            }
-        }
-
-        function closeDashboard() {
-            stopDashboardResize();
-            dashboardOpen = false;
-            dashboardDetail = null;
-            dashboardSelectedSlug = "";
-            setDashboardStatus("", false);
-            renderDashboard();
-        }
-
-        async function toggleDashboard() {
-            if (dashboardOpen) {
-                closeDashboard();
-                return;
-            }
-
-            dashboardOpen = true;
-            dashboardDetail = null;
-            dashboardSelectedSlug = "";
-            setDashboardStatus(tr("dashboardLoading"), false);
-            renderDashboard();
-            await refreshDashboardListings();
-        }
-
-        function openSavedAnalysisInMain() {
-            if (!dashboardDetail?.analysis_content) return;
-            renderMainResult(dashboardDetail.analysis_content, { slug: dashboardDetail.slug || "" });
-            logEl.textContent = "";
-            statusEl.textContent = tr("dashboardLoadedStatus");
-            statusEl.classList.remove("error");
-            closeDashboard();
-            showResultMode();
-            document.querySelector("#analysis").scrollIntoView({ behavior: "smooth", block: "start" });
         }
 
         function resetForms() {
@@ -2148,8 +887,8 @@
         }
 
         function resetWorkspace() {
-            clearRenderedAnalysis();
-            logEl.textContent = "";
+            latestResultText = "";
+            logEl.textContent = tr("resultEmpty");
             statusEl.textContent = tr("ready");
             statusEl.classList.remove("error");
         }
@@ -2159,9 +898,6 @@
                 abortController.abort();
                 hideOverlay();
             }
-            stopDashboardResize();
-            closeDashboard();
-            pageEl.classList.remove("result-mode");
             resetWorkspace();
             resetForms();
             window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2187,11 +923,9 @@
         }
 
         function resetOutput() {
-            clearRenderedAnalysis();
             logEl.textContent = "";
             statusEl.textContent = tr("starting");
             statusEl.classList.remove("error");
-            closeDashboard();
             document.querySelector("#analysis").scrollIntoView({ behavior: "smooth", block: "start" });
             showOverlay();
         }
@@ -2201,7 +935,6 @@
         }
 
         let fakeProgressTimer = null;
-        let checkpointTimeout = null;
         let isRealUpdateInProgress = false;
 
         function showOverlay() {
@@ -2210,16 +943,8 @@
             document.getElementById('overlayCar').style.left = '0%';
             document.getElementById('overlayProgressFill').style.width = '0%';
             document.getElementById('overlayProgressPct').textContent = '0%';
-            document.getElementById('overlayLog').innerHTML = '';
-            const msgEl = document.getElementById('overlayMsg');
-            if (msgEl) msgEl.textContent = tr('starting');
-            document.querySelectorAll('.road-checkpoint').forEach(cp => cp.classList.remove('reached'));
-            document.querySelectorAll('.checkpoint-labels .cl').forEach(cl => cl.classList.remove('active'));
             overlay.classList.add('active');
-            syncBodyScrollLock();
             abortController = new AbortController();
-            const j = getJargon(tr('starting'), currentLanguage);
-            if (j) appendOverlayLog(j.icon, j.msg);
             startFakeProgress();
         }
 
@@ -2228,34 +953,6 @@
             overlay.classList.remove('active');
             abortController = null;
             stopFakeProgress();
-            clearCheckpointTimeout();
-            syncBodyScrollLock();
-        }
-
-        function appendOverlayLog(icon, text, isDone) {
-            const log = document.getElementById('overlayLog');
-            const entry = document.createElement('div');
-            entry.className = 'ol-entry' + (isDone ? ' done' : '');
-            entry.innerHTML = '<span class="ol-icon">' + icon + '</span><span>' + text + '</span>';
-            log.insertBefore(entry, log.firstChild);
-            while (log.children.length > 6) log.removeChild(log.lastChild);
-        }
-
-        function markOverlayLogDone() {
-            const log = document.getElementById('overlayLog');
-            const entries = log.querySelectorAll('.ol-entry:not(.done)');
-            let delay = 0;
-            entries.forEach((e) => {
-                setTimeout(() => e.classList.add('done'), delay);
-                delay += 150;
-            });
-        }
-
-        function clearCheckpointTimeout() {
-            if (checkpointTimeout) {
-                clearTimeout(checkpointTimeout);
-                checkpointTimeout = null;
-            }
         }
 
         function stopFakeProgress() {
@@ -2274,25 +971,16 @@
                 if (currentLeft < 92) {
                     const increment = 0.5 + Math.random() * 1.8;
                     const newPct = Math.min(92, currentLeft + increment);
-                    setPosition(newPct, null);
+                    setPosition(newPct);
                 }
             }, 1000);
         }
 
-        function setPosition(pct, statusText) {
+        function setPosition(pct) {
             const p = Math.min(100, Math.max(0, pct));
             document.getElementById('overlayCar').style.left = p + '%';
             document.getElementById('overlayProgressFill').style.width = p + '%';
             document.getElementById('overlayProgressPct').textContent = Math.round(p) + '%';
-            const msgEl = document.getElementById('overlayMsg');
-            if (msgEl && statusText) msgEl.textContent = statusText;
-            document.querySelectorAll('.road-checkpoint').forEach(cp => {
-                if (p >= parseFloat(cp.style.left)) cp.classList.add('reached');
-            });
-            document.querySelectorAll('.checkpoint-labels .cl').forEach(cl => {
-                const leftVal = parseFloat(cl.style.left);
-                if (p >= leftVal - 2) cl.classList.add('active');
-            });
         }
 
         function finishRealUpdate() {
@@ -2300,347 +988,76 @@
             startFakeProgress();
         }
 
-        function addJargonForStatus(statusText) {
-            if (!statusText) return;
-            const j = getJargon(statusText, currentLanguage);
-            if (j) {
-                const log = document.getElementById('overlayLog');
-                const first = log.firstChild;
-                if (first && first.textContent.trim() === j.msg) return;
-                appendOverlayLog(j.icon, j.msg);
-            }
-        }
-
-        function finishProgress() {
-            const lang = currentLanguage;
-            const entries = carJargon[lang] || carJargon.sk;
-            const last = entries[entries.length - 1];
-            appendOverlayLog(last.icon, last.msg, true);
-            markOverlayLogDone();
-        }
-
-        function updateProgress(percent, statusText) {
+        function updateProgress(percent) {
             isRealUpdateInProgress = true;
             stopFakeProgress();
-            clearCheckpointTimeout();
 
             const p = Math.min(100, Math.max(0, percent));
             const car = document.getElementById('overlayCar');
             const currentLeft = parseFloat(car.style.left) || 0;
 
             if (p <= currentLeft + 1) {
-                addJargonForStatus(statusText);
-                if (statusText) {
-                    const msgEl = document.getElementById('overlayMsg');
-                    if (msgEl) msgEl.textContent = statusText;
-                }
                 finishRealUpdate();
                 return;
             }
 
-            const checkpoints = [0, 25, 50, 75, 93];
-            const upcoming = checkpoints.filter(cp => cp > currentLeft + 0.5 && cp < p);
+            const steps = [0, 25, 50, 75, 93].filter(cp => cp > currentLeft + 0.5 && cp < p);
 
-            addJargonForStatus(statusText);
-            if (upcoming.length > 0) {
+            if (steps.length > 0) {
                 let idx = 0;
                 const goNext = () => {
-                    setPosition(upcoming[idx], idx === 0 ? statusText : null);
+                    setPosition(steps[idx]);
                     idx++;
-                    if (idx < upcoming.length) {
-                        checkpointTimeout = setTimeout(goNext, 1000);
-                    } else if (p > upcoming[upcoming.length - 1]) {
-                        checkpointTimeout = setTimeout(() => {
-                            setPosition(p, statusText);
-                            finishRealUpdate();
-                        }, 1000);
+                    if (idx < steps.length) {
+                        setTimeout(goNext, 600);
+                    } else if (p > steps[steps.length - 1]) {
+                        setTimeout(() => { setPosition(p); finishRealUpdate(); }, 600);
                     } else {
                         finishRealUpdate();
                     }
                 };
-                checkpointTimeout = setTimeout(goNext, 1000);
+                setTimeout(goNext, 600);
             } else {
-                setPosition(p, statusText);
+                setPosition(p);
                 finishRealUpdate();
             }
         }
 
         function getProgressForStatus(status) {
-            const s = status.toLowerCase();
-            if (s.includes('start') || s.includes('startujem') || s.includes('priprav')) return 5;
-            if (s.includes('download') || s.includes('taham') || s.includes('nacitavam')) return 15;
-            if (s.includes('fotk') || s.includes('image') || s.includes('photo') || s.includes('obraz') || s.includes('spracuvam') || s.includes('process')) return 30;
+            const s = (status || '').toLowerCase();
+            if (s.includes('start') || s.includes('spúšťam') || s.includes('priprav')) return 5;
+            if (s.includes('download') || s.includes('sťahujem') || s.includes('načítavam')) return 15;
+            if (s.includes('fotk') || s.includes('image') || s.includes('photo') || s.includes('obráz') || s.includes('spracúvam') || s.includes('process')) return 30;
             if (s.includes('analyz') || s.includes('vyhodnoc') || s.includes('check') || s.includes('scrape') || s.includes('skenujem')) return 55;
-            if (s.includes('gener') || s.includes('vytvara') || s.includes('render') || s.includes('vysled') || s.includes('format')) return 80;
-            if (s.includes('hotovo') || s.includes('done') || s.includes('dokoncen') || s.includes('komplet') || s.includes('finished')) return 100;
+            if (s.includes('gener') || s.includes('vytvára') || s.includes('render') || s.includes('výsled') || s.includes('format')) return 80;
+            if (s.includes('hotovo') || s.includes('done') || s.includes('dokončen') || s.includes('komplet') || s.includes('finished')) return 100;
             return null;
         }
 
         function appendLog(line) {
+            // Replace initial placeholder text
+            if (logEl.textContent === tr("resultEmpty")) {
+                logEl.textContent = "";
+            }
             logEl.textContent += line + '\n';
             logEl.scrollTop = logEl.scrollHeight;
         }
 
-        function escapeHtml(value) {
-            return String(value ?? '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-        }
-
-        function escapeAttribute(value) {
-            return escapeHtml(value).replace(/"/g, '&quot;');
-        }
-
-        function isBlockStartForCleanup(line) {
-            var text = String(line || '').trim();
-            return /^#{1,6}\s+/.test(text) ||
-                   /^-{3,}$/.test(text) ||
-                   /^```/.test(text) ||
-                   /^>\s?/.test(text) ||
-                   /^\|.*\|\s*$/.test(text) ||
-                   /^[-*]\s+/.test(text) ||
-                   /^\d+\.\s+/.test(text);
-        }
-
-        function shouldJoinCleanLine(previous, current) {
-            var prev = String(previous || '').trimEnd();
-            var cur = String(current || '').trim();
-            if (!prev || !cur || /^```/.test(prev)) return false;
-            if (/^\|/.test(cur)) return false;
-            if (/^\|/.test(prev) && (prev.match(/\|/g) || []).length < 3) return true;
-            if (isBlockStartForCleanup(cur)) return false;
-            if (/^[-*]\s+/.test(prev) || /^\d+\.\s+/.test(prev)) return true;
-            if ((prev.match(/\*\*/g) || []).length % 2 === 1) return true;
-            if (/[A-Za-z0-9,;:]$/.test(prev) || /[\/\-(\[]$/.test(prev)) return true;
-            return false;
-        }
-
-        function joinCleanLine(previous, current) {
-            var prev = String(previous || '').trimEnd();
-            var cur = String(current || '').trim();
-            if (/[\/\-(\[]$/.test(prev)) return prev + cur;
-            return prev + ' ' + cur;
-        }
-
-        function sanitizeGroundingRedirects(text) {
-            text = text.replace(/\[([^\]\n]{1,120})\]\(\s*https?:\/\/vertexaisearch\.cloud\.google\.com[\s\S]*?\)/gi, function(_, label) {
-                return label.replace(/\s+/g, ' ').trim() || 'URL citation not verifiable';
-            });
-            text = text.replace(/https?:\/\/vertexaisearch\.cloud\.google\.com\/\S+/gi, 'URL citation not verifiable');
-            return text.replace(/\s+([,.;:])/g, '$1');
-        }
-
-        /**
-         * Clean up Gemini text quirks before rendering or download.
-         */
-        function cleanBrokenText(text) {
-            text = String(text || '').replace(/\r\n?/g, '\n');
-            text = sanitizeGroundingRedirects(text);
-            text = text.replace(/\n{3,}/g, '\n\n');
-            return text;
-        }
-
-        function renderInline(text) {
-            var placeholders = [];
-            function hold(html) {
-                var token = '\uE000' + placeholders.length + '\uE001';
-                placeholders.push({ token: token, html: html });
-                return token;
+        function showResult(text) {
+            latestResultText = text || "";
+            if (logEl.textContent === tr("resultEmpty") || logEl.textContent.trim() === "") {
+                logEl.textContent = latestResultText;
+            } else {
+                logEl.textContent = latestResultText;
             }
-
-            var source = String(text || '');
-            source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function(_, label, href) {
-                return hold('<a href="' + escapeAttribute(href) + '" target="_blank" rel="noopener">' + escapeHtml(label) + '</a>');
-            });
-            source = source.replace(/`([^`]+)`/g, function(_, code) {
-                return hold('<code>' + escapeHtml(code) + '</code>');
-            });
-
-            var html = escapeHtml(source);
-            html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-            html = html.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
-            html = html.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-
-            placeholders.forEach(function(item) {
-                html = html.split(item.token).join(item.html);
-            });
-            return html;
-        }
-
-        function isTableRow(line) {
-            return /^\s*\|.*\|\s*$/.test(line || '');
-        }
-
-        function splitTableRow(row) {
-            var text = row.trim();
-            if (text.startsWith('|')) text = text.slice(1);
-            if (text.endsWith('|')) text = text.slice(0, -1);
-            return text.split('|').map(function(cell) { return cell.trim(); });
-        }
-
-        function isTableDelimiter(row) {
-            var cells = splitTableRow(row);
-            return cells.length > 0 && cells.every(function(cell) {
-                return /^:?-{3,}:?$/.test(cell.replace(/\s+/g, ''));
-            });
-        }
-
-        function renderTable(rows) {
-            rows = rows.filter(function(row) { return row.trim(); });
-            if (rows.length < 2) {
-                return '<p>' + renderInline(rows.join(' ')) + '</p>';
-            }
-
-            var hasDelimiter = rows.length > 1 && isTableDelimiter(rows[1]);
-            var headerCells = splitTableRow(rows[0]);
-            var bodyRows = rows.slice(hasDelimiter ? 2 : 1);
-            var out = '<div class="table-wrap"><table><thead><tr>';
-
-            headerCells.forEach(function(cell) {
-                out += '<th>' + renderInline(cell) + '</th>';
-            });
-            out += '</tr></thead><tbody>';
-
-            bodyRows.forEach(function(row) {
-                if (isTableDelimiter(row)) return;
-                var cells = splitTableRow(row);
-                if (cells.length !== headerCells.length) return;
-                out += '<tr>';
-                cells.forEach(function(cell) {
-                    out += '<td>' + renderInline(cell) + '</td>';
-                });
-                out += '</tr>';
-            });
-
-            return out + '</tbody></table></div>';
-        }
-
-        function isBlockStart(line) {
-            var text = (line || '').trim();
-            return /^#{1,6}\s+/.test(text) ||
-                   /^-{3,}$/.test(text) ||
-                   /^```/.test(text) ||
-                   /^>\s?/.test(text) ||
-                   isTableRow(line) ||
-                   /^[-*]\s+/.test(text) ||
-                   /^\d+\.\s+/.test(text);
-        }
-
-        /**
-         * Convert the report's Markdown subset to safe, styled HTML.
-         */
-        function mdToHtml(md) {
-            if (!md) return '';
-
-            var lines = cleanBrokenText(md).split('\n');
-            var out = [];
-            var i = 0;
-
-            while (i < lines.length) {
-                var line = lines[i];
-                var trimmed = line.trim();
-
-                if (!trimmed) {
-                    i++;
-                    continue;
-                }
-
-                if (/^```/.test(trimmed)) {
-                    var codeLines = [];
-                    i++;
-                    while (i < lines.length && !/^```/.test(lines[i].trim())) {
-                        codeLines.push(lines[i]);
-                        i++;
-                    }
-                    if (i < lines.length) i++;
-                    out.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
-                    continue;
-                }
-
-                var heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
-                if (heading) {
-                    var level = Math.min(4, heading[1].length);
-                    out.push('<h' + level + '>' + renderInline(heading[2]) + '</h' + level + '>');
-                    i++;
-                    continue;
-                }
-
-                if (/^-{3,}$/.test(trimmed)) {
-                    out.push('<hr>');
-                    i++;
-                    continue;
-                }
-
-                if (isTableRow(line)) {
-                    var tableRows = [];
-                    while (i < lines.length && isTableRow(lines[i])) {
-                        tableRows.push(lines[i]);
-                        i++;
-                    }
-                    out.push(renderTable(tableRows));
-                    continue;
-                }
-
-                if (/^[-*]\s+/.test(trimmed)) {
-                    var items = [];
-                    while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
-                        items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
-                        i++;
-                    }
-                    out.push('<ul>' + items.map(function(item) {
-                        return '<li>' + renderInline(item) + '</li>';
-                    }).join('') + '</ul>');
-                    continue;
-                }
-
-                if (/^\d+\.\s+/.test(trimmed)) {
-                    var orderedItems = [];
-                    while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
-                        orderedItems.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
-                        i++;
-                    }
-                    out.push('<ol>' + orderedItems.map(function(item) {
-                        return '<li>' + renderInline(item) + '</li>';
-                    }).join('') + '</ol>');
-                    continue;
-                }
-
-                if (/^>\s?/.test(trimmed)) {
-                    var quoteLines = [];
-                    while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
-                        quoteLines.push(lines[i].trim().replace(/^>\s?/, ''));
-                        i++;
-                    }
-                    out.push('<blockquote>' + quoteLines.map(function(item) {
-                        return '<p>' + renderInline(item) + '</p>';
-                    }).join('') + '</blockquote>');
-                    continue;
-                }
-
-                var paragraph = [trimmed];
-                i++;
-                while (i < lines.length && lines[i].trim() && !isBlockStart(lines[i])) {
-                    paragraph.push(lines[i].trim());
-                    i++;
-                }
-                out.push('<p>' + renderInline(paragraph.join(' ')) + '</p>');
-            }
-
-            return out.join('\n');
-        }
-
-        function appendResult(text) {
-            resultText += text;
-            resultEl.innerHTML = mdToHtml(resultText);
-            resultEl.scrollTop = resultEl.scrollHeight;
-            updateResultActions();
+            logEl.style.whiteSpace = 'pre-wrap';
+            logEl.scrollTop = 0;
+            statusEl.textContent = tr("finish");
+            statusEl.classList.remove("error");
         }
 
         function enforceImageLimit() {
-            if (!imagesInput.files || imagesInput.files.length <= maxManualImages) {
-                return true;
-            }
+            if (!imagesInput.files || imagesInput.files.length <= maxManualImages) return true;
 
             const selected = Array.from(imagesInput.files).slice(0, maxManualImages);
             try {
@@ -2656,20 +1073,6 @@
             return false;
         }
 
-        function showResultMode() {
-            pageEl.classList.add('result-mode');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function hideResultMode() {
-            pageEl.classList.remove('result-mode');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function returnToLandingPage() {
-            resetToLandingState();
-        }
-
         async function readSse(response) {
             if (!response.ok) {
                 const errorBody = await response.json().catch(() => ({}));
@@ -2681,7 +1084,6 @@
             let net = '';
             let sawDoneSignal = false;
             let fullResult = '';
-            let currentRunSlug = '';
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -2696,29 +1098,20 @@
                     const payload = line.slice(6);
                     if (payload === '[DONE]') {
                         sawDoneSignal = true;
-                        renderMainResult(fullResult, { slug: currentRunSlug });
-                        console.log('SSE assembled fullResult:', fullResult);
-                        window.__debugSseResultText = resultText;
-                        statusEl.textContent = tr('finish');
-                        finishProgress();
-                        updateProgress(100, tr('finish'));
-                        refreshDashboardListings({ silent: true }).catch(() => {});
+                        showResult(fullResult);
+                        updateProgress(100);
                         setTimeout(() => {
                             hideOverlay();
-                            showResultMode();
                         }, 600);
                         return;
                     }
                     const data = JSON.parse(payload);
                     if (data.error) throw new Error(data.error);
-                    if (data.slug) {
-                        currentRunSlug = data.slug;
-                    }
                     if (data.status) {
                         statusEl.textContent = data.status;
                         appendLog(data.status);
                         const p = getProgressForStatus(data.status);
-                        if (p !== null) updateProgress(p, data.status);
+                        if (p !== null) updateProgress(p);
                     }
                     if (data.token_usage) {
                         const usage = data.token_usage;
@@ -2734,15 +1127,9 @@
 
             if (!sawDoneSignal) {
                 if (fullResult) {
-                    renderMainResult(fullResult, { slug: currentRunSlug });
-                    statusEl.textContent = tr('finish');
-                    finishProgress();
-                    updateProgress(100, tr('finish'));
-                    refreshDashboardListings({ silent: true }).catch(() => {});
-                    setTimeout(() => {
-                        hideOverlay();
-                        showResultMode();
-                    }, 600);
+                    showResult(fullResult);
+                    updateProgress(100);
+                    setTimeout(() => { hideOverlay(); }, 600);
                     return;
                 }
                 throw new Error('Connection ended before the analysis finished. Try again with fewer photos or use manual mode.');
@@ -2767,7 +1154,7 @@
                 await readSse(response);
             } catch (error) {
                 if (error.name === 'AbortError') {
-                    statusEl.textContent = 'Cancelled';
+                    statusEl.textContent = 'Zrušené';
                     appendLog('Analysis cancelled');
                     return;
                 }
@@ -2801,7 +1188,7 @@
                 await readSse(response);
             } catch (error) {
                 if (error.name === 'AbortError') {
-                    statusEl.textContent = 'Cancelled';
+                    statusEl.textContent = 'Zrušené';
                     appendLog('Analysis cancelled');
                     return;
                 }
@@ -2818,65 +1205,27 @@
             setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
         });
 
-        copyBtn.addEventListener('click', async () => {
-            await navigator.clipboard.writeText(resultText);
-            statusEl.textContent = tr('copied');
-        });
-
-        downloadBtn.addEventListener('click', () => {
-            const blob = new Blob([resultText], { type: 'text/markdown;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = tr('markdownFilename') + '-' + new Date().toISOString().slice(0, 10) + '.md';
-            link.click();
-            URL.revokeObjectURL(url);
-        });
-
-        pdfBtn.addEventListener('click', () => window.print());
         newAnalysisBtn.addEventListener('click', resetToLandingState);
         dashboardBtn.addEventListener('click', () => {
-            toggleDashboard().catch((error) => {
-                setDashboardStatus(error.message || tr("dashboardLoading"), true);
-                renderDashboard();
-            });
+            window.open('/token-dashboard.html', '_blank');
         });
-        dashboardBackdrop.addEventListener('click', closeDashboard);
-        dashboardCloseBtn.addEventListener('click', closeDashboard);
-        dashboardBackBtn.addEventListener('click', () => {
-            dashboardDetail = null;
-            dashboardSelectedSlug = "";
-            setDashboardStatus("", false);
-            renderDashboard();
-        });
-        dashboardOpenMainBtn.addEventListener('click', openSavedAnalysisInMain);
-        dashboardResizeHandle.addEventListener('pointerdown', startDashboardResize);
-        window.addEventListener('pointermove', handleDashboardResizeMove);
-        window.addEventListener('pointerup', stopDashboardResize);
-        window.addEventListener('pointercancel', stopDashboardResize);
-        window.addEventListener('resize', () => {
-            applyDashboardWidth();
-            if (!isDashboardResizable()) {
-                stopDashboardResize();
-            }
-        });
-        urlTab.addEventListener('click', () => setMode('url'));
-        manualTab.addEventListener('click', () => setMode('manual'));
-        brandHomeBtn.addEventListener('click', returnToLandingPage);
-        outputLanguage.addEventListener('change', () => applyLanguage(outputLanguage.value));
-        imagesInput.addEventListener('change', enforceImageLimit);
+
         document.getElementById('overlayCancelBtn').addEventListener('click', () => {
             if (abortController) {
-                const j = getJargon('done', currentLanguage);
-                if (j) appendOverlayLog(j.icon, 'Cancelled', true);
                 document.getElementById('overlayCancelBtn').disabled = true;
                 abortController.abort();
             }
         });
 
+        urlTab.addEventListener('click', () => setMode('url'));
+        manualTab.addEventListener('click', () => setMode('manual'));
+        brandHomeBtn.addEventListener('click', resetToLandingState);
+        outputLanguage.addEventListener('change', () => applyLanguage(outputLanguage.value));
+        imagesInput.addEventListener('change', enforceImageLimit);
+
         urlForm.addEventListener('submit', runUrl);
         manualForm.addEventListener('submit', runManual);
-        loadDashboardWidthPreference();
+
         applyLanguage(localStorage.getItem('checkni-auto-language') || outputLanguage.value);
         setTheme(initialTheme());
     </script>

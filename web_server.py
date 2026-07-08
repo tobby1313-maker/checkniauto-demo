@@ -97,6 +97,63 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-demo-secret-change-me")
 _demo_job_lock = threading.BoundedSemaphore(DEMO_MAX_CONCURRENT_JOBS)
 _demo_rate_counts = defaultdict(int)
 _demo_rate_lock = threading.Lock()
+_current_progress = {"status": "", "log_lines": [], "done": False}
+_progress_lock = threading.Lock()
+
+
+def _set_current_progress(status=None, line=None, done=False, reset=False):
+    """Store live demo progress for the token dashboard polling endpoint."""
+    with _progress_lock:
+        if reset:
+            _current_progress["status"] = ""
+            _current_progress["log_lines"] = []
+            _current_progress["done"] = False
+        if status is not None:
+            _current_progress["status"] = str(status)
+        if line:
+            _current_progress.setdefault("log_lines", []).append(str(line))
+            _current_progress["log_lines"] = _current_progress["log_lines"][-120:]
+        _current_progress["done"] = bool(done)
+
+
+def _track_demo_sse_progress(event_text):
+    """Mirror demo SSE status/log events into the polling progress endpoint."""
+    if not event_text:
+        return
+    for raw_line in str(event_text).splitlines():
+        if not raw_line.startswith("data: "):
+            continue
+        payload = raw_line[6:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+
+        if data.get("error"):
+            message = "ERROR: " + str(data["error"])
+            _set_current_progress(status=message, line=message, done=True)
+            continue
+
+        if data.get("status"):
+            status = str(data["status"])
+            _set_current_progress(status=status, line=status, done=bool(data.get("done")))
+
+        for key in ("log", "line"):
+            if data.get(key):
+                _set_current_progress(line=str(data[key]), done=bool(data.get("done")))
+
+        if data.get("token_usage"):
+            usage = data["token_usage"] or {}
+            token_line = "Tokens sent: ~{0}, received: ~{1}".format(
+                usage.get("input_tokens", 0),
+                usage.get("output_tokens", 0),
+            )
+            _set_current_progress(line=token_line, done=False)
+
+        if data.get("done"):
+            _set_current_progress(status="Done", line="Done", done=True)
 
 
 @app.before_request
@@ -550,6 +607,10 @@ def _demo_api_keys():
     return keys
 
 
+def _demo_grok_api_key():
+    return os.environ.get("GROK_API_KEY", "").strip()
+
+
 def _demo_output_language(value):
     return "en" if (value or "").lower() == "en" else "sk"
 
@@ -735,6 +796,12 @@ def api_token_usage():
     except ValueError:
         limit = 50
     return jsonify(default_tracker.get_stats(recent_limit=limit))
+
+
+@app.route("/api/demo/current-progress")
+def api_demo_current_progress():
+    with _progress_lock:
+        return jsonify(dict(_current_progress))
 
 
 @app.route("/api/listings")
@@ -1394,7 +1461,7 @@ def api_manual_listing():
 
 @app.route("/api/scrape", methods=["POST"])
 def api_scrape():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     if not data or "url" not in data:
         return jsonify({"error": "Missing 'url' in request body"}), 400
 
@@ -1645,95 +1712,236 @@ def healthz():
     return jsonify({"status": "ok", "demo_mode": DEMO_MODE})
 
 
+def _build_text_research_context(car_info_text, output_language="sk", web_research_text=""):
+    kb_section = ""
+    try:
+        from main import find_matching_kb_files
+        matched = find_matching_kb_files(KB_DIR, car_info_text)
+        if matched:
+            kb_section = "\n\n## Knowledge base matches\n"
+            for category, filepath in matched:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    kb_section += f"\n### [{category}] {os.path.basename(filepath)}\n```json\n{f.read()}\n```\n"
+    except Exception as exc:
+        safe_log(f"KB matching warning: {exc}")
+
+    if DEMO_MODE and DEMO_SKIP_KB:
+        kb_section = ""
+
+    web_section = ""
+    if web_research_text:
+        web_section = f"\n\n## Provided web research results\n{web_research_text}"
+
+    return f"""## Listing data
+{car_info_text}
+{kb_section}{web_section}
+
+## Output language
+{_demo_output_language(output_language)}
+"""
+
+
+def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
+    return json.dumps(
+        {
+            "source_role": "vision",
+            "photos_provided": False,
+            "photo_limitations": [message],
+            "exterior_observations": [],
+            "interior_observations": [],
+            "dashboard_or_warning_lights": [],
+            "visible_red_flags": [],
+            "mileage_wear_consistency": {
+                "assessment": "cannot_assess",
+                "explanation": message,
+                "confidence": "Nizka",
+            },
+            "visual_verdict": "Nedostatocne fotografie",
+            "must_not_infer": [
+                "accident history",
+                "service history",
+                "hidden defects",
+                "odometer fraud",
+                "market price",
+                "overall buying verdict",
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk"):
+    """Run Grok text/research, Gemini vision, and Grok final synthesis."""
+    slug_dir = _safe_slug_dir(slug)
+    if not os.path.isdir(slug_dir):
+        yield f"data: {json.dumps({'error': 'Listing job not found.'})}\n\n"
+        return
+
+    car_info_path = os.path.join(slug_dir, "car_info.md")
+    if not os.path.exists(car_info_path):
+        yield f"data: {json.dumps({'error': 'car_info.md not found.'})}\n\n"
+        return
+
+    from llm_client import _call_gemini, run_grounded_web_research
+
+    with open(car_info_path, "r", encoding="utf-8") as f:
+        car_info_text = f.read()
+
+    web_research_text = ""
+    try:
+        yield f"data: {json.dumps({'status': 'Preparing web research via Gemini Google Search...'})}\n\n"
+        grounded = run_grounded_web_research(gemini_key, car_info_text, listing_slug=slug)
+        if grounded:
+            web_research_text = grounded
+            with open(os.path.join(slug_dir, "web_research.md"), "w", encoding="utf-8") as f:
+                f.write(grounded)
+            yield f"data: {json.dumps({'status': 'Web research ready for Grok.'})}\n\n"
+    except Exception as exc:
+        safe_log(f"Web research warning: {exc}")
+        yield f"data: {json.dumps({'status': 'Web research unavailable; continuing with listing data.'})}\n\n"
+
+    yield f"data: {json.dumps({'status': 'Phase 1/3: Grok text and research analysis...'})}\n\n"
+    grok_text_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "grok_text_research_system.md")
+    if not os.path.exists(grok_text_prompt_path):
+        yield f"data: {json.dumps({'error': 'grok_text_research_system.md not found.'})}\n\n"
+        return
+    with open(grok_text_prompt_path, "r", encoding="utf-8") as f:
+        grok_text_system_prompt = f.read()
+
+    grok_research_json_text = ""
+    grok_text_content = _build_text_research_context(car_info_text, output_language, web_research_text)
+    input_tokens = estimate_request_tokens(grok_text_system_prompt, grok_text_content)
+    yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': 0}})}\n\n"
+    for chunk in analyze_with_grok(grok_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
+        grok_research_json_text += chunk
+    with open(os.path.join(slug_dir, "grok_research.json"), "w", encoding="utf-8") as f:
+        f.write(grok_research_json_text)
+    yield f"data: {json.dumps({'status': 'Grok text/research JSON saved.'})}\n\n"
+
+    yield f"data: {json.dumps({'status': 'Phase 2/3: Gemini vision analysis...'})}\n\n"
+    vision_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "gemini_vision_system.md")
+    if not os.path.exists(vision_prompt_path):
+        yield f"data: {json.dumps({'error': 'gemini_vision_system.md not found.'})}\n\n"
+        return
+    with open(vision_prompt_path, "r", encoding="utf-8") as f:
+        vision_system_prompt = f.read()
+
+    vision_result_json = ""
+    image_data_list, _image_meta = prepare_llm_images(slug_dir)
+    if image_data_list:
+        vision_content = (
+            "Analyze only the attached vehicle photos/collages. "
+            "Use listing text only for labels and mileage context.\n\n"
+            f"{car_info_text}"
+        )
+        try:
+            for chunk in _call_gemini(
+                gemini_key,
+                vision_system_prompt,
+                vision_content,
+                image_data_list=image_data_list,
+                listing_slug=slug,
+            ):
+                vision_result_json += chunk
+        except Exception as exc:
+            safe_log(f"Gemini vision error: {exc}")
+            vision_result_json = _no_photos_vision_result("Fotografie sa nepodarilo spolahlivo analyzovat.")
+            yield f"data: {json.dumps({'status': 'Gemini vision failed; continuing without reliable photo analysis.'})}\n\n"
+    else:
+        vision_result_json = _no_photos_vision_result()
+        yield f"data: {json.dumps({'status': 'No photos available for Gemini vision.'})}\n\n"
+
+    with open(os.path.join(slug_dir, "gemini_vision.json"), "w", encoding="utf-8") as f:
+        f.write(vision_result_json)
+    yield f"data: {json.dumps({'status': 'Gemini vision JSON saved.'})}\n\n"
+
+    yield f"data: {json.dumps({'status': 'Phase 3/3: Grok final synthesis...'})}\n\n"
+    final_synthesis_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "grok_final_synthesis_system.md")
+    if not os.path.exists(final_synthesis_prompt_path):
+        yield f"data: {json.dumps({'error': 'grok_final_synthesis_system.md not found.'})}\n\n"
+        return
+    with open(final_synthesis_prompt_path, "r", encoding="utf-8") as f:
+        final_system_prompt = f.read()
+
+    final_content = f"""## Output language
+{_demo_output_language(output_language)}
+
+## Original listing data
+{car_info_text}
+
+## Grok text/research JSON
+{grok_research_json_text}
+
+## Gemini vision JSON
+{vision_result_json}
+
+## Provided web research results
+{web_research_text or 'No web research results were available.'}
+"""
+
+    full_report = ""
+    output_tokens = 0
+    next_token_update = 250
+    final_input_tokens = estimate_request_tokens(final_system_prompt, final_content)
+    yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
+    for chunk in analyze_with_grok(grok_key, final_system_prompt, final_content, listing_slug=slug):
+        full_report += chunk
+        output_tokens += estimate_output_tokens(chunk)
+        if chunk:
+            yield f"data: {json.dumps({'text': chunk})}\n\n"
+        if output_tokens >= next_token_update:
+            yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
+            next_token_update += 250
+
+    with open(os.path.join(slug_dir, "analysis_result_raw.md"), "w", encoding="utf-8") as f:
+        f.write(full_report)
+    public_text = _strip_kb_section(full_report)
+    with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
+        f.write(public_text)
+
+    kb_blocks = extract_kb_save_blocks(full_report)
+    saved_kb = []
+    if kb_blocks:
+        try:
+            saved_kb = _save_kb_blocks(kb_blocks)
+            if saved_kb:
+                with open(os.path.join(slug_dir, "kb_autosave.json"), "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "saved_at": datetime.now().isoformat(timespec="seconds"),
+                            "saved": saved_kb,
+                        },
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+        except Exception as exc:
+            safe_log(f"KB autosave error: {exc}")
+
+    yield f"data: {json.dumps({'done': True, 'slug': slug, 'has_kb_blocks': len(kb_blocks) > 0, 'saved_kb': saved_kb})}\n\n"
+
+
 def _demo_analysis_events(slug, output_language="sk"):
+    grok_key = _demo_grok_api_key()
+    if not grok_key:
+        yield f"data: {json.dumps({'error': 'GROK_API_KEY is not configured on the server.'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
     keys = _demo_api_keys()
     if not keys:
         yield f"data: {json.dumps({'error': 'Gemini API keys are not configured on the server.'})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
-    slug_dir = _safe_slug_dir(slug)
-    if not os.path.isdir(slug_dir):
-        yield f"data: {json.dumps({'error': 'Listing job not found.'})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
-
-    system_prompt, user_content, image_data_list = _build_analysis_payload(
-        slug_dir,
-        slug,
-        prompt_version="demo",
-        output_language=output_language,
-    )
-    if system_prompt is None:
-        yield f"data: {json.dumps({'error': user_content})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
-
-    from llm_client import _call_gemini, run_grounded_web_research
-
-    full_text = ""
-    last_error = None
-    for key_index, api_key in enumerate(keys, 1):
-        label = "primary" if key_index == 1 else "backup"
-        try:
-            analysis_user_content = user_content
-            yield f"data: {json.dumps({'status': f'Using {label} Gemini key.'})}\n\n"
-            try:
-                yield f"data: {json.dumps({'status': 'Running web verification...'})}\n\n"
-                grounded_research = run_grounded_web_research(api_key, user_content, listing_slug=slug)
-                if grounded_research:
-                    analysis_user_content = f"""{user_content}
-
----
-
-## WEB VERIFICATION VIA GEMINI GOOGLE SEARCH
-
-{grounded_research}
-
----
-
-Use the web verification above only when it contains concrete evidence. Never invent URLs.
-"""
-            except Exception as grounding_error:
-                safe_log(f"Demo grounding warning: {grounding_error}")
-                yield f"data: {json.dumps({'status': 'Web verification unavailable; continuing with listing data.'})}\n\n"
-
-            input_tokens = estimate_request_tokens(system_prompt, analysis_user_content, image_data_list)
-            output_tokens = 0
-            next_token_update = 250
-            yield f"data: {json.dumps({'status': f'Generating analysis... Tokens sent: ~{input_tokens}'})}\n\n"
-            yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
-            for chunk in _call_gemini(api_key, system_prompt, analysis_user_content, image_data_list, listing_slug=slug):
-                full_text += chunk
-                output_tokens += estimate_output_tokens(chunk)
-                if chunk:
-                    yield f"data: {json.dumps({'text': chunk})}\n\n"
-                if output_tokens >= next_token_update:
-                    yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': output_tokens}})}\n\n"
-                    next_token_update += 250
-
-            raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
-            with open(raw_path, "w", encoding="utf-8") as f:
-                f.write(full_text)
-            safe_log(f"Raw analysis written to: {raw_path}")
-
-            public_text = _strip_kb_section(full_text)
-            with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
-                f.write(public_text)
-            yield f"data: {json.dumps({'done': True, 'slug': slug})}\n\n"
-            yield "data: [DONE]\n\n"
-            return
-        except (ApiKeyError, RateLimitError) as exc:
-            last_error = str(exc)
-            if key_index < len(keys):
-                yield f"data: {json.dumps({'status': f'{label.title()} key failed; trying backup key.'})}\n\n"
-                continue
-            yield f"data: {json.dumps({'error': last_error})}\n\n"
-        except Exception as exc:
-            last_error = str(exc)
-            safe_log(f"Demo analysis error: {exc}")
-            yield f"data: {json.dumps({'error': f'Analysis failed: {last_error}'})}\n\n"
-        break
+    yield f"data: {json.dumps({'status': 'Using Grok for text/final synthesis and Gemini for vision.'})}\n\n"
+    try:
+        yield from _multi_model_analysis_events(slug, grok_key, keys[0], output_language)
+    except (ApiKeyError, GrokApiKeyError, RateLimitError) as exc:
+        yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+    except Exception as exc:
+        safe_log(f"Demo multi-model analysis error: {exc}")
+        yield f"data: {json.dumps({'error': f'Analysis failed: {str(exc)}'})}\n\n"
 
     yield "data: [DONE]\n\n"
 
@@ -1750,8 +1958,11 @@ def _stream_with_demo_limits(generator_factory):
 
     def generate():
         try:
+            _set_current_progress(status="Starting analysis...", line="Starting analysis...", done=False, reset=True)
             _cleanup_old_demo_jobs()
-            yield from generator_factory()
+            for event_text in generator_factory():
+                _track_demo_sse_progress(event_text)
+                yield event_text
         finally:
             _demo_job_lock.release()
 
@@ -1855,8 +2066,13 @@ def api_demo_analyze_manual():
 
     def generate():
         try:
-            yield f"data: {json.dumps({'status': f'Manual listing ready with {photos_count} photos.', 'slug': slug})}\n\n"
-            yield from _demo_analysis_events(slug, output_language)
+            _set_current_progress(status="Starting manual analysis...", line="Starting manual analysis...", done=False, reset=True)
+            first_event = f"data: {json.dumps({'status': f'Manual listing ready with {photos_count} photos.', 'slug': slug})}\n\n"
+            _track_demo_sse_progress(first_event)
+            yield first_event
+            for event_text in _demo_analysis_events(slug, output_language):
+                _track_demo_sse_progress(event_text)
+                yield event_text
         finally:
             _demo_job_lock.release()
 
@@ -1879,11 +2095,9 @@ def api_analyze(slug):
     Returns SSE stream of progress and final report.
     """
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "Chýba požiadavka. Pošli oba API kľúče."}), 400
-
-    grok_key = (data.get("grok_api_key") or "").strip()
-    gemini_key = (data.get("gemini_api_key") or "").strip()
+    demo_gemini_keys = _demo_api_keys()
+    grok_key = (data.get("grok_api_key") or _demo_grok_api_key()).strip()
+    gemini_key = (data.get("gemini_api_key") or (demo_gemini_keys[0] if demo_gemini_keys else "")).strip()
 
     if not grok_key:
         return jsonify({"error": "Chýba Grok API kľúč (GROK_API_KEY)."}), 400
