@@ -206,6 +206,18 @@
             padding: 16px;
         }
 
+        .artifact-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .artifact-links a {
+            min-height: 30px;
+            padding: 5px 9px;
+            font-size: 12px;
+        }
+
         @media (max-width: 860px) {
             .bar {
                 align-items: flex-start;
@@ -341,6 +353,24 @@
                 </table>
             </div>
         </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <strong>Analysis Artifacts</strong>
+                <span>Open raw intermediate files</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Listing</th>
+                            <th>Artifacts</th>
+                        </tr>
+                    </thead>
+                    <tbody id="artifactBody"></tbody>
+                </table>
+            </div>
+        </section>
     </main>
 
     <script>
@@ -390,6 +420,44 @@
             target.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="4" class="muted">' + emptyText + '</td></tr>';
         }
 
+        function renderArtifactRows(listings, artifactsBySlug) {
+            const rows = (listings || []).slice(0, 8).map((listing) => {
+                const slug = listing.slug || '';
+                const title = listing.title || slug;
+                const artifacts = artifactsBySlug[slug] || [];
+                const links = artifacts.length
+                    ? artifacts.map((artifact) => '<a href="' + artifact.url + '" target="_blank" rel="noopener">' + escapeHtml(artifact.filename) + '</a>').join('')
+                    : '<span class="muted">No intermediate files yet</span>';
+                return `
+                    <tr>
+                        <td>${escapeHtml(title)}<br><span class="muted">${escapeHtml(slug)}</span></td>
+                        <td><div class="artifact-links">${links}</div></td>
+                    </tr>
+                `;
+            });
+            byId('artifactBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="2" class="muted">No completed demo analyses yet.</td></tr>';
+        }
+
+        async function loadArtifacts() {
+            const response = await fetch('/api/demo/listings');
+            if (!response.ok) return;
+            const listings = await response.json();
+            const selected = (listings || []).slice(0, 8);
+            const artifactsBySlug = {};
+            await Promise.all(selected.map(async (listing) => {
+                if (!listing.slug) return;
+                try {
+                    const artifactResponse = await fetch('/api/demo/listings/' + encodeURIComponent(listing.slug) + '/artifacts');
+                    if (!artifactResponse.ok) return;
+                    const payload = await artifactResponse.json();
+                    artifactsBySlug[listing.slug] = payload.artifacts || [];
+                } catch (e) {
+                    artifactsBySlug[listing.slug] = [];
+                }
+            }));
+            renderArtifactRows(selected, artifactsBySlug);
+        }
+
         async function loadUsage() {
             const response = await fetch('/api/token-usage?limit=80');
             if (!response.ok) {
@@ -431,6 +499,7 @@
             renderRows(byId('recentBody'), recentRows, 'No token usage has been recorded yet.');
             renderAggregateRows(byId('listingBody'), data.by_listing, 'No listing data yet.');
             renderAggregateRows(byId('modelBody'), data.by_model, 'No model data yet.');
+            loadArtifacts();
         }
 
         byId('refreshBtn').addEventListener('click', () => {

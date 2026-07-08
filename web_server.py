@@ -336,6 +336,16 @@ def _listing_analysis_result_path(slug_dir):
     return os.path.join(slug_dir, "analysis_result.md")
 
 
+ANALYSIS_ARTIFACTS = {
+    "grok_research.json",
+    "gemini_vision.json",
+    "risk_score.json",
+    "web_research.md",
+    "analysis_result_raw.md",
+    "analysis_result.md",
+}
+
+
 def _listing_images_dir(slug_dir):
     return os.path.join(slug_dir, "images")
 
@@ -367,6 +377,10 @@ def _ordered_listing_images(slug_dir):
 
 def _listing_image_url(route_prefix, slug, filename):
     return f"{route_prefix}/{urllib.parse.quote(slug)}/image/{urllib.parse.quote(filename)}"
+
+
+def _listing_artifact_url(route_prefix, slug, filename):
+    return f"{route_prefix}/{urllib.parse.quote(slug)}/artifacts/{urllib.parse.quote(filename)}"
 
 
 def _read_listing_analysis_content(slug_dir, required=False):
@@ -447,6 +461,43 @@ def _send_listing_image_file(slug, filename):
     if not os.path.isfile(image_path):
         return jsonify({"error": "Not found"}), 404
     return send_from_directory(images_dir, filename)
+
+
+def _list_listing_artifacts(slug, route_prefix="/api/listings"):
+    slug_dir = _listing_dir_or_raise(slug)
+    artifacts = []
+    for filename in sorted(ANALYSIS_ARTIFACTS):
+        path = os.path.join(slug_dir, filename)
+        if os.path.isfile(path):
+            artifacts.append(
+                {
+                    "filename": filename,
+                    "url": _listing_artifact_url(route_prefix, slug, filename),
+                    "size": os.path.getsize(path),
+                    "modified_at": datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds"),
+                }
+            )
+    return artifacts
+
+
+def _send_listing_artifact_file(slug, filename):
+    if filename not in ANALYSIS_ARTIFACTS:
+        return jsonify({"error": "Artifact not allowed"}), 400
+
+    slug_dir = _listing_dir_or_raise(slug)
+    artifact_path = os.path.abspath(os.path.join(slug_dir, filename))
+    if os.path.commonpath([os.path.abspath(slug_dir), artifact_path]) != os.path.abspath(slug_dir):
+        return jsonify({"error": "Invalid artifact"}), 400
+    if not os.path.isfile(artifact_path):
+        return jsonify({"error": "Artifact not found"}), 404
+
+    with open(artifact_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return Response(
+        content,
+        mimetype="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 def get_listings(require_analysis=False, image_route_prefix="/api/listings"):
@@ -851,6 +902,38 @@ def api_demo_listing_detail(slug):
     except FileNotFoundError:
         return jsonify({"error": "Saved analysis not found"}), 404
     return jsonify(payload)
+
+
+@app.route("/api/listings/<slug>/artifacts")
+def api_listing_artifacts(slug):
+    try:
+        return jsonify({"slug": slug, "artifacts": _list_listing_artifacts(slug)})
+    except FileNotFoundError:
+        return jsonify({"error": "Listing not found"}), 404
+
+
+@app.route("/api/demo/listings/<slug>/artifacts")
+def api_demo_listing_artifacts(slug):
+    try:
+        return jsonify({"slug": slug, "artifacts": _list_listing_artifacts(slug, route_prefix="/api/demo/listings")})
+    except FileNotFoundError:
+        return jsonify({"error": "Saved analysis not found"}), 404
+
+
+@app.route("/api/listings/<slug>/artifacts/<filename>")
+def api_listing_artifact(slug, filename):
+    try:
+        return _send_listing_artifact_file(slug, filename)
+    except FileNotFoundError:
+        return jsonify({"error": "Listing not found"}), 404
+
+
+@app.route("/api/demo/listings/<slug>/artifacts/<filename>")
+def api_demo_listing_artifact(slug, filename):
+    try:
+        return _send_listing_artifact_file(slug, filename)
+    except FileNotFoundError:
+        return jsonify({"error": "Saved analysis not found"}), 404
 
 
 @app.route("/api/listings/<slug>", methods=["PUT"])
@@ -1678,7 +1761,6 @@ def _strip_kb_section(text):
         if kb_match:
             text = text[:kb_match.start()]
 
-    text = text.replace("<!-- END_ANALYSIS -->", "")
     return text.rstrip() + "\n"
 
 
@@ -1770,8 +1852,21 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
     )
 
 
+def _stream_text_model(provider, api_key, system_prompt, user_content, listing_slug=None):
+    if provider == "grok":
+        yield from analyze_with_grok(api_key, system_prompt, user_content, listing_slug=listing_slug)
+        return
+
+    from llm_client import _call_gemini
+    yield from _call_gemini(api_key, system_prompt, user_content, image_data_list=None, listing_slug=listing_slug)
+
+
+def _model_display_name(provider):
+    return "Grok" if provider == "grok" else "Gemini"
+
+
 def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk"):
-    """Run Grok text/research, Gemini vision, and Grok final synthesis."""
+    """Run separated text/research, Gemini vision, scoring, and final synthesis."""
     slug_dir = _safe_slug_dir(slug)
     if not os.path.isdir(slug_dir):
         yield f"data: {json.dumps({'error': 'Listing job not found.'})}\n\n"
@@ -1795,12 +1890,16 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
             web_research_text = grounded
             with open(os.path.join(slug_dir, "web_research.md"), "w", encoding="utf-8") as f:
                 f.write(grounded)
-            yield f"data: {json.dumps({'status': 'Web research ready for Grok.'})}\n\n"
+            yield f"data: {json.dumps({'status': 'Web research ready for text/research analysis.'})}\n\n"
     except Exception as exc:
         safe_log(f"Web research warning: {exc}")
         yield f"data: {json.dumps({'status': 'Web research unavailable; continuing with listing data.'})}\n\n"
 
-    yield f"data: {json.dumps({'status': 'Phase 1/3: Grok text and research analysis...'})}\n\n"
+    text_provider = "grok" if grok_key else "gemini"
+    text_key = grok_key if grok_key else gemini_key
+    text_model_name = _model_display_name(text_provider)
+
+    yield f"data: {json.dumps({'status': f'Phase 1/4: {text_model_name} text and research analysis...'})}\n\n"
     grok_text_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "grok_text_research_system.md")
     if not os.path.exists(grok_text_prompt_path):
         yield f"data: {json.dumps({'error': 'grok_text_research_system.md not found.'})}\n\n"
@@ -1812,13 +1911,13 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
     grok_text_content = _build_text_research_context(car_info_text, output_language, web_research_text)
     input_tokens = estimate_request_tokens(grok_text_system_prompt, grok_text_content)
     yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': 0}})}\n\n"
-    for chunk in analyze_with_grok(grok_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
+    for chunk in _stream_text_model(text_provider, text_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
         grok_research_json_text += chunk
     with open(os.path.join(slug_dir, "grok_research.json"), "w", encoding="utf-8") as f:
         f.write(grok_research_json_text)
-    yield f"data: {json.dumps({'status': 'Grok text/research JSON saved.'})}\n\n"
+    yield f"data: {json.dumps({'status': f'{text_model_name} text/research JSON saved.'})}\n\n"
 
-    yield f"data: {json.dumps({'status': 'Phase 2/3: Gemini vision analysis...'})}\n\n"
+    yield f"data: {json.dumps({'status': 'Phase 2/4: Gemini vision analysis...'})}\n\n"
     vision_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "gemini_vision_system.md")
     if not os.path.exists(vision_prompt_path):
         yield f"data: {json.dumps({'error': 'gemini_vision_system.md not found.'})}\n\n"
@@ -1855,7 +1954,20 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
         f.write(vision_result_json)
     yield f"data: {json.dumps({'status': 'Gemini vision JSON saved.'})}\n\n"
 
-    yield f"data: {json.dumps({'status': 'Phase 3/3: Grok final synthesis...'})}\n\n"
+    yield f"data: {json.dumps({'status': 'Phase 3/4: Backend deterministic risk scoring...'})}\n\n"
+    from risk_scorer import calculate_risk_score
+    risk_score = calculate_risk_score(
+        grok_research_json_text,
+        vision_result_json,
+        listing_text=car_info_text,
+    )
+    risk_score_json = json.dumps(risk_score, indent=2, ensure_ascii=False)
+    with open(os.path.join(slug_dir, "risk_score.json"), "w", encoding="utf-8") as f:
+        f.write(risk_score_json)
+    verdict = risk_score.get("allowed_final_verdict", "unknown")
+    yield f"data: {json.dumps({'status': f'Backend risk score saved: {verdict}'})}\n\n"
+
+    yield f"data: {json.dumps({'status': f'Phase 4/4: {text_model_name} final synthesis...'})}\n\n"
     final_synthesis_prompt_path = os.path.join(SCRIPT_DIR, "prompts", "grok_final_synthesis_system.md")
     if not os.path.exists(final_synthesis_prompt_path):
         yield f"data: {json.dumps({'error': 'grok_final_synthesis_system.md not found.'})}\n\n"
@@ -1869,11 +1981,14 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
 ## Original listing data
 {car_info_text}
 
-## Grok text/research JSON
+## Text/research JSON
 {grok_research_json_text}
 
 ## Gemini vision JSON
 {vision_result_json}
+
+## Backend risk score JSON
+{risk_score_json}
 
 ## Provided web research results
 {web_research_text or 'No web research results were available.'}
@@ -1884,7 +1999,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
     next_token_update = 250
     final_input_tokens = estimate_request_tokens(final_system_prompt, final_content)
     yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
-    for chunk in analyze_with_grok(grok_key, final_system_prompt, final_content, listing_slug=slug):
+    for chunk in _stream_text_model(text_provider, text_key, final_system_prompt, final_content, listing_slug=slug):
         full_report += chunk
         output_tokens += estimate_output_tokens(chunk)
         if chunk:
@@ -1923,18 +2038,14 @@ def _multi_model_analysis_events(slug, grok_key, gemini_key, output_language="sk
 
 def _demo_analysis_events(slug, output_language="sk"):
     grok_key = _demo_grok_api_key()
-    if not grok_key:
-        yield f"data: {json.dumps({'error': 'GROK_API_KEY is not configured on the server.'})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
-
     keys = _demo_api_keys()
     if not keys:
         yield f"data: {json.dumps({'error': 'Gemini API keys are not configured on the server.'})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
-    yield f"data: {json.dumps({'status': 'Using Grok for text/final synthesis and Gemini for vision.'})}\n\n"
+    text_provider = "Grok" if grok_key else "Gemini"
+    yield f"data: {json.dumps({'status': f'Using {text_provider} for text/final synthesis and Gemini for vision.'})}\n\n"
     try:
         yield from _multi_model_analysis_events(slug, grok_key, keys[0], output_language)
     except (ApiKeyError, GrokApiKeyError, RateLimitError) as exc:
@@ -2086,21 +2197,20 @@ def api_demo_analyze_manual():
 @app.route("/api/analyze/<slug>", methods=["POST"])
 def api_analyze(slug):
     """
-    Run AI analysis on a listing using the 3-stage pipeline:
-      1. Grok text + research (text-only)
-      2. Gemini vision (collage images only)
-      3. Grok final synthesis (tools OFF)
+    Run AI analysis on a listing using the separated pipeline:
+      1. Text + research, Grok if available, otherwise Gemini
+      2. Gemini vision
+      3. Backend deterministic scoring
+      4. Final synthesis, same text provider as step 1
 
-    Expects JSON body: {"grok_api_key": "...", "gemini_api_key": "..."}
+    Optional JSON body: {"grok_api_key": "...", "gemini_api_key": "..."}
     Returns SSE stream of progress and final report.
     """
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     demo_gemini_keys = _demo_api_keys()
     grok_key = (data.get("grok_api_key") or _demo_grok_api_key()).strip()
     gemini_key = (data.get("gemini_api_key") or (demo_gemini_keys[0] if demo_gemini_keys else "")).strip()
 
-    if not grok_key:
-        return jsonify({"error": "Chýba Grok API kľúč (GROK_API_KEY)."}), 400
     if not gemini_key:
         return jsonify({"error": "Chýba Gemini API kľúč (GEMINI_API_KEY)."}), 400
 
@@ -2110,6 +2220,9 @@ def api_analyze(slug):
 
     def generate():
         try:
+            yield from _multi_model_analysis_events(slug, grok_key, gemini_key)
+            return
+
             from llm_client import _call_gemini, _call_grok, run_grounded_web_research
 
             # Read listing data

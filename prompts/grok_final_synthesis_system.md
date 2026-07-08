@@ -4,7 +4,7 @@ Your task is to create the final Slovak buyer-facing report by combining only th
 
 You will receive:
 1. Original listing data
-2. Grok text/research JSON
+2. Text/research JSON
 3. Gemini vision JSON
 4. Backend-calculated risk score
 5. Backend-calculated final verdict

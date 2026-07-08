@@ -715,7 +715,7 @@
             <section class="workspace" id="analysis">
                 <aside class="log-panel">
                     <div class="panel-head">
-                        <strong>Priebeh / Výsledok</strong>
+                        <strong>Výsledok</strong>
                         <span class="status" id="status">Pripravené</span>
                     </div>
                     <div class="log" id="log">Výsledok analýzy sa zobrazí tu.</div>
@@ -786,7 +786,7 @@
                 imagesHint: "Maximálne 12 fotiek.",
                 tooManyImages: "Vyber najviac 12 fotiek. Ponechal som prvých 12.",
                 manualSubmit: "Analyzovať",
-                progressTitle: "Priebeh",
+                progressTitle: "Výsledok",
                 newAnalysis: "Nová analýza",
                 dashboard: "Dashboard",
                 ready: "Pripravené",
@@ -817,7 +817,7 @@
                 imagesHint: "Maximum 12 photos.",
                 tooManyImages: "Choose at most 12 photos. I kept the first 12.",
                 manualSubmit: "Analyse",
-                progressTitle: "Progress",
+                progressTitle: "Result",
                 newAnalysis: "New analysis",
                 dashboard: "Dashboard",
                 ready: "Ready",
@@ -1109,16 +1109,9 @@
                     if (data.error) throw new Error(data.error);
                     if (data.status) {
                         statusEl.textContent = data.status;
-                        appendLog(data.status);
                         const p = getProgressForStatus(data.status);
                         if (p !== null) updateProgress(p);
                     }
-                    if (data.token_usage) {
-                        const usage = data.token_usage;
-                        appendLog('Tokens sent: ~' + (usage.input_tokens || 0) + ', received: ~' + (usage.output_tokens || 0));
-                    }
-                    if (data.log) appendLog(data.log);
-                    if (data.line) appendLog(data.line);
                     if (data.text) {
                         fullResult += data.text;
                     }
