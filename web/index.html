@@ -712,7 +712,7 @@
                 </section>
             </section>
 
-            <section class="workspace" id="analysis">
+            <section class="workspace hidden" id="analysis">
                 <aside class="log-panel">
                     <div class="panel-head">
                         <strong>Výsledok</strong>
@@ -754,6 +754,7 @@
         const manualTab = document.querySelector("#manualTab");
         const urlForm = document.querySelector("#urlForm");
         const manualForm = document.querySelector("#manualForm");
+        const analysisSection = document.querySelector("#analysis");
         const statusEl = document.querySelector("#status");
         const logEl = document.querySelector("#log");
         const outputLanguage = document.querySelector("#outputLanguage");
@@ -888,6 +889,7 @@
 
         function resetWorkspace() {
             latestResultText = "";
+            analysisSection.classList.add("hidden");
             logEl.textContent = tr("resultEmpty");
             statusEl.textContent = tr("ready");
             statusEl.classList.remove("error");
@@ -923,10 +925,11 @@
         }
 
         function resetOutput() {
+            analysisSection.classList.remove("hidden");
             logEl.textContent = "";
             statusEl.textContent = tr("starting");
             statusEl.classList.remove("error");
-            document.querySelector("#analysis").scrollIntoView({ behavior: "smooth", block: "start" });
+            analysisSection.scrollIntoView({ behavior: "smooth", block: "start" });
             showOverlay();
         }
 
@@ -1035,6 +1038,7 @@
         }
 
         function appendLog(line) {
+            analysisSection.classList.remove("hidden");
             // Replace initial placeholder text
             if (logEl.textContent === tr("resultEmpty")) {
                 logEl.textContent = "";
@@ -1044,6 +1048,7 @@
         }
 
         function showResult(text) {
+            analysisSection.classList.remove("hidden");
             latestResultText = text || "";
             if (logEl.textContent === tr("resultEmpty") || logEl.textContent.trim() === "") {
                 logEl.textContent = latestResultText;
