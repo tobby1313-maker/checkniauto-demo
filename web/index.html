@@ -349,6 +349,18 @@
             border-color: var(--orange-dark);
         }
 
+        .btn.nav-primary {
+            border-color: var(--orange);
+            background: var(--orange);
+            color: #fff;
+        }
+
+        .btn.nav-primary:hover {
+            border-color: var(--orange-dark);
+            background: var(--orange-dark);
+            color: #fff;
+        }
+
         .btn:disabled {
             opacity: 0.52;
             cursor: not-allowed;
@@ -376,24 +388,249 @@
             max-width: 1120px;
             width: 100%;
             margin: 0 auto;
-            padding: 0 20px 42px;
+            padding: 24px 20px 42px;
         }
 
-        .log {
-            min-height: 260px;
-            max-height: 70vh;
+        .page.result-mode .layout {
+            display: none;
+        }
+
+        .result-page {
+            display: grid;
+            gap: 14px;
+        }
+
+        .result-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .result-heading {
+            display: grid;
+            gap: 3px;
+            min-width: 0;
+        }
+
+        .result-heading strong {
+            font-size: 20px;
+            line-height: 1.2;
+        }
+
+        .result-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .result-content {
+            min-height: calc(100vh - 170px);
             overflow: auto;
             margin: 0;
-            padding: 14px 16px;
+            padding: 10px 0 28px;
             background: var(--surface);
             color: var(--text);
+            font-size: 15px;
+            line-height: 1.65;
+        }
+
+        .result-content.raw-log {
             white-space: pre-wrap;
             font: 14px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
         }
 
-        :root[data-theme="dark"] .log {
+        .result-content > :first-child { margin-top: 0; }
+        .result-content h1,
+        .result-content h2,
+        .result-content h3,
+        .result-content h4 {
+            line-height: 1.22;
+            margin: 1.2em 0 0.55em;
+            letter-spacing: 0;
+        }
+        .result-content h1 { font-size: 32px; }
+        .result-content h2 {
+            font-size: 24px;
+            padding-bottom: 7px;
+            border-bottom: 1px solid var(--line);
+        }
+        .result-content h3 { font-size: 19px; }
+        .result-content h4 { font-size: 16px; }
+        .result-content p { margin: 0 0 0.85em; }
+        .result-content ul,
+        .result-content ol {
+            margin: 0 0 1em;
+            padding-left: 24px;
+        }
+        .result-content li { margin: 0.25em 0; }
+        .result-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 14px;
+        }
+        .result-content th,
+        .result-content td {
+            border: 1px solid var(--line);
+            padding: 8px 10px;
+            vertical-align: top;
+        }
+        .result-content th {
+            background: var(--surface-soft);
+            text-align: left;
+        }
+        .result-content blockquote {
+            margin: 14px 0;
+            padding: 10px 14px;
+            border-left: 4px solid var(--orange);
+            background: var(--surface-soft);
+            color: var(--muted);
+        }
+        .result-content code {
+            padding: 2px 5px;
+            border-radius: 5px;
+            background: var(--surface-soft);
+        }
+        .result-content pre {
+            overflow: auto;
+            padding: 12px;
+            border-radius: 8px;
+            background: var(--surface-soft);
+        }
+        .result-content pre code {
+            padding: 0;
+            background: transparent;
+        }
+        .result-content a {
+            color: var(--orange);
+            overflow-wrap: anywhere;
+        }
+        .result-content hr {
+            border: 0;
+            border-top: 1px solid var(--line);
+            margin: 24px 0;
+        }
+
+        .dashboard-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 40;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 180ms ease;
+        }
+
+        .dashboard-layer.active {
+            pointer-events: auto;
+            opacity: 1;
+        }
+
+        .dashboard-backdrop {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: rgba(18, 24, 32, 0.36);
+        }
+
+        .dashboard-drawer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: min(430px, 100%);
+            height: 100%;
+            display: grid;
+            grid-template-rows: auto auto 1fr;
             background: var(--surface);
-            color: var(--text);
+            border-left: 1px solid var(--line);
+            box-shadow: -18px 0 48px rgba(18, 24, 32, 0.16);
+            transform: translateX(100%);
+            transition: transform 220ms ease;
+        }
+
+        .dashboard-layer.active .dashboard-drawer {
+            transform: translateX(0);
+        }
+
+        .drawer-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .drawer-head strong {
+            display: block;
+            font-size: 18px;
+        }
+
+        .drawer-head span,
+        .dashboard-empty {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .dashboard-status {
+            padding: 10px 18px;
+            min-height: 38px;
+            color: var(--muted);
+            font-size: 13px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .dashboard-list {
+            overflow: auto;
+            padding: 10px;
+        }
+
+        .dashboard-item {
+            width: 100%;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            color: inherit;
+            padding: 10px;
+            display: grid;
+            grid-template-columns: 68px 1fr;
+            gap: 10px;
+            text-align: left;
+        }
+
+        .dashboard-item:hover,
+        .dashboard-item:focus-visible {
+            border-color: var(--orange);
+            background: var(--orange-soft);
+            outline: none;
+        }
+
+        .dashboard-thumb {
+            width: 68px;
+            height: 52px;
+            border-radius: 7px;
+            background: var(--surface-soft);
+            object-fit: cover;
+        }
+
+        .dashboard-item strong {
+            display: block;
+            margin-bottom: 3px;
+            font-size: 14px;
+            line-height: 1.25;
+        }
+
+        .dashboard-item span {
+            display: block;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.35;
         }
 
         /* ========== Progress Overlay ========== */
@@ -642,8 +879,8 @@
 
                 <div class="nav-tools">
                     <div class="nav-actions">
-                        <button class="btn ghost small" id="newAnalysisBtn" type="button">Nová analýza</button>
-                        <button class="btn ghost small" id="dashboardBtn" type="button">Dashboard</button>
+                        <button class="btn nav-primary small" id="newAnalysisBtn" type="button">Nová analýza</button>
+                        <button class="btn nav-primary small" id="dashboardBtn" type="button">Dashboard</button>
                     </div>
                     <select id="outputLanguage" class="language-select" aria-label="Jazyk výstupu">
                         <option value="sk">Slovenčina</option>
@@ -713,15 +950,36 @@
             </section>
 
             <section class="workspace hidden" id="analysis">
-                <aside class="log-panel">
-                    <div class="panel-head">
-                        <strong>Výsledok</strong>
-                        <span class="status" id="status">Pripravené</span>
+                <div class="result-page">
+                    <div class="result-toolbar">
+                        <div class="result-heading">
+                            <strong id="resultTitle">Výsledok</strong>
+                            <span class="status" id="status">Pripravené</span>
+                        </div>
+                        <div class="result-actions">
+                            <button class="btn small" id="copyMarkdownBtn" type="button">Kopírovať text</button>
+                            <button class="btn small" id="exportPdfBtn" type="button">Export PDF</button>
+                        </div>
                     </div>
-                    <div class="log" id="log">Výsledok analýzy sa zobrazí tu.</div>
-                </aside>
+                    <article class="result-content raw-log" id="log">Výsledok analýzy sa zobrazí tu.</article>
+                </div>
             </section>
         </main>
+    </div>
+
+    <div class="dashboard-layer" id="dashboardLayer" aria-hidden="true">
+        <button class="dashboard-backdrop" id="dashboardBackdrop" type="button" aria-label="Zavrieť dashboard"></button>
+        <aside class="dashboard-drawer" aria-label="Predchádzajúce analýzy">
+            <div class="drawer-head">
+                <div>
+                    <strong id="dashboardTitle">Predchádzajúce analýzy</strong>
+                    <span id="dashboardSubtitle">Uložené výsledky z demo analýz</span>
+                </div>
+                <button class="btn ghost small" id="dashboardCloseBtn" type="button">Zavrieť</button>
+            </div>
+            <div class="dashboard-status" id="dashboardStatus"></div>
+            <div class="dashboard-list" id="dashboardList"></div>
+        </aside>
     </div>
 
     <!-- Progress Overlay -->
@@ -761,11 +1019,20 @@
         const imagesInput = document.querySelector("#images");
         const newAnalysisBtn = document.querySelector("#newAnalysisBtn");
         const dashboardBtn = document.querySelector("#dashboardBtn");
+        const copyMarkdownBtn = document.querySelector("#copyMarkdownBtn");
+        const exportPdfBtn = document.querySelector("#exportPdfBtn");
+        const resultTitleEl = document.querySelector("#resultTitle");
+        const dashboardLayer = document.querySelector("#dashboardLayer");
+        const dashboardList = document.querySelector("#dashboardList");
+        const dashboardStatus = document.querySelector("#dashboardStatus");
+        const dashboardCloseBtn = document.querySelector("#dashboardCloseBtn");
+        const dashboardBackdrop = document.querySelector("#dashboardBackdrop");
         let currentLanguage = outputLanguage.value || "sk";
         let abortController = null;
         const maxManualImages = 12;
         const submitButtons = [document.querySelector("#urlSubmit"), document.querySelector("#manualSubmit")];
         let latestResultText = "";
+        let latestResultTitle = "Checkni Auto";
 
         const translations = {
             sk: {
@@ -794,6 +1061,19 @@
                 starting: "Spúšťam analýzu...",
                 finish: "Hotovo",
                 resultEmpty: "Výsledok analýzy sa zobrazí tu.",
+                copyMarkdown: "Kopírovať text",
+                exportPdf: "Export PDF",
+                copied: "Skopírované",
+                noResultToCopy: "Nie je čo kopírovať",
+                dashboardTitle: "Predchádzajúce analýzy",
+                dashboardSubtitle: "Uložené výsledky z demo analýz",
+                dashboardClose: "Zavrieť",
+                dashboardLoading: "Načítavam uložené analýzy...",
+                dashboardEmpty: "Zatiaľ tu nie sú žiadne uložené analýzy.",
+                dashboardError: "Dashboard sa nepodarilo načítať.",
+                openAnalysis: "Otvoriť analýzu",
+                sourceLabel: "Zdroj",
+                scrapedLabel: "Scraped",
                 languageLabel: "Jazyk výstupu",
                 themeLabel: "Prepnúť svetlý alebo tmavý režim",
                 themeTitle: "Prepnúť tému",
@@ -825,6 +1105,19 @@
                 starting: "Starting analysis...",
                 finish: "Finished",
                 resultEmpty: "The analysis result will appear here.",
+                copyMarkdown: "Copy text",
+                exportPdf: "Export PDF",
+                copied: "Copied",
+                noResultToCopy: "Nothing to copy",
+                dashboardTitle: "Previous analyses",
+                dashboardSubtitle: "Saved demo analysis results",
+                dashboardClose: "Close",
+                dashboardLoading: "Loading saved analyses...",
+                dashboardEmpty: "No saved analyses yet.",
+                dashboardError: "Dashboard could not load.",
+                openAnalysis: "Open analysis",
+                sourceLabel: "Source",
+                scrapedLabel: "Scraped",
                 languageLabel: "Output language",
                 themeLabel: "Switch light or dark mode",
                 themeTitle: "Switch theme",
@@ -867,9 +1160,14 @@
             setText("label[for='images']", tr("imagesLabel"));
             setText("#imagesHint", tr("imagesHint"));
             setText("#manualSubmit", tr("manualSubmit"));
-            setText(".log-panel .panel-head strong", tr("progressTitle"));
+            setText("#resultTitle", latestResultTitle === "Checkni Auto" ? tr("progressTitle") : latestResultTitle);
             setText("#newAnalysisBtn", tr("newAnalysis"));
             setText("#dashboardBtn", tr("dashboard"));
+            setText("#copyMarkdownBtn", tr("copyMarkdown"));
+            setText("#exportPdfBtn", tr("exportPdf"));
+            setText("#dashboardTitle", tr("dashboardTitle"));
+            setText("#dashboardSubtitle", tr("dashboardSubtitle"));
+            setText("#dashboardCloseBtn", tr("dashboardClose"));
 
             document.querySelector("#title").placeholder = tr("titlePlaceholder");
             document.querySelector("#sourceUrl").placeholder = tr("sourceUrlPlaceholder");
@@ -889,8 +1187,12 @@
 
         function resetWorkspace() {
             latestResultText = "";
+            latestResultTitle = "Checkni Auto";
+            pageEl.classList.remove("result-mode");
             analysisSection.classList.add("hidden");
+            logEl.classList.add("raw-log");
             logEl.textContent = tr("resultEmpty");
+            resultTitleEl.textContent = tr("progressTitle");
             statusEl.textContent = tr("ready");
             statusEl.classList.remove("error");
         }
@@ -924,12 +1226,162 @@
             urlTab.classList.toggle("active", !manual);
         }
 
-        function resetOutput() {
+        function escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;"
+            }[char]));
+        }
+
+        function inlineMarkdown(value) {
+            let html = escapeHtml(value);
+            const links = [];
+            html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (match, label, url) => {
+                const token = `%%CHECKNI_LINK_${links.length}%%`;
+                links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+                return token;
+            });
+            html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+            html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+            html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+            html = html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+            links.forEach((link, index) => {
+                html = html.replace(`%%CHECKNI_LINK_${index}%%`, link);
+            });
+            return html;
+        }
+
+        function renderMarkdown(markdown) {
+            const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+            const blocks = [];
+            let paragraph = [];
+            let listType = null;
+            let tableRows = [];
+            let inCode = false;
+            let codeLines = [];
+
+            const flushParagraph = () => {
+                if (!paragraph.length) return;
+                blocks.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+                paragraph = [];
+            };
+            const flushList = () => {
+                if (!listType) return;
+                blocks.push(`</${listType}>`);
+                listType = null;
+            };
+            const flushTable = () => {
+                if (!tableRows.length) return;
+                const rows = tableRows.map((row, index) => {
+                    const cells = row.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+                    const tag = index === 0 ? "th" : "td";
+                    return `<tr>${cells.map((cell) => `<${tag}>${inlineMarkdown(cell)}</${tag}>`).join("")}</tr>`;
+                }).join("");
+                blocks.push(`<table>${rows}</table>`);
+                tableRows = [];
+            };
+            const closeFlow = () => {
+                flushParagraph();
+                flushList();
+                flushTable();
+            };
+
+            for (let i = 0; i < lines.length; i += 1) {
+                const line = lines[i];
+                const trimmed = line.trim();
+
+                if (trimmed.startsWith("```")) {
+                    if (inCode) {
+                        blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+                        codeLines = [];
+                        inCode = false;
+                    } else {
+                        closeFlow();
+                        inCode = true;
+                    }
+                    continue;
+                }
+                if (inCode) {
+                    codeLines.push(line);
+                    continue;
+                }
+
+                if (!trimmed) {
+                    closeFlow();
+                    continue;
+                }
+
+                if (/^\|.+\|$/.test(trimmed)) {
+                    flushParagraph();
+                    flushList();
+                    if (/^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed)) continue;
+                    tableRows.push(trimmed);
+                    continue;
+                }
+                flushTable();
+
+                const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+                if (heading) {
+                    closeFlow();
+                    const level = heading[1].length;
+                    blocks.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+                    continue;
+                }
+
+                if (/^---+$/.test(trimmed)) {
+                    closeFlow();
+                    blocks.push("<hr>");
+                    continue;
+                }
+
+                const unordered = /^[-*]\s+(.+)$/.exec(trimmed);
+                const ordered = /^\d+\.\s+(.+)$/.exec(trimmed);
+                if (unordered || ordered) {
+                    flushParagraph();
+                    const nextType = unordered ? "ul" : "ol";
+                    if (listType && listType !== nextType) flushList();
+                    if (!listType) {
+                        listType = nextType;
+                        blocks.push(`<${listType}>`);
+                    }
+                    blocks.push(`<li>${inlineMarkdown((unordered || ordered)[1])}</li>`);
+                    continue;
+                }
+
+                const quote = /^>\s?(.+)$/.exec(trimmed);
+                if (quote) {
+                    closeFlow();
+                    blocks.push(`<blockquote>${inlineMarkdown(quote[1])}</blockquote>`);
+                    continue;
+                }
+
+                flushList();
+                paragraph.push(trimmed);
+            }
+
+            if (inCode) blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+            closeFlow();
+            return blocks.join("\n") || `<p>${escapeHtml(tr("resultEmpty"))}</p>`;
+        }
+
+        function showResultPage() {
+            pageEl.classList.add("result-mode");
             analysisSection.classList.remove("hidden");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        function resetOutput() {
+            showResultPage();
+            latestResultText = "";
+            latestResultTitle = tr("progressTitle");
+            resultTitleEl.textContent = latestResultTitle;
+            logEl.classList.add("raw-log");
             logEl.textContent = "";
             statusEl.textContent = tr("starting");
             statusEl.classList.remove("error");
-            analysisSection.scrollIntoView({ behavior: "smooth", block: "start" });
             showOverlay();
         }
 
@@ -1038,7 +1490,8 @@
         }
 
         function appendLog(line) {
-            analysisSection.classList.remove("hidden");
+            showResultPage();
+            logEl.classList.add("raw-log");
             // Replace initial placeholder text
             if (logEl.textContent === tr("resultEmpty")) {
                 logEl.textContent = "";
@@ -1047,16 +1500,14 @@
             logEl.scrollTop = logEl.scrollHeight;
         }
 
-        function showResult(text) {
-            analysisSection.classList.remove("hidden");
+        function showResult(text, title) {
+            showResultPage();
             latestResultText = text || "";
-            if (logEl.textContent === tr("resultEmpty") || logEl.textContent.trim() === "") {
-                logEl.textContent = latestResultText;
-            } else {
-                logEl.textContent = latestResultText;
-            }
-            logEl.style.whiteSpace = 'pre-wrap';
-            logEl.scrollTop = 0;
+            latestResultTitle = title || tr("progressTitle");
+            resultTitleEl.textContent = latestResultTitle;
+            logEl.classList.remove("raw-log");
+            logEl.innerHTML = renderMarkdown(latestResultText);
+            window.scrollTo({ top: 0, behavior: "smooth" });
             statusEl.textContent = tr("finish");
             statusEl.classList.remove("error");
         }
@@ -1089,6 +1540,7 @@
             let net = '';
             let sawDoneSignal = false;
             let fullResult = '';
+            let resultSlug = '';
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -1103,7 +1555,15 @@
                     const payload = line.slice(6);
                     if (payload === '[DONE]') {
                         sawDoneSignal = true;
-                        showResult(fullResult);
+                        if (resultSlug) {
+                            try {
+                                await showSavedAnalysis(resultSlug);
+                            } catch (error) {
+                                showResult(fullResult);
+                            }
+                        } else {
+                            showResult(fullResult);
+                        }
                         updateProgress(100);
                         setTimeout(() => {
                             hideOverlay();
@@ -1112,6 +1572,9 @@
                     }
                     const data = JSON.parse(payload);
                     if (data.error) throw new Error(data.error);
+                    if (data.slug) {
+                        resultSlug = data.slug;
+                    }
                     if (data.status) {
                         statusEl.textContent = data.status;
                         const p = getProgressForStatus(data.status);
@@ -1125,7 +1588,15 @@
 
             if (!sawDoneSignal) {
                 if (fullResult) {
-                    showResult(fullResult);
+                    if (resultSlug) {
+                        try {
+                            await showSavedAnalysis(resultSlug);
+                        } catch (error) {
+                            showResult(fullResult);
+                        }
+                    } else {
+                        showResult(fullResult);
+                    }
                     updateProgress(100);
                     setTimeout(() => { hideOverlay(); }, 600);
                     return;
@@ -1199,13 +1670,233 @@
             }
         }
 
+        async function copyAnalysisText() {
+            const text = (logEl.innerText || logEl.textContent || "").trim();
+            if (!text) {
+                statusEl.textContent = tr("noResultToCopy");
+                statusEl.classList.add("error");
+                return;
+            }
+
+            await navigator.clipboard.writeText(text);
+            statusEl.textContent = tr("copied");
+            statusEl.classList.remove("error");
+        }
+
+        function exportPdf() {
+            if (!latestResultText.trim()) {
+                statusEl.textContent = tr("noResultToCopy");
+                statusEl.classList.add("error");
+                return;
+            }
+
+            const exportedAt = new Date().toLocaleString(currentLanguage === "en" ? "en-US" : "sk-SK");
+            const printWindow = window.open("", "_blank");
+            if (!printWindow) {
+                statusEl.textContent = "Pop-up blocked";
+                statusEl.classList.add("error");
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(`<!doctype html>
+<html lang="${currentLanguage}">
+<head>
+    <meta charset="utf-8">
+    <title>${escapeHtml(latestResultTitle)} - Checkni Auto</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #eef2f7;
+            color: #111827;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 16px;
+            background: #111827;
+            color: #fff;
+        }
+        button {
+            border: 0;
+            border-radius: 6px;
+            padding: 8px 12px;
+            background: #f97316;
+            color: #fff;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button.secondary { background: #4b5563; }
+        .report {
+            width: min(920px, calc(100% - 32px));
+            margin: 24px auto;
+            background: #fff;
+            border: 1px solid #dbe3ef;
+        }
+        .report-header {
+            padding: 28px 40px 22px;
+            border-bottom: 2px solid #fed7aa;
+        }
+        .report-header p {
+            margin: 0 0 8px;
+            color: #c2410c;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+        .report-header h1 {
+            margin: 0;
+            color: #111827;
+            font-size: 30px;
+            line-height: 1.18;
+        }
+        .report-meta {
+            margin-top: 12px;
+            color: #64748b;
+            font-size: 12px;
+        }
+        .report-body { padding: 30px 40px 40px; }
+        h1, h2, h3, h4 { color: #111827; line-height: 1.25; page-break-after: avoid; }
+        h1 { font-size: 25px; }
+        h2 { margin-top: 28px; padding-bottom: 7px; border-bottom: 1px solid #fed7aa; font-size: 20px; }
+        h3 { font-size: 16px; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 12px; }
+        th, td { border: 1px solid #cbd5e1; padding: 8px 10px; vertical-align: top; }
+        th { background: #fff7ed; text-align: left; }
+        blockquote { margin: 14px 0; padding: 10px 14px; border-left: 4px solid #f97316; background: #fff7ed; }
+        pre, code { background: #f8fafc; border-radius: 4px; }
+        pre { overflow: auto; padding: 12px; }
+        code { padding: 1px 4px; }
+        a { color: #c2410c; text-decoration: none; overflow-wrap: anywhere; }
+        @page { size: A4; margin: 13mm 12mm 15mm; }
+        @media print {
+            body { background: #fff; }
+            .toolbar { display: none; }
+            .report { width: 100%; margin: 0; border: 0; }
+            .report-header { padding: 0 0 16px; }
+            .report-body { padding: 20px 0 0; }
+            h2, h3, h4, table, blockquote, pre { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <strong>${escapeHtml(latestResultTitle)}</strong>
+        <div>
+            <button onclick="window.print()">${escapeHtml(tr("exportPdf"))}</button>
+            <button class="secondary" onclick="window.close()">${escapeHtml(tr("dashboardClose"))}</button>
+        </div>
+    </div>
+    <main class="report">
+        <header class="report-header">
+            <p>Checkni Auto</p>
+            <h1>${escapeHtml(latestResultTitle)}</h1>
+            <div class="report-meta">${escapeHtml(exportedAt)}</div>
+        </header>
+        <article class="report-body">${renderMarkdown(latestResultText)}</article>
+    </main>
+</body>
+</html>`);
+            printWindow.document.close();
+            printWindow.focus();
+        }
+
+        function formatListingMeta(item) {
+            const pieces = [];
+            if (item.price) pieces.push(item.price + (item.currency ? ` ${item.currency}` : ""));
+            if (item.year) pieces.push(item.year);
+            if (item.mileage) pieces.push(item.mileage);
+            return pieces.join(" · ");
+        }
+
+        function openDashboard() {
+            dashboardLayer.classList.add("active");
+            dashboardLayer.setAttribute("aria-hidden", "false");
+            loadDashboard();
+        }
+
+        function closeDashboard() {
+            dashboardLayer.classList.remove("active");
+            dashboardLayer.setAttribute("aria-hidden", "true");
+        }
+
+        async function loadDashboard() {
+            dashboardStatus.textContent = tr("dashboardLoading");
+            dashboardList.innerHTML = "";
+            try {
+                const response = await fetch("/api/demo/listings");
+                if (!response.ok) throw new Error("Request failed");
+                const items = await response.json();
+                dashboardStatus.textContent = items.length ? `${items.length}` : "";
+                if (!items.length) {
+                    dashboardList.innerHTML = `<div class="dashboard-empty">${escapeHtml(tr("dashboardEmpty"))}</div>`;
+                    return;
+                }
+                dashboardList.innerHTML = items.map((item) => {
+                    const title = item.title || item.slug;
+                    const thumb = item.first_image_url
+                        ? `<img class="dashboard-thumb" src="${escapeHtml(item.first_image_url)}" alt="">`
+                        : `<div class="dashboard-thumb" aria-hidden="true"></div>`;
+                    return `<button class="dashboard-item" type="button" data-slug="${escapeHtml(item.slug)}" title="${escapeHtml(tr("openAnalysis"))}">
+                        ${thumb}
+                        <span>
+                            <strong>${escapeHtml(title)}</strong>
+                            <span>${escapeHtml(formatListingMeta(item) || item.scraped_at || item.slug)}</span>
+                            <span>${escapeHtml(item.scraped_at || "")}</span>
+                        </span>
+                    </button>`;
+                }).join("");
+            } catch (error) {
+                dashboardStatus.textContent = tr("dashboardError");
+                dashboardList.innerHTML = "";
+            }
+        }
+
+        async function showSavedAnalysis(slug) {
+            const response = await fetch(`/api/demo/listings/${encodeURIComponent(slug)}`);
+            if (!response.ok) throw new Error("Saved analysis not found");
+            const data = await response.json();
+            const title = data.parsed?.title || data.title || data.slug;
+            showResult(data.analysis_content || "", title);
+            const meta = [];
+            if (data.scraped_at) meta.push(`${tr("scrapedLabel")}: ${data.scraped_at}`);
+            if (data.source_url) meta.push(`${tr("sourceLabel")}: ${data.source_url}`);
+            if (meta.length) statusEl.textContent = meta.join(" | ");
+            closeDashboard();
+        }
+
         themeToggle.addEventListener('click', () => {
             setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
         });
 
         newAnalysisBtn.addEventListener('click', resetToLandingState);
-        dashboardBtn.addEventListener('click', () => {
-            window.open('/token-dashboard.html', '_blank');
+        copyMarkdownBtn.addEventListener('click', () => {
+            copyAnalysisText().catch((error) => {
+                statusEl.textContent = error.message;
+                statusEl.classList.add("error");
+            });
+        });
+        exportPdfBtn.addEventListener('click', exportPdf);
+        dashboardBtn.addEventListener('click', openDashboard);
+        dashboardCloseBtn.addEventListener('click', closeDashboard);
+        dashboardBackdrop.addEventListener('click', closeDashboard);
+        dashboardList.addEventListener('click', (event) => {
+            const item = event.target.closest(".dashboard-item");
+            if (!item) return;
+            showSavedAnalysis(item.dataset.slug).catch((error) => {
+                dashboardStatus.textContent = error.message;
+            });
         });
 
         document.getElementById('overlayCancelBtn').addEventListener('click', () => {

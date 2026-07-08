@@ -46,17 +46,21 @@ _configure_console_encoding()
 # Google Gemini API URL (model placeholder will be substituted)
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_INTERACTIONS_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-GEMINI_MODEL = "gemini-2.5-flash"  # Better reasoning, vision support, search grounding support
+GEMINI_FLASH_MODEL = "gemini-2.5-flash"
+GEMINI_FLASH_LITE_MODEL = "gemini-2.5-flash-lite"
+GEMINI_GROUNDING_MODEL = GEMINI_FLASH_LITE_MODEL
+GEMINI_MODEL = GEMINI_FLASH_MODEL  # Better reasoning, vision support, search grounding support
 GEMINI_API_URL = f"{GEMINI_API_BASE}/{GEMINI_MODEL}:streamGenerateContent"
 GEMINI_FALLBACK_MODELS = [
-    "gemini-2.5-flash-lite",
+    GEMINI_FLASH_LITE_MODEL,
+    GEMINI_FLASH_MODEL,
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
 ]
 GEMINI_GROUNDING_FALLBACK_MODELS = [
-    "gemini-2.5-flash-lite",
+    GEMINI_FLASH_MODEL,
 ]
-GROUNDING_CONTEXT_MAX_CHARS = 16000
+GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 
 # xAI Grok API configuration
@@ -100,14 +104,14 @@ Uloha:
 1. Over typicke problemy modelu, generacie, motora, prevodovky alebo hybrid/EV systemu.
 2. Najdi orientacne aktualne trhove informacie k podobnym autam v SK/CZ/EU, ak sa daju najst.
 3. Ak je v inzerate VIN, skus najst verejne zmienky o VIN. Ak nic nenajdes, napis to.
-4. Vrat kratky markdown v slovencine, s URL citaciami pri kazdom webovom tvrdeni.
+4. Vrat velmi kratky markdown v slovencine, s URL citaciami pri kazdom webovom tvrdeni.
 
 Pravidla:
 - Nevymyslaj zdroje ani odkazy.
 - Ak nenajdes spolahlive zdroje, napis "Nenasiel som spolahlivy webovy zdroj".
 - Neanalyzuj fotografie, tento pass je iba textovy web research.
 - Daj prednost praktickym zisteniam pre kupujuceho.
-- Vystup udrz pod 1200 slov.
+- Vystup udrz pod 500 slov.
 - URL citacie: pouzi iba odkazy, ktore vyzeraju ako realne existujuce stranky. Ak URL vyzera podozrivo, nekompletna alebo by mohla vest na 404, nepouziju ju. Namiesto URL napis: "URL citacia nie je overitelna."
 
 Format:
@@ -127,7 +131,7 @@ Format:
 - zistenie + URL citacia, alebo jasne napis, ze sa nenasla verejna zmienka
 
 ### Najdolezitejsie webove zistenia pre finalnu analyzu
-- 3 az 6 bodov
+- 3 az 5 bodov
 
 Kontext inzeratu:
 
@@ -209,7 +213,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
     if not api_key or not api_key.strip():
         raise ApiKeyError("API kluc nie je nastaveny. Pridaj ho v Nastaveniach.")
 
-    model_to_use = model if model else GEMINI_MODEL
+    model_to_use = model if model else GEMINI_GROUNDING_MODEL
     model_candidates = [model_to_use]
     for fallback_model in GEMINI_GROUNDING_FALLBACK_MODELS:
         if fallback_model not in model_candidates:

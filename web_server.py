@@ -88,6 +88,10 @@ DEMO_MAX_CONCURRENT_JOBS = max(1, int(os.environ.get("DEMO_MAX_CONCURRENT_JOBS",
 DEMO_JOB_TTL_MINUTES = max(5, int(os.environ.get("DEMO_JOB_TTL_MINUTES", "60")))
 DEMO_SKIP_KB = os.environ.get("DEMO_SKIP_KB", "true").lower() in {"1", "true", "yes", "on"}
 MAX_UPLOAD_BYTES = int(os.environ.get("DEMO_MAX_UPLOAD_MB", "24")) * 1024 * 1024
+FINAL_LISTING_DESCRIPTION_CHARS = 900
+MODEL_LISTING_DESCRIPTION_CHARS = 1400
+FINAL_TEXT_FIELD_CHARS = 420
+FINAL_WEB_RESEARCH_CHARS = 1800
 
 os.makedirs(AUTA_DIR, exist_ok=True)
 
@@ -1824,6 +1828,187 @@ def _build_text_research_context(car_info_text, output_language="sk", web_resear
 """
 
 
+def _clip_text(value, max_chars=FINAL_TEXT_FIELD_CHARS):
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _limit_mapping(value, max_items=24, max_chars=FINAL_TEXT_FIELD_CHARS):
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for key, item in value.items():
+        if len(result) >= max_items:
+            break
+        key_text = _clip_text(key, 80)
+        item_text = _clip_text(item, max_chars)
+        if key_text and item_text:
+            result[key_text] = item_text
+    return result
+
+
+def _compact_value(value, max_chars=FINAL_TEXT_FIELD_CHARS):
+    if isinstance(value, dict):
+        return {
+            _clip_text(key, 80): _compact_value(item, max_chars)
+            for key, item in value.items()
+            if item not in (None, "", [], {})
+        }
+    if isinstance(value, list):
+        return [_compact_value(item, max_chars) for item in value if item not in (None, "", [], {})]
+    if isinstance(value, str):
+        return _clip_text(value, max_chars)
+    return value
+
+
+def _limited_list(value, max_items=6, max_chars=FINAL_TEXT_FIELD_CHARS, prefer_concerns=False):
+    if not isinstance(value, list):
+        return []
+    items = value
+    if prefer_concerns:
+        concern_words = ("concern", "problem", "risk", "high", "medium", "serious", "vaz", "rizik", "problem")
+        items = sorted(
+            value,
+            key=lambda item: any(word in json.dumps(item, ensure_ascii=False).lower() for word in concern_words),
+            reverse=True,
+        )
+    return [_compact_value(item, max_chars) for item in items[:max_items]]
+
+
+def _compact_json_for_prompt(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _safe_model_json(value):
+    from risk_scorer import parse_model_json
+
+    parsed = parse_model_json(value)
+    if parsed:
+        return parsed
+    return {"raw_preview": _clip_text(value, 1200)}
+
+
+def _equipment_summary(equipment):
+    if not isinstance(equipment, dict):
+        return {}
+    summary = {}
+    for category, items in equipment.items():
+        if not isinstance(items, list) or not items:
+            continue
+        summary[_clip_text(category, 80)] = {
+            "count": len(items),
+            "examples": [_clip_text(item, 80) for item in items[:6]],
+        }
+    return summary
+
+
+def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCRIPTION_CHARS):
+    parsed = parse_car_info_md(car_info_text)
+    return {
+        "title": parsed.get("title"),
+        "price": parsed.get("price"),
+        "currency": parsed.get("currency"),
+        "vin": parsed.get("vin"),
+        "source_url": parsed.get("source_url"),
+        "scraped_at": parsed.get("scraped_at"),
+        "photos_count": parsed.get("photos_count"),
+        "location": parsed.get("location"),
+        "specs": _limit_mapping(parsed.get("specs"), max_items=28, max_chars=180),
+        "seller": _limit_mapping(parsed.get("seller"), max_items=10, max_chars=180),
+        "equipment_summary": _equipment_summary(parsed.get("equipment")),
+        "description_excerpt": _clip_text(parsed.get("description"), description_chars),
+    }
+
+
+def _listing_context_text(car_info_text, description_chars=MODEL_LISTING_DESCRIPTION_CHARS):
+    return _compact_json_for_prompt(
+        _listing_context_object(car_info_text, description_chars=description_chars)
+    )
+
+
+def _web_research_evidence(web_research_text, max_chars=FINAL_WEB_RESEARCH_CHARS):
+    if not web_research_text:
+        return ""
+    lines = [line.strip() for line in web_research_text.splitlines() if line.strip()]
+    evidence_lines = [
+        line
+        for line in lines
+        if "http://" in line or "https://" in line or "citacia" in line.lower() or "zdroj" in line.lower()
+    ]
+    if not evidence_lines:
+        evidence_lines = lines[-8:]
+    return _clip_text("\n".join(evidence_lines[:12]), max_chars)
+
+
+def _compact_text_research_for_final(grok_research_json_text):
+    data = _safe_model_json(grok_research_json_text)
+    return {
+        "listing_facts": _compact_value(data.get("listing_facts")),
+        "missing_or_uncertain_data": _limited_list(data.get("missing_or_uncertain_data"), 6, prefer_concerns=True),
+        "consistency_checks": _limited_list(data.get("consistency_checks"), 6, prefer_concerns=True),
+        "vin_check": _compact_value(data.get("vin_check")),
+        "knowledge_base_findings": _limited_list(data.get("knowledge_base_findings"), 6, prefer_concerns=True),
+        "web_research_findings": _limited_list(data.get("web_research_findings"), 6, prefer_concerns=True),
+        "market_assessment": _compact_value(data.get("market_assessment")),
+        "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 8, prefer_concerns=True),
+        "parse_error": data.get("_parse_error", False),
+        "raw_preview": data.get("_raw_preview"),
+    }
+
+
+def _compact_vision_for_final(vision_result_json):
+    data = _safe_model_json(vision_result_json)
+    return {
+        "photos_provided": data.get("photos_provided"),
+        "photo_limitations": _limited_list(data.get("photo_limitations"), 5, 220),
+        "exterior_observations": _limited_list(data.get("exterior_observations"), 8, prefer_concerns=True),
+        "interior_observations": _limited_list(data.get("interior_observations"), 6, prefer_concerns=True),
+        "dashboard_or_warning_lights": _limited_list(data.get("dashboard_or_warning_lights"), 4, prefer_concerns=True),
+        "visible_red_flags": _limited_list(data.get("visible_red_flags"), 6, prefer_concerns=True),
+        "mileage_wear_consistency": _compact_value(data.get("mileage_wear_consistency")),
+        "visual_verdict": _clip_text(data.get("visual_verdict"), 220),
+        "parse_error": data.get("_parse_error", False),
+        "raw_preview": data.get("_raw_preview"),
+    }
+
+
+def _compact_risk_score_for_final(risk_score_json):
+    data = _safe_model_json(risk_score_json)
+    return {
+        "risk_score": data.get("risk_score"),
+        "allowed_final_verdict": data.get("allowed_final_verdict"),
+        "applied_rules": _limited_list(data.get("applied_rules"), 10, 260, prefer_concerns=True),
+        "override_rules_applied": _limited_list(data.get("override_rules_applied"), 6, 260, prefer_concerns=True),
+        "missing_data_flags": _limited_list(data.get("missing_data_flags"), 12, 80),
+        "buyer_priority_checks": _limited_list(data.get("buyer_priority_checks"), 8, 220, prefer_concerns=True),
+    }
+
+
+def _build_final_synthesis_context(
+    output_language,
+    car_info_text,
+    grok_research_json_text,
+    vision_result_json,
+    risk_score_json,
+    web_research_text,
+):
+    compact_payload = {
+        "output_language": _demo_output_language(output_language),
+        "listing": _listing_context_object(car_info_text),
+        "text_research": _compact_text_research_for_final(grok_research_json_text),
+        "vision": _compact_vision_for_final(vision_result_json),
+        "backend_risk_score": _compact_risk_score_for_final(risk_score_json),
+        "web_research_citations": _web_research_evidence(web_research_text),
+    }
+    return (
+        "Use only this compact structured context. "
+        "Do not infer missing details from omitted raw text.\n\n"
+        + _compact_json_for_prompt(compact_payload)
+    )
+
+
 def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
     return json.dumps(
         {
@@ -1932,7 +2117,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         yield f"data: {json.dumps({'error': 'car_info.md not found.'})}\n\n"
         return
 
-    from llm_client import _call_gemini, run_grounded_web_research
+    from llm_client import GEMINI_FLASH_LITE_MODEL, GEMINI_FLASH_MODEL, _call_gemini, run_grounded_web_research
     gemini_key_entries = _gemini_key_entries(gemini_keys)
     if not gemini_key_entries:
         yield f"data: {json.dumps({'error': 'Gemini API keys are not configured on the server.'})}\n\n"
@@ -1940,6 +2125,8 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
 
     with open(car_info_path, "r", encoding="utf-8") as f:
         car_info_text = f.read()
+    model_listing_context = _listing_context_text(car_info_text)
+    grounding_listing_context = _listing_context_text(car_info_text, description_chars=700)
 
     web_research_text = ""
     try:
@@ -1947,7 +2134,14 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         grounded, _grounding_key = yield from _collect_gemini_with_key_fallback(
             gemini_key_entries,
             "web research",
-            lambda key: [run_grounded_web_research(key, car_info_text, listing_slug=slug)],
+            lambda key: [
+                run_grounded_web_research(
+                    key,
+                    grounding_listing_context,
+                    model=GEMINI_FLASH_LITE_MODEL,
+                    listing_slug=slug,
+                )
+            ],
         )
         if grounded:
             web_research_text = grounded
@@ -1970,7 +2164,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         grok_text_system_prompt = f.read()
 
     grok_research_json_text = ""
-    grok_text_content = _build_text_research_context(car_info_text, output_language, web_research_text)
+    grok_text_content = _build_text_research_context(model_listing_context, output_language, web_research_text)
     input_tokens = estimate_request_tokens(grok_text_system_prompt, grok_text_content)
     yield f"data: {json.dumps({'token_usage': {'input_tokens': input_tokens, 'output_tokens': 0}})}\n\n"
     if text_provider == "gemini":
@@ -1982,6 +2176,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                 grok_text_system_prompt,
                 grok_text_content,
                 image_data_list=None,
+                model=GEMINI_FLASH_LITE_MODEL,
                 listing_slug=slug,
             ),
         )
@@ -2006,7 +2201,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         vision_content = (
             "Analyze only the attached vehicle photos/collages. "
             "Use listing text only for labels and mileage context.\n\n"
-            f"{car_info_text}"
+            f"{model_listing_context}"
         )
         try:
             vision_result_json, _vision_key = yield from _collect_gemini_with_key_fallback(
@@ -2017,6 +2212,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     vision_system_prompt,
                     vision_content,
                     image_data_list=image_data_list,
+                    model=GEMINI_FLASH_MODEL,
                     listing_slug=slug,
                 ),
             )
@@ -2053,24 +2249,14 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
     with open(final_synthesis_prompt_path, "r", encoding="utf-8") as f:
         final_system_prompt = f.read()
 
-    final_content = f"""## Output language
-{_demo_output_language(output_language)}
-
-## Original listing data
-{car_info_text}
-
-## Text/research JSON
-{grok_research_json_text}
-
-## Gemini vision JSON
-{vision_result_json}
-
-## Backend risk score JSON
-{risk_score_json}
-
-## Provided web research results
-{web_research_text or 'No web research results were available.'}
-"""
+    final_content = _build_final_synthesis_context(
+        output_language,
+        car_info_text,
+        grok_research_json_text,
+        vision_result_json,
+        risk_score_json,
+        web_research_text,
+    )
 
     full_report = ""
     output_tokens = 0
@@ -2088,6 +2274,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     final_system_prompt,
                     final_content,
                     image_data_list=None,
+                    model=GEMINI_FLASH_MODEL,
                     listing_slug=slug,
                 ):
                     attempt_text += chunk
@@ -2328,6 +2515,7 @@ def api_analyze(slug):
 
     if not gemini_keys:
         return jsonify({"error": "Chýba Gemini API kľúč (GEMINI_API_KEY)."}), 400
+    gemini_key = gemini_keys[0]["key"]
 
     slug_dir = os.path.join(AUTA_DIR, slug)
     if not os.path.isdir(slug_dir):

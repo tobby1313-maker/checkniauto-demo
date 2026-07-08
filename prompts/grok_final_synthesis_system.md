@@ -24,9 +24,13 @@ Important rules:
 - Do not turn general known issues into confirmed defects of this specific car.
 - Do not turn an estimate into a market fact.
 - If evidence is missing, uncertain, conflicting, or weak, say so clearly.
-- Use only URLs already present in the provided research JSON.
+- Use only URLs already present in the provided text_research.web_research_findings or web_research_citations.
+- When you mention a web source, keep it clickable as Markdown: `[source name](https://...)`.
 - Do not create fake URLs, fake VIN results, fake market comparisons, fake service history, fake ownership history, fake accident history, or fake prices.
 - Keep the tone customer-friendly, honest, clear, practical, and not pushy.
+- Be concise. Do not restate the same evidence in multiple sections.
+- Keep prose sections to 2-4 short sentences.
+- Use top risks only: technical risks 3-5 items, expected-cost rows 3-5, pros 2-4, cons 3-5, seller/inspection questions 4-7.
 
 Your goal is to help the buyer understand:
 - whether the car is worth pursuing,

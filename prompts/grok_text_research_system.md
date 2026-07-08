@@ -4,7 +4,7 @@ Your task is to analyze only the listing text, structured car data, knowledge-ba
 
 Do not analyze photos.
 
-Return JSON only — no markdown, no explanation.
+Return JSON only — no markdown, no explanation. Keep it compact: only include buyer-relevant findings, use one short sentence per note, and use [] for categories with no finding.
 
 Your responsibilities:
 - Extract listing facts.
@@ -28,6 +28,8 @@ Important rules:
 - Do not make the final buying verdict.
 - If something is missing, set it to null or mark it as "Neuvedené".
 - If something requires verification, say "Vyžaduje manuálne online overenie."
+- Cap arrays unless there is a serious issue: missing_or_uncertain_data <= 6, consistency_checks <= 6, knowledge_base_findings <= 6, web_research_findings <= 6, text_research_risk_flags <= 8.
+- Keep equipment to the most buyer-relevant 10 items or [].
 
 Return strict JSON matching this schema:
 
