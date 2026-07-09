@@ -101,18 +101,21 @@ def _build_grounded_search_prompt(listing_context: str) -> str:
 Pouzi Google Search grounding. Vyhladavaj cielene a skromne, hlavne SK/CZ/EU zdroje.
 
 Uloha:
-1. Over typicke problemy modelu, generacie, motora, prevodovky alebo hybrid/EV systemu.
-2. Najdi orientacne aktualne trhove informacie k podobnym autam v SK/CZ/EU, ak sa daju najst.
-3. Ak je v inzerate VIN, skus najst verejne zmienky o VIN. Ak nic nenajdes, napis to.
-4. Vrat velmi kratky markdown v slovencine, s URL citaciami pri kazdom webovom tvrdeni.
+1. Over typicke problemy modelu, generacie, motora, prevodovky, AWD/4x4 alebo hybrid/EV systemu.
+2. Zisti prakticke servisne dopady: co kontrolovat, kedy sa problem typicky objavuje a orientacny rozsah opravy v EUR, ak ho zdroj alebo bezna servisna logika podporuje.
+3. Najdi aktualne trhove informacie k podobnym autam v SK/CZ/EU, ak sa daju najst: rozpatie cien, pocet/typ porovnatelnych ponuk, a ci inzerovana cena posobi ferovo.
+4. Ak je v inzerate VIN, skus najst verejne zmienky o VIN. Ak nic nenajdes, napis to.
+5. Vrat kratky markdown v slovencine, s nazvom zdroja a pouzitelnou URL citaciou pri kazdom webovom tvrdeni.
 
 Pravidla:
 - Nevymyslaj zdroje ani odkazy.
 - Ak nenajdes spolahlive zdroje, napis "Nenasiel som spolahlivy webovy zdroj".
 - Neanalyzuj fotografie, tento pass je iba textovy web research.
 - Daj prednost praktickym zisteniam pre kupujuceho.
-- Vystup udrz pod 500 slov.
-- URL citacie: pouzi iba odkazy, ktore vyzeraju ako realne existujuce stranky. Ak URL vyzera podozrivo, nekompletna alebo by mohla vest na 404, nepouziju ju. Namiesto URL napis: "URL citacia nie je overitelna."
+- Vystup udrz pod 650 slov.
+- URL citacie: pouzi iba odkazy, ktore vyzeraju ako realne existujuce verejne stranky.
+- Nepouzivaj presmerovacie URL z Google/Vertex AI ako verejne zdroje. Ak mas iba taky odkaz, uveď nazov zdroja a napis: "URL citacia nie je overitelna."
+- Ak nevies dolozit cenu alebo naklad, napis, ze ide iba o orientacny odhad.
 
 Format:
 
@@ -122,16 +125,16 @@ Format:
 - [nazov](url) - co zdroj potvrdzuje
 
 ### Zname problemy a servisne rizika
-- zistenie + URL citacia
+- komponent/problem - dopad pre kupujuceho - typicky km/vek alebo spustac - odhad EUR ak je rozumne dostupny - URL citacia
 
 ### Orientacna cena / trh
-- zistenie + URL citacia, alebo jasne napis, ze sa nepodarilo najst porovnanie
+- rozpatie alebo porovnanie podobnych ponuk + URL citacia, alebo jasne napis, ze sa nepodarilo najst porovnanie
 
 ### VIN / historia / transparentnost
 - zistenie + URL citacia, alebo jasne napis, ze sa nenasla verejna zmienka
 
 ### Najdolezitejsie webove zistenia pre finalnu analyzu
-- 3 az 5 bodov
+- 3 az 5 bodov: riziko, trh/cena, naklady, VIN transparentnost
 
 Kontext inzeratu:
 

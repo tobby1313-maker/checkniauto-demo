@@ -9,7 +9,9 @@
     "vin_check",
     "knowledge_base_findings",
     "web_research_findings",
+    "technical_risks",
     "market_assessment",
+    "expected_costs",
     "text_research_risk_flags"
   ],
   "properties": {
@@ -61,7 +63,10 @@
         "vin_present": { "type": "boolean" },
         "format_check": { "type": "string", "enum": ["ok", "problem", "skipped"] },
         "decoded_information": { "type": "string" },
-        "online_history": { "type": "string", "enum": ["verified", "not_available", "requires_manual_verification"] },
+        "online_history": {
+          "type": "string",
+          "enum": ["verified", "not_available", "requires_manual_verification"]
+        },
         "notes": { "type": "string" }
       }
     },
@@ -73,7 +78,7 @@
           "component": { "type": "string" },
           "risk": { "type": "string" },
           "evidence": { "type": "string" },
-          "confidence": { "type": "string", "enum": ["Vysoká", "Stredná", "Nízka"] },
+          "confidence": { "type": "string", "enum": ["Vysoka", "Stredna", "Nizka"] },
           "notes": { "type": "string" }
         }
       }
@@ -84,10 +89,34 @@
         "type": "object",
         "properties": {
           "claim": { "type": "string" },
+          "source_name": { "type": "string" },
           "source_url": { "type": "string" },
-          "source_type": { "type": "string", "enum": ["market", "reliability", "VIN", "recall", "other"] },
-          "confidence": { "type": "string", "enum": ["Vysoká", "Stredná", "Nízka"] },
+          "verified_url": { "type": "boolean" },
+          "source_type": {
+            "type": "string",
+            "enum": ["market", "reliability", "VIN", "recall", "other"]
+          },
+          "confidence": { "type": "string", "enum": ["Vysoka", "Stredna", "Nizka"] },
+          "buyer_impact": { "type": "string" },
           "notes": { "type": "string" }
+        }
+      }
+    },
+    "technical_risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "component": { "type": "string" },
+          "issue": { "type": "string" },
+          "buyer_impact": { "type": "string" },
+          "typical_trigger_or_interval": { "type": "string" },
+          "estimated_cost_eur_low": { "type": ["integer", "number", "null"] },
+          "estimated_cost_eur_high": { "type": ["integer", "number", "null"] },
+          "source_basis": { "type": "string" },
+          "source_name": { "type": "string" },
+          "source_url": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["Vysoka", "Stredna", "Nizka"] }
         }
       }
     },
@@ -95,9 +124,32 @@
       "type": "object",
       "properties": {
         "available": { "type": "boolean" },
+        "advertised_price_eur": { "type": ["integer", "number", "null"] },
+        "observed_market_low_eur": { "type": ["integer", "number", "null"] },
+        "observed_market_high_eur": { "type": ["integer", "number", "null"] },
+        "comparable_count": { "type": ["integer", "null"] },
         "summary": { "type": "string" },
         "limitations": { "type": "string" },
-        "price_view": { "type": "string", "enum": ["fair", "rather_expensive", "rather_cheap", "unclear", "requires_manual_verification"] }
+        "negotiation_anchor_eur": { "type": ["integer", "number", "null"] },
+        "negotiation_reason": { "type": "string" },
+        "price_view": {
+          "type": "string",
+          "enum": ["fair", "rather_expensive", "rather_cheap", "unclear", "requires_manual_verification"]
+        }
+      }
+    },
+    "expected_costs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item": { "type": "string" },
+          "why": { "type": "string" },
+          "estimated_cost_eur_low": { "type": ["integer", "number", "null"] },
+          "estimated_cost_eur_high": { "type": ["integer", "number", "null"] },
+          "urgency": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "basis": { "type": "string" }
+        }
       }
     },
     "text_research_risk_flags": {
@@ -108,7 +160,7 @@
           "risk": { "type": "string" },
           "why_it_matters_to_buyer": { "type": "string" },
           "evidence": { "type": "string" },
-          "confidence": { "type": "string", "enum": ["Vysoká", "Stredná", "Nízka"] }
+          "confidence": { "type": "string", "enum": ["Vysoka", "Stredna", "Nizka"] }
         }
       }
     }

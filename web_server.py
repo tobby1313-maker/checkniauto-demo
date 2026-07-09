@@ -2111,6 +2111,50 @@ INTERNAL_REPORT_LABELS = (
 )
 
 
+UNVERIFIED_URL_HOSTS = (
+    "vertexaisearch.cloud.google.com",
+    "example.com",
+    "example.org",
+    "example.net",
+)
+
+MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+
+
+def _is_verified_public_url(url):
+    text = str(url or "").strip()
+    if not text:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(text)
+    except Exception:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    host = parsed.netloc.lower()
+    return not any(host == blocked or host.endswith(f".{blocked}") for blocked in UNVERIFIED_URL_HOSTS)
+
+
+def _markdown_links(text):
+    return MARKDOWN_LINK_RE.findall(str(text or ""))
+
+
+def _sanitize_source_item(value):
+    item = _compact_value(value)
+    if not isinstance(item, dict):
+        return item
+    url = item.get("source_url") or item.get("url")
+    if url and _is_verified_public_url(url):
+        item["source_url"] = url
+        item["verified_url"] = True
+        item.pop("url", None)
+    elif "source_url" in item or "url" in item or "verified_url" in item:
+        item["source_url"] = ""
+        item["verified_url"] = False
+        item.pop("url", None)
+    return item
+
+
 def _contains_public_internal_label(normalized_text, normalized_label):
     table_label = rf"(^|\n)\s*\|[^\n]*\b{re.escape(normalized_label)}\b[^\n]*\|"
     bold_label = rf"(^|\n)\s*(?:[-*]\s*)?\*\*\s*{re.escape(normalized_label)}\s*:\s*\*\*"
@@ -2165,6 +2209,18 @@ def _soft_validate_final_report(report_text, backend_verdict):
                     "type": "internal_label",
                     "label": label,
                     "message": f"Final public report contains internal label: {label}.",
+                }
+            )
+
+    for label, url in _markdown_links(text):
+        if not _is_verified_public_url(url):
+            warnings.append(
+                {
+                    "artifact": "analysis_result.md",
+                    "type": "unverified_public_link",
+                    "label": label,
+                    "url": url,
+                    "message": "Final public report contains an unverified or placeholder Markdown link.",
                 }
             )
 
@@ -2239,6 +2295,40 @@ def _web_research_evidence(web_research_text, max_chars=FINAL_WEB_RESEARCH_CHARS
     return _clip_text("\n".join(evidence_lines[:12]), max_chars)
 
 
+def _web_research_context(web_research_text, max_chars=FINAL_WEB_RESEARCH_CHARS):
+    if not web_research_text:
+        return {
+            "verified_source_lines": [],
+            "unverified_source_notes": [],
+            "evidence_excerpt": "",
+        }
+
+    verified_lines = []
+    unverified_notes = []
+    for line in [line.strip() for line in web_research_text.splitlines() if line.strip()]:
+        links = _markdown_links(line)
+        verified_urls = [url for _label, url in links if _is_verified_public_url(url)]
+        if verified_urls:
+            verified_lines.append(line)
+            continue
+        lowered = line.lower()
+        if (
+            "url citacia nie je overitelna" in lowered
+            or "url citácia nie je overiteľná" in lowered
+            or any(host in lowered for host in UNVERIFIED_URL_HOSTS)
+        ):
+            unverified_notes.append(
+                re.sub(r"\((https?://[^)\s]+)\)", "(URL nie je priamo overitelna)", line)
+            )
+
+    safe_excerpt = "\n".join(verified_lines[:8] + unverified_notes[:6])
+    return {
+        "verified_source_lines": [_clip_text(line, 260) for line in verified_lines[:8]],
+        "unverified_source_notes": [_clip_text(line, 220) for line in unverified_notes[:6]],
+        "evidence_excerpt": _clip_text(safe_excerpt, max_chars),
+    }
+
+
 def _compact_text_research_for_final(grok_research_json_text):
     data = _safe_model_json(grok_research_json_text)
     return {
@@ -2247,8 +2337,16 @@ def _compact_text_research_for_final(grok_research_json_text):
         "consistency_checks": _limited_list(data.get("consistency_checks"), 6, prefer_concerns=True),
         "vin_check": _compact_value(data.get("vin_check")),
         "knowledge_base_findings": _limited_list(data.get("knowledge_base_findings"), 6, prefer_concerns=True),
-        "web_research_findings": _limited_list(data.get("web_research_findings"), 6, prefer_concerns=True),
+        "web_research_findings": [
+            _sanitize_source_item(item)
+            for item in _limited_list(data.get("web_research_findings"), 8, prefer_concerns=True)
+        ],
+        "technical_risks": [
+            _sanitize_source_item(item)
+            for item in _limited_list(data.get("technical_risks"), 6, prefer_concerns=True)
+        ],
         "market_assessment": _compact_value(data.get("market_assessment")),
+        "expected_costs": _limited_list(data.get("expected_costs"), 6, prefer_concerns=True),
         "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 8, prefer_concerns=True),
         "parse_error": data.get("_parse_error", False),
         "raw_preview": data.get("_raw_preview"),
@@ -2297,7 +2395,7 @@ def _build_final_synthesis_context(
         "text_research": _compact_text_research_for_final(grok_research_json_text),
         "vision": _compact_vision_for_final(vision_result_json),
         "backend_risk_score": _compact_risk_score_for_final(risk_score_json),
-        "web_research_citations": _web_research_evidence(web_research_text),
+        "web_research": _web_research_context(web_research_text),
     }
     return (
         "Use only this compact structured context. "
