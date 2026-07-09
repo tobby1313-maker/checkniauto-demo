@@ -73,6 +73,11 @@ GROK_FALLBACK_MODELS = [
 ]
 
 
+class GroundingTransientError(ConnectionError):
+    """Raised for retryable Gemini Google Search grounding failures."""
+    pass
+
+
 
 def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None):
     """
@@ -257,7 +262,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error="Google Search grounding timeout.",
             )
-            raise ConnectionError("Google Search grounding casovy limit (120s).")
+            raise GroundingTransientError("Google Search grounding casovy limit (120s).")
         except requests.exceptions.ConnectionError:
             default_tracker.record_request(
                 model=candidate_model,
@@ -269,7 +274,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error="Google Search grounding connection error.",
             )
-            raise ConnectionError("Nie je pripojenie k internetu pre Google Search grounding.")
+            raise GroundingTransientError("Nie je pripojenie k internetu pre Google Search grounding.")
 
         last_error_text = response.text[:600] if response.text else ""
         safe_log(
@@ -327,12 +332,17 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=last_error_text[:300],
             )
+            if 500 <= response.status_code < 600:
+                unavailable_models.append(candidate_model)
+                if candidate_model != model_candidates[-1]:
+                    time.sleep(1)
+                    continue
             break
 
         try:
             data = response.json()
         except json.JSONDecodeError:
-            raise ConnectionError("Google Search grounding vratil necitatelnu JSON odpoved.")
+            raise GroundingTransientError("Google Search grounding vratil necitatelnu JSON odpoved.")
 
         if "error" in data:
             error_info = data["error"]
@@ -355,12 +365,12 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
         return "Google Search grounding prebehol, ale nevratil pouzitelny text."
 
     if unavailable_models and len(unavailable_models) == len(model_candidates):
-        raise RateLimitError(
+        raise GroundingTransientError(
             "Gemini Google Search grounding je momentalne pretazeny. "
             f"Skusene modely: {', '.join(unavailable_models)}."
         )
 
-    raise ConnectionError(
+    raise GroundingTransientError(
         f"Google Search grounding chyba API: {last_error_text[:300]}"
     )
 

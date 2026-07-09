@@ -28,7 +28,15 @@ from flask import Flask, jsonify, send_from_directory, request, Response, stream
 from werkzeug.utils import secure_filename
 
 # LLM Client for AI analysis
-from llm_client import analyze_with_llm, analyze_with_grok, extract_kb_save_blocks, RateLimitError, ApiKeyError, GrokApiKeyError
+from llm_client import (
+    analyze_with_llm,
+    analyze_with_grok,
+    extract_kb_save_blocks,
+    RateLimitError,
+    ApiKeyError,
+    GrokApiKeyError,
+    GroundingTransientError,
+)
 from token_tracker import default_tracker, estimate_output_tokens, estimate_request_tokens
 
 # Alias for backward compatibility - backup API keys will be managed in llm_client.py
@@ -2477,23 +2485,47 @@ def _gemini_retry_status(failed_entry, next_entry, phase_name, exc):
     )
 
 
-def _collect_gemini_with_key_fallback(key_entries, phase_name, stream_factory):
-    """Collect a non-user-visible Gemini stream, retrying the next key on key/quota failures."""
+def _collect_gemini_with_key_fallback(
+    key_entries,
+    phase_name,
+    stream_factory,
+    retry_exceptions=(ApiKeyError, RateLimitError),
+    same_key_retries=0,
+    same_key_retry_exceptions=None,
+):
+    """Collect a non-user-visible Gemini stream with optional same-key retry and key fallback."""
+    if same_key_retry_exceptions is None:
+        same_key_retry_exceptions = retry_exceptions
+
     last_exc = None
     for index, entry in enumerate(key_entries):
-        chunks = []
-        try:
-            for chunk in stream_factory(entry["key"]):
-                chunks.append(chunk)
-            return "".join(chunks), entry
-        except (ApiKeyError, RateLimitError) as exc:
-            if chunks:
-                raise
-            last_exc = exc
-            if index >= len(key_entries) - 1:
-                raise
-            status = _gemini_retry_status(entry, key_entries[index + 1], phase_name, exc)
-            yield f"data: {json.dumps({'status': status})}\n\n"
+        for attempt in range(same_key_retries + 1):
+            chunks = []
+            try:
+                for chunk in stream_factory(entry["key"]):
+                    chunks.append(chunk)
+                return "".join(chunks), entry
+            except retry_exceptions as exc:
+                if chunks:
+                    raise
+                last_exc = exc
+                if attempt < same_key_retries and isinstance(exc, same_key_retry_exceptions):
+                    safe_log(
+                        f"Gemini {entry['label']} key failed during {phase_name}: {exc}. "
+                        "Retrying same key."
+                    )
+                    status = (
+                        f"Gemini {entry['label']} key failed during {phase_name}. "
+                        "Retrying the same Gemini key..."
+                    )
+                    yield f"data: {json.dumps({'status': status})}\n\n"
+                    time.sleep(1)
+                    continue
+                if index >= len(key_entries) - 1:
+                    raise
+                status = _gemini_retry_status(entry, key_entries[index + 1], phase_name, exc)
+                yield f"data: {json.dumps({'status': status})}\n\n"
+                break
 
     if last_exc:
         raise last_exc
@@ -2538,6 +2570,9 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     listing_slug=slug,
                 )
             ],
+            retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+            same_key_retries=1,
+            same_key_retry_exceptions=(GroundingTransientError,),
         )
         if grounded:
             web_research_text = grounded
