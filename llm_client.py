@@ -307,6 +307,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
     prompt = _build_grounded_search_prompt(listing_context)
     last_error_text = ""
     unavailable_models = []
+    rate_limited_models = []
 
     for candidate_model in model_candidates:
         started_at = time.perf_counter()
@@ -367,16 +368,20 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
 
         if response.status_code == 429:
             detail = last_error_text[:300].replace("\n", " ").strip()
+            rate_limited_models.append(candidate_model)
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
-                status="rate_limited",
+                status="rate_limited_retrying" if candidate_model != model_candidates[-1] else "rate_limited",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=detail,
             )
+            if candidate_model != model_candidates[-1]:
+                time.sleep(1)
+                continue
             raise RateLimitError(
                 "Gemini Google Search grounding limit prekroceny."
                 + (f" Detail: {detail}" if detail else "")
@@ -447,6 +452,12 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
         raise GroundingTransientError(
             "Gemini Google Search grounding je momentalne pretazeny. "
             f"Skusene modely: {', '.join(unavailable_models)}."
+        )
+
+    if rate_limited_models and len(rate_limited_models) == len(model_candidates):
+        raise RateLimitError(
+            "Gemini Google Search grounding limit prekroceny pre vsetky skusene modely. "
+            f"Skusene modely: {', '.join(rate_limited_models)}."
         )
 
     raise GroundingTransientError(

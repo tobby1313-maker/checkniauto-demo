@@ -140,6 +140,17 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertIn("- Motor treba overiť.", cleaned)
         self.assertIn("- Prevodovka má servisné riziko.", cleaned)
 
+    def test_removes_public_database_no_result_filler(self):
+        markdown = (
+            "## Webové overenie\n\n"
+            "- Verejné databázy neposkytli k tomuto konkrétnemu vozidlu žiadne dodatočné informácie, čo je pri absencii VIN bežný jav.\n"
+            "- Pri motore a prevodovke treba overiť servisnú históriu.\n"
+        )
+        cleaned = normalize_analysis_markdown(markdown, SUZUKI_CAR_INFO)
+        self.assertNotIn("Verejné databázy neposkytli", cleaned)
+        self.assertNotIn("absencii VIN", cleaned)
+        self.assertIn("Pri motore a prevodovke", cleaned)
+
     def test_removes_supported_mileage_false_negative_from_report(self):
         cleaned = normalize_analysis_markdown(SUZUKI_FALSE_NEGATIVE_MARKDOWN, SUZUKI_CAR_INFO)
         self.assertNotIn("Chýbajúci údaj o nájazde kilometrov", cleaned)

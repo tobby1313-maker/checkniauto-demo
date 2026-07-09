@@ -232,6 +232,7 @@ def _apply_fact_guard(text: str, facts: ListingFacts) -> str:
 
 def _remove_false_negative_claims(text: str, facts: ListingFacts) -> str:
     """Remove known model overreaches that conflict with extracted listing facts."""
+    text = _remove_public_database_no_result_filler(text)
     if facts.mileage:
         text = _remove_supported_mileage_false_negatives(text)
     if facts.vin and not _has_invalid_or_conflicting_vin_claim(text):
@@ -244,6 +245,15 @@ def _remove_supported_mileage_false_negatives(text: str) -> str:
         r"(?i)\bch[yý]baj[úu]ci [^.!\n;]*(?:n[aá]jazd|kilomet)[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
         r"(?i)\babsencia [^.!\n;]*(?:n[aá]jazd|kilomet)[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
         r"(?i)\bn[aá]jazd [^.!\n;]*(?:ch[yý]ba|nie je uveden[yý]|neuveden[yý])[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
+    )
+    return _clean_lines_with_patterns(text, patterns)
+
+
+def _remove_public_database_no_result_filler(text: str) -> str:
+    patterns = (
+        r"(?i)\bverejn[eé] datab[aá]zy neposkytli [^.!\n;]*(?:dodato[čc]n[eé] inform[aá]cie|inform[aá]cie)[^.!\n;]*(?:absencii VIN|bez VIN|VIN ch[yý]ba)[^.!\n;]*[.!]?",
+        r"(?i)\bverejn[eé] datab[aá]zy [^.!\n;]*(?:neposkytli|neuv[aá]dzaj[úu]|nemaj[úu])[^.!\n;]*(?:tomuto konkr[eé]tnemu vozidlu|vozidlu|VIN)[^.!\n;]*[.!]?",
+        r"(?i)\b(?:Google|web|verejn[eé] vyh[ľl]ad[aá]vanie) [^.!\n;]*(?:nena[šs]iel|nena[šs]lo|neposkytol|neposkytlo)[^.!\n;]*(?:VIN|vozidlu|dodato[čc]n[eé] inform[aá]cie)[^.!\n;]*[.!]?",
     )
     return _clean_lines_with_patterns(text, patterns)
 
