@@ -47,19 +47,20 @@ _configure_console_encoding()
 # Google Gemini API URL (model placeholder will be substituted)
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_INTERACTIONS_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-GEMINI_FLASH_MODEL = "gemini-2.5-flash"
-GEMINI_FLASH_LITE_MODEL = "gemini-2.5-flash-lite"
+GEMINI_FLASH_MODEL = "gemini-3.5-flash"
+GEMINI_FLASH_LITE_MODEL = "gemini-3.1-flash-lite"
 GEMINI_GROUNDING_MODEL = GEMINI_FLASH_LITE_MODEL
 GEMINI_MODEL = GEMINI_FLASH_MODEL  # Better reasoning, vision support, search grounding support
 GEMINI_API_URL = f"{GEMINI_API_BASE}/{GEMINI_MODEL}:streamGenerateContent"
 GEMINI_FALLBACK_MODELS = [
     GEMINI_FLASH_LITE_MODEL,
     GEMINI_FLASH_MODEL,
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
 ]
 GEMINI_GROUNDING_FALLBACK_MODELS = [
     GEMINI_FLASH_MODEL,
+    "gemini-2.5-flash",
 ]
 GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -91,6 +92,16 @@ OPENROUTER_FALLBACK_MODELS = [
 class GroundingTransientError(ConnectionError):
     """Raised for retryable Gemini Google Search grounding failures."""
     pass
+
+
+def _is_retryable_gemini_model_error(status_code: int, error_text: str = "") -> bool:
+    """Return True when another configured Gemini model should be tried."""
+    if status_code == 503:
+        return True
+    if status_code == 404:
+        lowered = (error_text or "").lower()
+        return "model" in lowered or "not_found" in lowered or "no longer available" in lowered
+    return False
 
 
 def _resolve_annotation_redirects(research_text: str) -> str:
@@ -348,7 +359,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
             f"response preview: {last_error_text[:200]}"
         )
 
-        if response.status_code == 503:
+        if _is_retryable_gemini_model_error(response.status_code, last_error_text):
             unavailable_models.append(candidate_model)
             if candidate_model != model_candidates[-1]:
                 time.sleep(1)
@@ -398,7 +409,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=last_error_text[:300],
             )
-            if 500 <= response.status_code < 600:
+            if _is_retryable_gemini_model_error(response.status_code, last_error_text) or 500 <= response.status_code < 600:
                 unavailable_models.append(candidate_model)
                 if candidate_model != model_candidates[-1]:
                     time.sleep(1)
@@ -451,7 +462,7 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
         system_prompt: System instruction
         user_content: User content to analyze
         image_data_list: Optional list of (filename, base64_data, mime_type) tuples for images
-        model: Optional model name override (e.g., "gemini-2.5-flash")
+        model: Optional model name override (e.g., "gemini-3.5-flash")
         allow_image_text_fallback: Retry image quota failures as text-only output.
     """
     # Use provided model or fall back to default. If Gemini is overloaded,
@@ -530,25 +541,32 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                 f"response preview: {error_text[:200] if error_text else '(streaming response)'}"
             )
 
-            if response.status_code != 503:
+            if not _is_retryable_gemini_model_error(response.status_code, error_text):
                 break
 
             unavailable_errors.append((candidate_model, error_text))
             if candidate_model != model_candidates[-1]:
                 time.sleep(1)
 
-        if response is not None and response.status_code == 503:
+        if response is not None and _is_retryable_gemini_model_error(response.status_code, error_text):
             tried_models = ", ".join(model for model, _ in unavailable_errors)
+            status_label = "unavailable" if response.status_code == 503 else "model_not_found"
             default_tracker.record_request(
                 model=request_model,
                 request_type="stream_generate_content",
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
-                status="unavailable",
+                status=status_label,
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=error_text[:300],
             )
+            if response.status_code == 404:
+                raise ConnectionError(
+                    "Google Gemini model nie je dostupny alebo bol vyradeny. "
+                    f"Skusene modely: {tried_models}. "
+                    f"Gemini odpoved: {error_text[:200]}"
+                )
             raise RateLimitError(
                 "⚠️ Gemini je momentálne preťažený (HTTP 503: high demand). "
                 f"Skúsil som tieto modely: {tried_models}. "
