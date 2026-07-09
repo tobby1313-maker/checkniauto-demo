@@ -2450,6 +2450,20 @@ INTERNAL_REPORT_LABELS = (
     ("Confidence", "confidence"),
 )
 
+REQUIRED_REPORT_SECTION_KEYS = (
+    "rychle zhrnutie",
+    "data z inzeratu",
+    "vin a transparentnost",
+    "webove overenie",
+    "cena a vyjednavanie",
+    "ocakavane naklady na najblizsich 30 000 km",
+    "analyza fotografii",
+    "klady",
+    "zapory rizika",
+    "otazky pre predajcu a kontrola pri obhliadke",
+    "zaverecne odporucanie",
+)
+
 REPORT_HEADING_EMOJIS = {
     "rychle zhrnutie": "## 📋 Rýchle zhrnutie",
     "data z inzeratu": "## 🧾 Dáta z inzerátu",
@@ -2553,6 +2567,18 @@ def _soft_validate_final_report(report_text, backend_verdict):
                 "artifact": "analysis_result.md",
                 "type": "missing_end_marker",
                 "message": "Final report is missing <!-- END_ANALYSIS -->.",
+            }
+        )
+
+    section_keys = _report_section_keys(text)
+    missing_sections = [key for key in REQUIRED_REPORT_SECTION_KEYS if key not in section_keys]
+    if missing_sections:
+        warnings.append(
+            {
+                "artifact": "analysis_result.md",
+                "type": "missing_required_sections",
+                "message": "Final report is missing required sections: " + ", ".join(missing_sections) + ".",
+                "sections": missing_sections,
             }
         )
 
@@ -2798,14 +2824,31 @@ def _normalize_report_headings(report_text):
     normalized_lines = []
     for line in str(report_text or "").splitlines():
         heading_match = re.match(r"^(\s*##\s+)(.+?)\s*$", line)
+        bare_heading_match = None
         if not heading_match:
-            normalized_lines.append(line)
-            continue
+            bare_heading_match = re.match(r"^\s*([📋🧾🔍🌐🔧💰🛠️📸✅❌❓🏁].+?)\s*$", line)
+            if not bare_heading_match:
+                normalized_lines.append(line)
+                continue
 
-        heading_key = _normalize_heading_key(heading_match.group(2))
+        heading_text = heading_match.group(2) if heading_match else bare_heading_match.group(1)
+        heading_key = _normalize_heading_key(heading_text)
         normalized_lines.append(REPORT_HEADING_EMOJIS.get(heading_key, line))
 
     return "\n".join(normalized_lines)
+
+
+def _report_section_keys(report_text):
+    keys = set()
+    for line in str(report_text or "").splitlines():
+        heading_match = re.match(r"^\s*##\s+(.+?)\s*$", line)
+        bare_heading_match = None
+        if not heading_match:
+            bare_heading_match = re.match(r"^\s*([📋🧾🔍🌐🔧💰🛠️📸✅❌❓🏁].+?)\s*$", line)
+        if heading_match or bare_heading_match:
+            heading_text = heading_match.group(1) if heading_match else bare_heading_match.group(1)
+            keys.add(_normalize_heading_key(heading_text))
+    return keys
 
 
 def _vision_observation_bullet(item):
@@ -2894,8 +2937,14 @@ def _replace_photo_analysis_section(report_text, vision_result_json, output_lang
         return report_text
     heading = "## 📸 Analýza fotografií" if _demo_output_language(output_language) == "sk" else "## 📸 Photo Analysis"
     new_section = heading + "\n\n" + "\n".join(body_lines) + "\n\n"
+    next_section = (
+        r"^\s*(?:##\s+|✅\s+|❌\s+|❓\s+|🏁\s+|💰\s+|🛠️\s+|🌐\s+|🔧\s+|📋\s+|🧾\s+|🔍\s+)"
+        r"|^\s*<!--\s*END_ANALYSIS\s*-->"
+    )
     pattern = re.compile(
-        r"(^##\s+[^\n]*(?:Analýza fotografií|Photo Analysis)[^\n]*\n)(.*?)(?=^\s*##\s+|\Z)",
+        r"(^##\s+[^\n]*(?:Analýza fotografií|Photo Analysis)[^\n]*\n)(.*?)(?="
+        + next_section
+        + r"|\Z)",
         flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
     )
     if pattern.search(str(report_text or "")):

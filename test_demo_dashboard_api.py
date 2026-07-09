@@ -332,6 +332,42 @@ class DemoDashboardApiTest(unittest.TestCase):
         self.assertIn("**Chýbajúce pohľady:** motorový priestor, podvozok", updated)
         self.assertNotIn("nie je dostatočne zaostrená", updated)
 
+    def test_photo_analysis_replacement_preserves_bare_following_headings(self):
+        report = """# Analýza: Mazda CX-5
+
+## 📸 Analýza fotografií
+
+- Starý text.
+
+✅ Klady
+
+- Zachovaný interiér.
+
+❌ Zápory / riziká
+
+- Chýba VIN.
+
+<!-- END_ANALYSIS -->
+"""
+        vision = json.dumps({
+            "photos_provided": True,
+            "exterior_observations": [
+                {
+                    "photo_label": "Foto 01",
+                    "observation": "Karoséria bez viditeľného poškodenia.",
+                    "buyer_relevance": "Dobrý vizuálny stav.",
+                }
+            ],
+        }, ensure_ascii=False)
+
+        updated = web_server._replace_photo_analysis_section(report, vision, "sk")
+
+        self.assertIn("**Foto 01:** Karoséria bez viditeľného poškodenia.", updated)
+        self.assertIn("✅ Klady", updated)
+        self.assertIn("- Zachovaný interiér.", updated)
+        self.assertIn("❌ Zápory / riziká", updated)
+        self.assertIn("- Chýba VIN.", updated)
+
 
 if __name__ == "__main__":
     unittest.main()
