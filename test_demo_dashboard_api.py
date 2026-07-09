@@ -170,5 +170,17 @@ class DemoDashboardApiTest(unittest.TestCase):
         self.assertEqual(indices[-1], 41)
 
 
+class DemoUiStaticTest(unittest.TestCase):
+    def test_result_page_includes_customer_summary_strip(self):
+        html = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="resultSummary"', html)
+        self.assertIn('id="summaryVerdictValue"', html)
+        self.assertIn('id="summaryRiskValue"', html)
+        self.assertIn('id="summaryFirstValue"', html)
+        self.assertIn("function extractResultSummary", html)
+        self.assertIn("function renderResultSummary", html)
+
+
 if __name__ == "__main__":
     unittest.main()

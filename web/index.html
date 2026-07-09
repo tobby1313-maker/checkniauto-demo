@@ -385,7 +385,7 @@
         }
 
         .workspace {
-            max-width: 1120px;
+            max-width: 1360px;
             width: 100%;
             margin: 0 auto;
             padding: 24px 20px 42px;
@@ -398,6 +398,87 @@
         .result-page {
             display: grid;
             gap: 14px;
+        }
+
+        .result-shell {
+            display: grid;
+            grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .result-photos {
+            position: sticky;
+            top: 92px;
+            max-height: calc(100vh - 116px);
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--surface) 96%, transparent);
+            box-shadow: var(--shadow);
+        }
+
+        .result-photos.hidden {
+            display: none;
+        }
+
+        .result-photos-head {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            background: color-mix(in srgb, var(--surface) 94%, transparent);
+            backdrop-filter: blur(12px);
+        }
+
+        .result-photos-head strong {
+            display: block;
+            font-size: 15px;
+        }
+
+        .result-photos-head span {
+            display: block;
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .result-photo-list {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+        }
+
+        .result-photo-link {
+            display: block;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface-soft);
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .result-photo-link:hover,
+        .result-photo-link:focus-visible {
+            border-color: var(--orange);
+            box-shadow: var(--focus);
+            outline: none;
+        }
+
+        .result-photo-link img {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+        }
+
+        .result-photo-caption {
+            padding: 7px 9px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
         }
 
         .result-toolbar {
@@ -426,6 +507,54 @@
             justify-content: flex-end;
             gap: 8px;
             flex-wrap: wrap;
+        }
+
+        .result-summary {
+            display: grid;
+            grid-template-columns: 1.05fr 1fr 1.35fr 1.35fr;
+            gap: 0;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .result-summary.hidden {
+            display: none;
+        }
+
+        .summary-item {
+            min-width: 0;
+            padding: 0 14px;
+            border-left: 1px solid var(--line);
+        }
+
+        .summary-item:first-child {
+            padding-left: 0;
+            border-left: 0;
+        }
+
+        .summary-label {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+
+        .summary-value {
+            display: block;
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .summary-value.verdict {
+            color: var(--orange);
+            font-size: 15px;
         }
 
         .result-content {
@@ -818,6 +947,29 @@
             .workspace {
                 grid-template-columns: 1fr;
             }
+
+            .result-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .result-photos {
+                position: static;
+                max-height: none;
+            }
+
+            .result-photo-list {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+
+            .result-summary {
+                grid-template-columns: 1fr 1fr;
+                row-gap: 12px;
+            }
+
+            .summary-item:nth-child(odd) {
+                padding-left: 0;
+                border-left: 0;
+            }
         }
 
         @media (max-width: 620px) {
@@ -842,6 +994,22 @@
             .language-select {
                 flex: 1;
                 min-width: 0;
+            }
+
+            .result-summary {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-item,
+            .summary-item:nth-child(odd) {
+                padding: 10px 0 0;
+                border-left: 0;
+                border-top: 1px solid var(--line);
+            }
+
+            .summary-item:first-child {
+                padding-top: 0;
+                border-top: 0;
             }
 
             .layout,
@@ -915,7 +1083,7 @@
                         <div class="field">
                             <label for="listingUrl">Odkaz na inzerát</label>
                             <input id="listingUrl" name="url" type="url" placeholder="https://www.bazos.sk/..." autocomplete="url">
-                            <div class="hint" id="supportedHint">Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz.</div>
+                            <div class="hint" id="supportedHint">Podporované: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz. Iba inzeráty áut.</div>
                         </div>
                         <button class="btn primary" id="urlSubmit" type="submit">Analyzovať</button>
                     </form>
@@ -961,7 +1129,34 @@
                             <button class="btn small" id="exportPdfBtn" type="button">Export PDF</button>
                         </div>
                     </div>
-                    <article class="result-content raw-log" id="log">Výsledok analýzy sa zobrazí tu.</article>
+                    <div class="result-summary hidden" id="resultSummary" aria-label="Rýchly verdikt">
+                        <div class="summary-item">
+                            <span class="summary-label" id="summaryVerdictLabel">Hodnotenie</span>
+                            <strong class="summary-value verdict" id="summaryVerdictValue">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label" id="summaryPriceLabel">Cena</span>
+                            <strong class="summary-value" id="summaryPriceValue">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label" id="summaryRiskLabel">Najväčšie riziko</span>
+                            <strong class="summary-value" id="summaryRiskValue">-</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label" id="summaryFirstLabel">Čo overiť ako prvé</span>
+                            <strong class="summary-value" id="summaryFirstValue">-</strong>
+                        </div>
+                    </div>
+                    <div class="result-shell">
+                        <aside class="result-photos hidden" id="resultPhotosPanel" aria-label="Referenčné fotky">
+                            <div class="result-photos-head">
+                                <strong id="resultPhotosTitle">Referenčné fotky</strong>
+                                <span id="resultPhotosCount">0 fotiek</span>
+                            </div>
+                            <div class="result-photo-list" id="resultPhotoList"></div>
+                        </aside>
+                        <article class="result-content raw-log" id="log">Výsledok analýzy sa zobrazí tu.</article>
+                    </div>
                 </div>
             </section>
         </main>
@@ -1022,6 +1217,19 @@
         const copyMarkdownBtn = document.querySelector("#copyMarkdownBtn");
         const exportPdfBtn = document.querySelector("#exportPdfBtn");
         const resultTitleEl = document.querySelector("#resultTitle");
+        const resultSummary = document.querySelector("#resultSummary");
+        const summaryVerdictLabel = document.querySelector("#summaryVerdictLabel");
+        const summaryVerdictValue = document.querySelector("#summaryVerdictValue");
+        const summaryPriceLabel = document.querySelector("#summaryPriceLabel");
+        const summaryPriceValue = document.querySelector("#summaryPriceValue");
+        const summaryRiskLabel = document.querySelector("#summaryRiskLabel");
+        const summaryRiskValue = document.querySelector("#summaryRiskValue");
+        const summaryFirstLabel = document.querySelector("#summaryFirstLabel");
+        const summaryFirstValue = document.querySelector("#summaryFirstValue");
+        const resultPhotosPanel = document.querySelector("#resultPhotosPanel");
+        const resultPhotosTitle = document.querySelector("#resultPhotosTitle");
+        const resultPhotosCount = document.querySelector("#resultPhotosCount");
+        const resultPhotoList = document.querySelector("#resultPhotoList");
         const dashboardLayer = document.querySelector("#dashboardLayer");
         const dashboardList = document.querySelector("#dashboardList");
         const dashboardStatus = document.querySelector("#dashboardStatus");
@@ -1033,6 +1241,8 @@
         const submitButtons = [document.querySelector("#urlSubmit"), document.querySelector("#manualSubmit")];
         let latestResultText = "";
         let latestResultTitle = "Checkni Auto";
+        let latestReferencePhotos = [];
+        let manualPreviewUrls = [];
 
         const translations = {
             sk: {
@@ -1063,6 +1273,14 @@
                 resultEmpty: "Výsledok analýzy sa zobrazí tu.",
                 copyMarkdown: "Kopírovať text",
                 exportPdf: "Export PDF",
+                summaryAria: "Rýchly verdikt",
+                summaryVerdict: "Hodnotenie",
+                summaryPrice: "Cena",
+                summaryRisk: "Najväčšie riziko",
+                summaryFirst: "Čo overiť ako prvé",
+                summaryMissing: "Neuvedené",
+                referencePhotos: "Referenčné fotky",
+                photosCount: "{count} fotiek",
                 copied: "Skopírované",
                 noResultToCopy: "Nie je čo kopírovať",
                 dashboardTitle: "Predchádzajúce analýzy",
@@ -1107,6 +1325,14 @@
                 resultEmpty: "The analysis result will appear here.",
                 copyMarkdown: "Copy text",
                 exportPdf: "Export PDF",
+                summaryAria: "Quick verdict",
+                summaryVerdict: "Rating",
+                summaryPrice: "Price",
+                summaryRisk: "Biggest risk",
+                summaryFirst: "First thing to verify",
+                summaryMissing: "Not stated",
+                referencePhotos: "Reference photos",
+                photosCount: "{count} photos",
                 copied: "Copied",
                 noResultToCopy: "Nothing to copy",
                 dashboardTitle: "Previous analyses",
@@ -1165,6 +1391,12 @@
             setText("#dashboardBtn", tr("dashboard"));
             setText("#copyMarkdownBtn", tr("copyMarkdown"));
             setText("#exportPdfBtn", tr("exportPdf"));
+            resultSummary.setAttribute("aria-label", tr("summaryAria"));
+            summaryVerdictLabel.textContent = tr("summaryVerdict");
+            summaryPriceLabel.textContent = tr("summaryPrice");
+            summaryRiskLabel.textContent = tr("summaryRisk");
+            summaryFirstLabel.textContent = tr("summaryFirst");
+            setText("#resultPhotosTitle", tr("referencePhotos"));
             setText("#dashboardTitle", tr("dashboardTitle"));
             setText("#dashboardSubtitle", tr("dashboardSubtitle"));
             setText("#dashboardCloseBtn", tr("dashboardClose"));
@@ -1177,6 +1409,8 @@
                 statusEl.textContent = tr("ready");
                 logEl.textContent = tr("resultEmpty");
             }
+            renderResultSummary(latestResultText);
+            renderReferencePhotos(latestReferencePhotos);
         }
 
         function resetForms() {
@@ -1188,6 +1422,8 @@
         function resetWorkspace() {
             latestResultText = "";
             latestResultTitle = "Checkni Auto";
+            clearResultSummary();
+            setReferencePhotos([]);
             pageEl.classList.remove("result-mode");
             analysisSection.classList.add("hidden");
             logEl.classList.add("raw-log");
@@ -1234,6 +1470,145 @@
                 '"': "&quot;",
                 "'": "&#39;"
             }[char]));
+        }
+
+        function normalizeSummaryKey(value) {
+            return String(value || "")
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, " ")
+                .trim();
+        }
+
+        function plainMarkdown(value) {
+            return String(value || "")
+                .replace(/<!--[\s\S]*?-->/g, "")
+                .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+                .replace(/[`*_~]/g, "")
+                .replace(/\s+/g, " ")
+                .trim();
+        }
+
+        function parseSummaryBullet(line) {
+            const match = /^\s*[-*]\s+\*\*([^*]+?)\*\*\s*:?\s*(.*)$/.exec(line);
+            if (!match) return null;
+            const label = normalizeSummaryKey(match[1].replace(/:$/, ""));
+            return { label, value: plainMarkdown(match[2]) };
+        }
+
+        function assignSummaryField(summary, label, value) {
+            if (!value) return;
+            if ((label === "hodnotenie" || label === "rating") && !summary.verdict) {
+                summary.verdict = value;
+            } else if ((label === "cena" || label === "price") && !summary.price) {
+                summary.price = value;
+            } else if ((label === "najvacsie riziko" || label === "biggest risk") && !summary.risk) {
+                summary.risk = value;
+            } else if ((label === "co overit ako prve" || label === "first thing to verify") && !summary.first) {
+                summary.first = value;
+            }
+        }
+
+        function extractResultSummary(markdown) {
+            const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+            const summary = { verdict: "", price: "", risk: "", first: "" };
+            let inQuickVerdict = false;
+            let foundQuickVerdict = false;
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                const heading = /^##\s+(.+)$/.exec(trimmed);
+                if (heading) {
+                    const key = normalizeSummaryKey(heading[1]);
+                    if (key === "rychly verdikt" || key === "quick verdict") {
+                        inQuickVerdict = true;
+                        foundQuickVerdict = true;
+                        continue;
+                    }
+                    if (inQuickVerdict) break;
+                }
+                if (!inQuickVerdict) continue;
+                const field = parseSummaryBullet(trimmed);
+                if (field) assignSummaryField(summary, field.label, field.value);
+            }
+
+            if (!foundQuickVerdict) {
+                for (const line of lines.slice(0, 24)) {
+                    const field = parseSummaryBullet(line.trim());
+                    if (field) assignSummaryField(summary, field.label, field.value);
+                }
+            }
+
+            return summary;
+        }
+
+        function clearResultSummary() {
+            resultSummary.classList.add("hidden");
+            summaryVerdictValue.textContent = "-";
+            summaryPriceValue.textContent = "-";
+            summaryRiskValue.textContent = "-";
+            summaryFirstValue.textContent = "-";
+        }
+
+        function renderResultSummary(markdown) {
+            const summary = extractResultSummary(markdown);
+            const hasSummary = Boolean(summary.verdict || summary.price || summary.risk || summary.first);
+            resultSummary.classList.toggle("hidden", !hasSummary);
+            if (!hasSummary) {
+                clearResultSummary();
+                return;
+            }
+            summaryVerdictValue.textContent = summary.verdict || tr("summaryMissing");
+            summaryPriceValue.textContent = summary.price || tr("summaryMissing");
+            summaryRiskValue.textContent = summary.risk || tr("summaryMissing");
+            summaryFirstValue.textContent = summary.first || tr("summaryMissing");
+        }
+
+        function photoCountLabel(count) {
+            return tr("photosCount").replace("{count}", String(count));
+        }
+
+        function revokeManualPreviewUrls() {
+            manualPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+            manualPreviewUrls = [];
+        }
+
+        function normalizePhoto(photo, index) {
+            if (!photo) return null;
+            const src = typeof photo === "string" ? photo : (photo.url || photo.src || photo.href || "");
+            if (!src) return null;
+            const label = typeof photo === "string"
+                ? `${tr("referencePhotos")} ${index + 1}`
+                : (photo.filename || photo.name || photo.alt || `${tr("referencePhotos")} ${index + 1}`);
+            return { src, label };
+        }
+
+        function setReferencePhotos(photos) {
+            latestReferencePhotos = (photos || []).map(normalizePhoto).filter(Boolean);
+            renderReferencePhotos(latestReferencePhotos);
+        }
+
+        function renderReferencePhotos(photos) {
+            const list = photos || [];
+            resultPhotosTitle.textContent = tr("referencePhotos");
+            resultPhotosCount.textContent = photoCountLabel(list.length);
+            resultPhotosPanel.classList.toggle("hidden", list.length === 0);
+            resultPhotoList.innerHTML = list.map((photo, index) => `<a class="result-photo-link" href="${escapeHtml(photo.src)}" target="_blank" rel="noopener noreferrer">
+                <img src="${escapeHtml(photo.src)}" alt="${escapeHtml(photo.label || `${tr("referencePhotos")} ${index + 1}`)}" loading="lazy">
+                <span class="result-photo-caption">${escapeHtml(photo.label || `${tr("referencePhotos")} ${index + 1}`)}</span>
+            </a>`).join("");
+        }
+
+        function collectManualReferencePhotos() {
+            revokeManualPreviewUrls();
+            const files = Array.from(imagesInput.files || []).slice(0, maxManualImages);
+            const photos = files.map((file, index) => {
+                const url = URL.createObjectURL(file);
+                manualPreviewUrls.push(url);
+                return { url, filename: file.name || `${tr("referencePhotos")} ${index + 1}` };
+            });
+            setReferencePhotos(photos);
         }
 
         function inlineMarkdown(value) {
@@ -1378,6 +1753,7 @@
             latestResultText = "";
             latestResultTitle = tr("progressTitle");
             resultTitleEl.textContent = latestResultTitle;
+            clearResultSummary();
             logEl.classList.add("raw-log");
             logEl.textContent = "";
             statusEl.textContent = tr("starting");
@@ -1492,6 +1868,7 @@
         function appendLog(line) {
             showResultPage();
             logEl.classList.add("raw-log");
+            clearResultSummary();
             // Replace initial placeholder text
             if (logEl.textContent === tr("resultEmpty")) {
                 logEl.textContent = "";
@@ -1506,6 +1883,7 @@
             latestResultTitle = title || tr("progressTitle");
             resultTitleEl.textContent = latestResultTitle;
             logEl.classList.remove("raw-log");
+            renderResultSummary(latestResultText);
             logEl.innerHTML = renderMarkdown(latestResultText);
             window.scrollTo({ top: 0, behavior: "smooth" });
             statusEl.textContent = tr("finish");
@@ -1607,6 +1985,8 @@
 
         async function runUrl(event) {
             event.preventDefault();
+            revokeManualPreviewUrls();
+            setReferencePhotos([]);
             resetOutput();
             setBusy(true);
 
@@ -1643,6 +2023,7 @@
         async function runManual(event) {
             event.preventDefault();
             if (!enforceImageLimit()) return;
+            collectManualReferencePhotos();
             resetOutput();
             setBusy(true);
 
@@ -1868,6 +2249,8 @@
             if (!response.ok) throw new Error("Saved analysis not found");
             const data = await response.json();
             const title = data.parsed?.title || data.title || data.slug;
+            revokeManualPreviewUrls();
+            setReferencePhotos(data.images || []);
             showResult(data.analysis_content || "", title);
             const meta = [];
             if (data.scraped_at) meta.push(`${tr("scrapedLabel")}: ${data.scraped_at}`);

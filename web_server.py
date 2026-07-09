@@ -19,6 +19,7 @@ import urllib.parse
 import base64
 import tempfile
 import shutil
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
@@ -78,6 +79,67 @@ LLM_COLLAGE_QUALITY = 90
 LLM_IMAGE_END_POSITION = 1.0
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".avif"}
 SUPPORTED_SCRAPER_HOSTS = ("autobazar.eu", "autobazar.sk", "bazos.sk", "bazos.cz")
+
+# Known car brand names for listing content validation (lowercase).
+# Full list covering all major global manufacturers.
+CAR_BRANDS = {
+    # USA
+    "ford", "lincoln", "chevrolet", "gmc", "cadillac", "buick", "chrysler",
+    "dodge", "jeep", "ram", "tesla", "rivian", "lucid", "karma",
+    "hennessey", "rezvani", "czinger",
+    # Japan
+    "toyota", "lexus", "daihatsu", "honda", "acura", "nissan", "infiniti",
+    "mazda", "mitsubishi", "subaru", "suzuki", "isuzu", "mitsuoka",
+    # South Korea
+    "hyundai", "kia", "genesis", "kg mobility", "ssangyong",
+    # Germany
+    "volkswagen", "vw", "audi", "porsche", "bmw", "mini", "mercedes-benz",
+    "mercedes", "maybach", "smart", "opel", "alpina", "wiesmann",
+    # United Kingdom
+    "aston martin", "bentley", "rolls-royce", "rolls royce", "jaguar",
+    "land rover", "land-rover", "lotus", "mclaren", "morgan", "caterham",
+    "ariel", "ineos", "tvr",
+    # France
+    "renault", "peugeot", "citroën", "citroen", "ds automobiles", "ds",
+    "alpine", "bugatti",
+    # Italy
+    "fiat", "abarth", "alfa romeo", "alfa-romeo", "lancia", "maserati",
+    "ferrari", "lamborghini", "pagani", "dr automobiles",
+    # Spain
+    "seat", "cupra", "hispano suiza", "spania gta",
+    # Sweden
+    "volvo", "polestar", "koenigsegg",
+    # Czech / Romania
+    "škoda", "skoda", "dacia",
+    # China
+    "byd", "geely", "lynk & co", "zeekr", "chery", "exeed", "omoda",
+    "jaecoo", "changan", "avatr", "deepal", "great wall", "haval",
+    "tank", "ora", "wey", "s", "mg", "roewe", "maxus", "wuling",
+    "baojun", "nio", "xpeng", "li auto", "leapmotor", "hongqi",
+    "faw", "dongfeng", "voyah", "aito", "denza", "fangchengbao",
+    "yangwang", "gac", "aion", "trumpchi", "jac", "jetour", "luxeed",
+    # India
+    "tata", "mahindra", "maruti suzuki",
+    # Malaysia / Vietnam
+    "proton", "perodua", "vinfast",
+    # Russia / Eastern Europe
+    "lada", "uaz", "gaz",
+    # Turkey / Middle East
+    "togg", "w motors", "ceer",
+    # Croatia / Netherlands / Austria
+    "rimac", "donkervoort", "ktm",
+}
+CAR_KEYWORDS = {
+    "km", "motor", "servis", "výbava", "vybava", "najazdené", "najazdene",
+    "prevodovka", "kombi", "sedan", "hatchback", "coupé", "coupe", "kupé",
+    "diesel", "nafta", "benzín", "benzin", "tdi", "tfsi", "tsi", "bitdi",
+    "klimatizácia", "klimatizacia", "tempomat", "cruise control",
+    "airbag", "abs", "esp", "asr", "parkovacie senzory", "parkovacia kamera",
+    "vyhrievanie", "kožené sedadlá", "koza", "led svetla",
+    "homologácia", "homologacia", "stk", "ek", "emisná",
+    "automatická", "automaticka", "manuálna", "manualna",
+    "4x4", "quattro", "awd", "pohon",
+}
 UNSUPPORTED_DEMO_HOSTS = ("mobile.de",)
 MAX_MANUAL_IMAGES = int(os.environ.get("DEMO_MAX_MANUAL_IMAGES", "12"))
 # 0 means unlimited downloads; the LLM payload is capped separately by MAX_ANALYSIS_IMAGES.
@@ -346,6 +408,7 @@ ANALYSIS_ARTIFACTS = {
     "gemini_vision.json",
     "risk_score.json",
     "web_research.md",
+    "validation_warnings.json",
     "analysis_result_raw.md",
     "analysis_result.md",
 }
@@ -575,6 +638,76 @@ def get_kb_structure():
 
 
 # ─── API Routes ──────────────────────────────────────────────────────
+
+def _is_car_listing(car_info_text):
+    """
+    Lightweight check whether scraped listing content looks like a car ad.
+    Returns (is_car: bool, reason: str|None).
+    Uses 4 checks; at least 2 must pass to be considered a car listing.
+    """
+    if not car_info_text or not car_info_text.strip():
+        return False, "Scraped listing data is empty."
+
+    text_lower = car_info_text.lower()
+    checks_passed = 0
+    reasons = []
+
+    # Check 1: Car brand in title (first # heading)
+    title_line = ""
+    for line in car_info_text.splitlines():
+        if line.startswith("# ") and not line.startswith("## "):
+            title_line = line[2:].strip().lower()
+            break
+    if title_line:
+        for brand in CAR_BRANDS:
+            if brand in title_line:
+                checks_passed += 1
+                reasons.append(f"brand '{brand}' found in title")
+                break
+
+    # Check 2: Price > 0
+    price_match = re.search(r'\*\*Price:\*\*\s*([\d\s]+)', car_info_text)
+    if price_match:
+        try:
+            price = int(price_match.group(1).replace(" ", ""))
+            if price > 0:
+                checks_passed += 1
+                reasons.append(f"price {price} EUR found")
+        except ValueError:
+            pass
+
+    # Check 3: Car-specific specs present (mileage, year, engine, fuel, transmission, VIN)
+    spec_keywords = ["mileage", "year", "engine", "fuel", "transmission", "vin", "najazdene", "rok", "motor"]
+    spec_found = any(kw in text_lower for kw in spec_keywords)
+    if spec_found:
+        checks_passed += 1
+        reasons.append("car specs detected")
+
+    # Check 4: Car-related keywords in description
+    desc_section = ""
+    in_desc = False
+    for line in car_info_text.splitlines():
+        if line.strip().startswith("## Seller Note") or line.strip().startswith("## Description"):
+            in_desc = True
+            continue
+        if line.startswith("## ") and in_desc:
+            break
+        if in_desc:
+            desc_section += line.lower() + " "
+    if desc_section:
+        keyword_matches = [kw for kw in CAR_KEYWORDS if kw in desc_section]
+        if len(keyword_matches) >= 2:
+            checks_passed += 1
+            reasons.append(f"car keywords in description: {', '.join(keyword_matches[:4])}")
+
+    is_car = checks_passed >= 2
+    if is_car:
+        return True, None
+    return False, (
+        f"This doesn't appear to be a car listing (only {checks_passed}/4 car indicators matched). "
+        "Please enter a URL for a car advertisement."
+    )
+
 
 def _is_supported_scraper_url(url):
     """Return True when the URL can be handled by the existing scraper scripts."""
@@ -1890,6 +2023,170 @@ def _safe_model_json(value):
     return {"raw_preview": _clip_text(value, 1200)}
 
 
+def _schema_required_fields(schema_name):
+    schema_path = os.path.join(SCRIPT_DIR, "schemas", schema_name)
+    try:
+        with open(schema_path, "r", encoding="utf-8") as schema_file:
+            schema = json.load(schema_file)
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], f"Could not read schema {schema_name}: {exc}"
+    required = schema.get("required") if isinstance(schema, dict) else None
+    return list(required or []), None
+
+
+def _soft_validate_json_contract(artifact_name, value, schema_name):
+    """Return non-blocking warnings for model/backend JSON artifacts."""
+    from risk_scorer import parse_model_json
+
+    warnings = []
+    parsed = parse_model_json(value)
+    if not parsed:
+        warnings.append(
+            {
+                "artifact": artifact_name,
+                "type": "json_parse",
+                "message": f"{artifact_name} did not contain a JSON object.",
+            }
+        )
+        return warnings
+
+    if parsed.get("_parse_error"):
+        warnings.append(
+            {
+                "artifact": artifact_name,
+                "type": "json_parse",
+                "message": f"{artifact_name} could not be parsed as clean JSON.",
+            }
+        )
+
+    required, schema_warning = _schema_required_fields(schema_name)
+    if schema_warning:
+        warnings.append(
+            {
+                "artifact": artifact_name,
+                "type": "schema_load",
+                "message": schema_warning,
+            }
+        )
+        return warnings
+
+    missing = [field for field in required if field not in parsed]
+    if missing:
+        warnings.append(
+            {
+                "artifact": artifact_name,
+                "type": "schema_required",
+                "message": f"{artifact_name} is missing required fields: {', '.join(missing)}.",
+                "fields": missing,
+            }
+        )
+
+    return warnings
+
+
+def _normalize_claim_text(value):
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.lower()
+    return re.sub(r"\s+", " ", text)
+
+
+def _normalize_report_structure_text(value):
+    return "\n".join(_normalize_claim_text(line) for line in str(value or "").splitlines())
+
+
+FORBIDDEN_REPORT_CLAIMS = (
+    ("verified_online_vin", r"\bvin\b.{0,50}\b(overeny|verified|confirmed)\b.{0,50}\b(online|internet)"),
+    ("confirmed_no_accident", r"\b(nebolo|not)\b.{0,30}\b(havarovane|accident)"),
+    ("confirmed_accident", r"\b(bolo|was)\b.{0,30}\b(havarovane|accident)"),
+    ("guaranteed_buy", r"\b(garantovana kupa|guaranteed buy|bez rizika|without risk)\b"),
+    ("definite_odometer_claim", r"\b(kilometre|odometer|mileage)\b.{0,40}\b(urcite|definitely|sto[cč]ene|rolled back|prave|genuine)\b"),
+)
+
+INTERNAL_REPORT_LABELS = (
+    ("Dôkaz", "dokaz"),
+    ("Istota", "istota"),
+    ("Evidence", "evidence"),
+    ("Confidence", "confidence"),
+)
+
+
+def _contains_public_internal_label(normalized_text, normalized_label):
+    table_label = rf"(^|\n)\s*\|[^\n]*\b{re.escape(normalized_label)}\b[^\n]*\|"
+    bold_label = rf"(^|\n)\s*(?:[-*]\s*)?\*\*\s*{re.escape(normalized_label)}\s*:\s*\*\*"
+    heading_label = rf"(^|\n)\s*#{1,6}\s+{re.escape(normalized_label)}\b"
+    return any(
+        re.search(pattern, normalized_text)
+        for pattern in (table_label, bold_label, heading_label)
+    )
+
+
+def _soft_validate_final_report(report_text, backend_verdict):
+    """Return non-blocking warnings for the generated buyer report."""
+    warnings = []
+    text = str(report_text or "")
+    if backend_verdict and str(backend_verdict) not in text:
+        warnings.append(
+            {
+                "artifact": "analysis_result.md",
+                "type": "verdict_lock",
+                "message": "Final report does not contain the backend allowed verdict.",
+                "expected_verdict": str(backend_verdict),
+            }
+        )
+
+    if "<!-- END_ANALYSIS -->" not in text:
+        warnings.append(
+            {
+                "artifact": "analysis_result.md",
+                "type": "missing_end_marker",
+                "message": "Final report is missing <!-- END_ANALYSIS -->.",
+            }
+        )
+
+    normalized = _normalize_claim_text(text)
+    for claim_id, pattern in FORBIDDEN_REPORT_CLAIMS:
+        if re.search(pattern, normalized):
+            warnings.append(
+                {
+                    "artifact": "analysis_result.md",
+                    "type": "forbidden_claim",
+                    "claim": claim_id,
+                    "message": f"Final report may contain an unsupported high-confidence claim: {claim_id}.",
+                }
+            )
+
+    normalized_structure = _normalize_report_structure_text(text)
+    for label, normalized_label in INTERNAL_REPORT_LABELS:
+        if _contains_public_internal_label(normalized_structure, normalized_label):
+            warnings.append(
+                {
+                    "artifact": "analysis_result.md",
+                    "type": "internal_label",
+                    "label": label,
+                    "message": f"Final public report contains internal label: {label}.",
+                }
+            )
+
+    return warnings
+
+
+def _write_validation_warnings(slug_dir, warnings):
+    if not warnings:
+        return None
+    payload = {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "warnings": warnings,
+    }
+    path = os.path.join(slug_dir, "validation_warnings.json")
+    with open(path, "w", encoding="utf-8") as warnings_file:
+        json.dump(payload, warnings_file, indent=2, ensure_ascii=False)
+        warnings_file.write("\n")
+    for warning in warnings:
+        safe_log(f"Validation warning: {warning.get('message', warning)}")
+    return path
+
+
 def _equipment_summary(equipment):
     if not isinstance(equipment, dict):
         return {}
@@ -2127,6 +2424,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         car_info_text = f.read()
     model_listing_context = _listing_context_text(car_info_text)
     grounding_listing_context = _listing_context_text(car_info_text, description_chars=700)
+    validation_warnings = []
 
     web_research_text = ""
     try:
@@ -2185,6 +2483,13 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
             grok_research_json_text += chunk
     with open(os.path.join(slug_dir, "grok_research.json"), "w", encoding="utf-8") as f:
         f.write(grok_research_json_text)
+    validation_warnings.extend(
+        _soft_validate_json_contract(
+            "grok_research.json",
+            grok_research_json_text,
+            "grok_research.schema.json",
+        )
+    )
     yield f"data: {json.dumps({'status': f'{text_model_name} text/research JSON saved.'})}\n\n"
 
     yield f"data: {json.dumps({'status': 'Phase 2/4: Gemini vision analysis...'})}\n\n"
@@ -2226,6 +2531,13 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
 
     with open(os.path.join(slug_dir, "gemini_vision.json"), "w", encoding="utf-8") as f:
         f.write(vision_result_json)
+    validation_warnings.extend(
+        _soft_validate_json_contract(
+            "gemini_vision.json",
+            vision_result_json,
+            "gemini_vision.schema.json",
+        )
+    )
     yield f"data: {json.dumps({'status': 'Gemini vision JSON saved.'})}\n\n"
 
     yield f"data: {json.dumps({'status': 'Phase 3/4: Backend deterministic risk scoring...'})}\n\n"
@@ -2238,6 +2550,13 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
     risk_score_json = json.dumps(risk_score, indent=2, ensure_ascii=False)
     with open(os.path.join(slug_dir, "risk_score.json"), "w", encoding="utf-8") as f:
         f.write(risk_score_json)
+    validation_warnings.extend(
+        _soft_validate_json_contract(
+            "risk_score.json",
+            risk_score_json,
+            "risk_score.schema.json",
+        )
+    )
     verdict = risk_score.get("allowed_final_verdict", "unknown")
     yield f"data: {json.dumps({'status': f'Backend risk score saved: {verdict}'})}\n\n"
 
@@ -2311,6 +2630,10 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
     public_text = _strip_kb_section(full_report)
     with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
         f.write(public_text)
+    validation_warnings.extend(_soft_validate_final_report(public_text, verdict))
+    warnings_path = _write_validation_warnings(slug_dir, validation_warnings)
+    if warnings_path:
+        yield f"data: {json.dumps({'status': f'Analysis completed with {len(validation_warnings)} validation warning(s).'})}\n\n"
 
     kb_blocks = extract_kb_save_blocks(full_report)
     saved_kb = []
@@ -2440,6 +2763,15 @@ def api_demo_analyze():
             return
         if not os.path.exists(os.path.join(_safe_slug_dir(slug), "car_info.md")):
             yield f"data: {json.dumps({'error': 'Scraper finished but did not create listing data.'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        # Validate that scraped content looks like a car listing before spending tokens
+        slug_dir = _safe_slug_dir(slug)
+        car_info_path = os.path.join(slug_dir, "car_info.md")
+        car_info_text_validation = _read_text_file(car_info_path)
+        is_car, reject_reason = _is_car_listing(car_info_text_validation)
+        if not is_car:
+            yield f"data: {json.dumps({'error': reject_reason})}\n\n"
             yield "data: [DONE]\n\n"
             return
         yield f"data: {json.dumps({'status': 'Listing ready. Starting AI analysis...', 'slug': slug})}\n\n"
