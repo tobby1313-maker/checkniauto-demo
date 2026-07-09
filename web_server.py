@@ -473,7 +473,12 @@ def _read_listing_analysis_content(slug_dir, required=False):
         if required:
             raise FileNotFoundError("Analysis result not found")
         return None
-    return normalize_analysis_markdown(_read_text_file(result_path), _read_car_info_text(slug_dir))
+    text = _read_text_file(result_path)
+    # Strip internal END_ANALYSIS marker before public display
+    text = re.sub(r'\n*\s*<!--\s*END_ANALYSIS\s*-->\s*\n*', '', text).rstrip()
+    if text:
+        text = text + "\n"
+    return normalize_analysis_markdown(text, _read_car_info_text(slug_dir))
 
 
 def _build_listing_summary(slug, slug_dir, image_route_prefix="/api/listings"):
@@ -1325,7 +1330,9 @@ def api_listing_analysis_result(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        content = _public_analysis_markdown(f.read(), slug_dir)
+        raw_content = f.read()
+    # Strip internal END_ANALYSIS marker before public API response
+    content = _public_analysis_markdown(re.sub(r'\n*\s*<!--\s*END_ANALYSIS\s*-->\s*\n*', '', raw_content).rstrip(), slug_dir)
 
     # Check if there are KB blocks available to save
     kb_blocks = extract_kb_save_blocks(content)
@@ -2623,9 +2630,10 @@ def _soft_validate_final_report(report_text, backend_verdict):
 
 def _ensure_end_analysis_marker(report_text):
     text = str(report_text or "").rstrip()
-    if "<!-- END_ANALYSIS -->" in text:
-        return text + "\n"
-    return text + "\n\n<!-- END_ANALYSIS -->\n"
+    has_marker = "<!-- END_ANALYSIS -->" in text
+    if not has_marker:
+        text = text + "\n\n<!-- END_ANALYSIS -->"
+    return text
 
 
 def _write_validation_warnings(slug_dir, warnings):
@@ -3178,6 +3186,90 @@ def _collect_gemini_with_key_fallback(
     return "", None
 
 
+def _inject_photo_vin_into_pipeline(slug_dir, car_info_text, grok_research_json_text, vision_result_json, car_info_path):
+    """
+    If the vision model found a visible_vin in photos but the listing text has no VIN,
+    inject it into the pipeline by:
+    1. Updating grok_research_json_text (in-memory variable — caller must handle assignment)
+    2. Updating car_info.md on disk
+    3. Re-running VIN decoding
+    Returns a status note string, or None if no injection was needed.
+    """
+    from risk_scorer import parse_model_json
+    vision_data = parse_model_json(vision_result_json)
+    if not vision_data:
+        return None
+
+    visible_vin = str(vision_data.get("visible_vin") or "").strip().upper()
+    if not visible_vin:
+        return None
+
+    # Validate VIN format roughly (17 chars, no I/O/Q)
+    import re
+    vin_pattern = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
+    if not vin_pattern.match(visible_vin):
+        safe_log(f"Photo VIN '{visible_vin}' does not match expected format; skipping injection.")
+        return None
+
+    # Check if listing text already has this VIN
+    if visible_vin in car_info_text.upper():
+        safe_log(f"Photo VIN '{visible_vin}' already present in listing text; no injection needed.")
+        return None
+
+    # Check if listing already has *any* VIN
+    existing_vin_match = re.search(r"\b[A-HJ-NPR-Z0-9]{17}\b", car_info_text.upper())
+    if existing_vin_match:
+        safe_log(f"Listing already has VIN '{existing_vin_match.group(0)}'; not overwriting with photo VIN '{visible_vin}'.")
+        return None
+
+    # 1. Update car_info.md on disk — inject VIN line into Specifications section
+    updated_lines = []
+    vin_injected = False
+    in_specs = False
+    for line in car_info_text.splitlines():
+        if line.strip().lower().startswith("## specifications") or line.strip().lower().startswith("## parameters"):
+            in_specs = True
+            updated_lines.append(line)
+            continue
+        if in_specs and line.startswith("## "):
+            # We reached the next section without finding a VIN line
+            if not vin_injected:
+                updated_lines.append(f"- **VIN:** {visible_vin}")
+                vin_injected = True
+            in_specs = False
+        if in_specs and "vin" in line.lower() and "**" in line:
+            # VIN line already present (should not happen given earlier checks)
+            vin_injected = True
+        updated_lines.append(line)
+    if in_specs and not vin_injected:
+        updated_lines.append(f"- **VIN:** {visible_vin}")
+        vin_injected = True
+
+    try:
+        updated_car_info = "\n".join(updated_lines)
+        with open(car_info_path, "w", encoding="utf-8") as f:
+            f.write(updated_car_info)
+    except IOError as exc:
+        safe_log(f"Could not update car_info.md with photo VIN: {exc}")
+        return None
+
+    # 2. Re-run VIN decoding
+    try:
+        from main import _run_vin_decoding
+        _run_vin_decoding(slug_dir)
+    except Exception as exc:
+        safe_log(f"VIN decoding after photo injection warning: {exc}")
+
+    output_language_sk = "sk"  # Status text in Slovak is fine
+    note = (
+        f"✅ VIN {visible_vin} nájdený na fotkách a pridaný do pipeline."
+        if output_language_sk == "sk"
+        else f"✅ VIN {visible_vin} found in photos and injected into pipeline."
+    )
+    safe_log(note)
+    return note
+
+
 def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="sk", openrouter_key=""):
     """Run separated text/research, Gemini vision, scoring, and final synthesis."""
     slug_dir = _safe_slug_dir(slug)
@@ -3355,6 +3447,38 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         )
     )
     yield f"data: {json.dumps({'status': 'Gemini vision JSON saved.'})}\n\n"
+
+    # ── Inject VIN from photos into pipeline if found in vision but missing from listing ──
+    injected_vin_note = _inject_photo_vin_into_pipeline(
+        slug_dir, car_info_text, grok_research_json_text, vision_result_json,
+        car_info_path
+    )
+    if injected_vin_note:
+        # Reload car_info_text for downstream stages
+        with open(car_info_path, "r", encoding="utf-8") as f:
+            car_info_text = f.read()
+        # Also patch grok_research_json_text so risk scoring and final synthesis see the VIN
+        grok_data = _safe_model_json(grok_research_json_text)
+        vision_parsed_for_vin = _safe_model_json(vision_result_json)
+        photo_vin = str(vision_parsed_for_vin.get("visible_vin") or "").strip().upper()
+        if not grok_data.get("_parse_error") and photo_vin:
+            if "vin_check" not in grok_data or not isinstance(grok_data.get("vin_check"), dict):
+                grok_data["vin_check"] = {}
+            try:
+                from vin_utils import validate_vin
+                decoded = validate_vin(photo_vin)
+            except Exception:
+                decoded = {}
+            grok_data["vin_check"]["vin_present"] = True
+            grok_data["vin_check"]["format_check"] = "ok" if decoded.get("valid") else "problem"
+            grok_data["vin_check"]["decoded_information"] = decoded.get("validation_message", "")
+            grok_data["vin_check"]["online_history"] = "requires_manual_verification"
+            grok_data["vin_check"]["notes"] = "VIN was not in listing text; found in photos by Gemini vision."
+            if "listing_facts" not in grok_data or not isinstance(grok_data.get("listing_facts"), dict):
+                grok_data["listing_facts"] = {}
+            grok_data["listing_facts"]["vin"] = photo_vin
+            grok_research_json_text = _compact_json_for_prompt(grok_data)
+        yield f"data: {json.dumps({'status': injected_vin_note})}\n\n"
 
     yield f"data: {json.dumps({'status': 'Phase 3/4: Backend deterministic risk scoring...'})}\n\n"
     from risk_scorer import calculate_risk_score

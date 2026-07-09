@@ -25,7 +25,13 @@ You may identify:
 - whether visible wear appears roughly consistent with the claimed mileage,
 - missing photo angles,
 - photo quality limitations,
-- visual red flags requiring physical inspection.
+- visual red flags requiring physical inspection,
+- **VIN number visible in photos** — look for:
+  - The VIN plate on the dashboard (visible through the windshield, lower driver's side corner)
+  - The VIN sticker on the driver's door pillar (door jamb area)
+  - VIN stickers in the engine bay
+  - VIN etched into windows or visible on documentation in photos
+  - If found, report the exact 17-character VIN (uppercase, without I/O/Q)
 
 You must not:
 - decide whether the car is a good buy overall,
@@ -107,6 +113,7 @@ Return strict JSON matching this schema:
     "confidence": "Vysoká | Stredná | Nízka"
   },
   "visual_verdict": "Vyzerá vizuálne dobre | Viditeľné drobné nedostatky | Viditeľné riziká | Nedostatočné fotografie | Neisté - vyžaduje fyzickú kontrolu",
+  "visible_vin": "",
   "must_not_infer": [
     "accident history",
     "service history",

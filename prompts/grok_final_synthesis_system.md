@@ -29,6 +29,7 @@ Important rules:
 - Be concise. The report should feel sharper and more useful, not longer for its own sake.
 - Use top risks only: technical risks 3-5 items, expected-cost rows 3-6, pros 2-4, cons 3-5, seller/inspection questions 4-7.
 - If a supported expected-cost item has low/high EUR values, use the numeric range. Avoid "Neuvedene" or "Neiste" cost rows unless the input has no estimate basis.
+- If VIN is not shown in the listing text but `vision.visible_vin` contains a VIN found in photos, use that VIN in the report and note it was found in the photos.
 - If VIN is not shown in the listing, ask for VIN before viewing/reserving/buying; do not present missing VIN alone as a severe defect.
 - Treat missing or suspicious SPZ/ECV/registration plate as a verification task unless it points to a real identity/document conflict.
 - Distinguish "missing from the listing" from "not assessable in detail". If `image_payload.full_gallery_included` is true, do not say a photo angle is missing from the listing unless `vision.view_coverage` marks that view as `missing`.

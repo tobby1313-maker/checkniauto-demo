@@ -63,6 +63,8 @@ GEMINI_GROUNDING_FALLBACK_MODELS = [
 ]
 GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+GROUNDING_RESOLVE_TIMEOUT = 6     # seconds per redirect resolution (HEAD request)
+GROUNDING_RESOLVE_MAX_REDIRECTS = 5
 
 # xAI Grok API configuration
 GROK_API_BASE = "https://api.x.ai/v1"
@@ -91,6 +93,56 @@ class GroundingTransientError(ConnectionError):
     pass
 
 
+def _resolve_annotation_redirects(research_text: str) -> str:
+    """
+    Post-process Gemini grounding citations that contain Google/Vertex redirect URLs.
+    Follows the redirect chain with lightweight HEAD requests to find the real public URL.
+
+    If resolution fails or the resolved URL is still a redirect host, the original
+    unverifiable citation is left unchanged (preserving existing 'URL nie je overitelna' behavior).
+    """
+    if not research_text or GROUNDING_REDIRECT_HOST not in research_text:
+        return research_text
+
+    redirect_pattern = re.compile(
+        r"\[([^\]]+)\]\((https://" + re.escape(GROUNDING_REDIRECT_HOST) + r"[^)\s]+)\)"
+    )
+    seen_final = set()
+    result = str(research_text)
+
+    for label, redirect_url in redirect_pattern.findall(research_text):
+        try:
+            resp = requests.head(
+                redirect_url,
+                allow_redirects=True,
+                timeout=GROUNDING_RESOLVE_TIMEOUT,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            if resp.status_code < 400:
+                final_url = str(resp.url).rstrip("/")
+                # Skip if still a Google/Vertex redirect or empty
+                if (
+                    not final_url
+                    or GROUNDING_REDIRECT_HOST in final_url
+                    or "google.com" in final_url.lower()
+                    or "googleapis.com" in final_url.lower()
+                    or "gstatic.com" in final_url.lower()
+                ):
+                    continue
+                if final_url in seen_final:
+                    continue
+                seen_final.add(final_url)
+                # Replace the redirect URL with the resolved public URL
+                result = result.replace(
+                    f"({redirect_url})",
+                    f"({final_url})",
+                    1,
+                )
+        except Exception:
+            # If resolution fails (timeout, connection error, etc.), keep original
+            continue
+
+    return result
 
 def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None, allow_image_text_fallback: bool = True):
     """
@@ -364,6 +416,8 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
             raise ConnectionError(f"Gemini Google Search grounding chyba: {message}")
 
         research_text = _extract_interaction_text_and_citations(data)
+        # Resolve Google/Vertex redirect URLs to real public URLs
+        research_text = _resolve_annotation_redirects(research_text)
         output_text = research_text or "Google Search grounding prebehol, ale nevratil pouzitelny text."
         default_tracker.record_request(
             model=candidate_model,
