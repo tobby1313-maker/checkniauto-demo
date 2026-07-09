@@ -92,7 +92,7 @@ class GroundingTransientError(ConnectionError):
 
 
 
-def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None):
+def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None, allow_image_text_fallback: bool = True):
     """
     Send a request to Google Gemini and yield response chunks.
     """
@@ -106,6 +106,7 @@ def analyze_with_llm(api_key: str, system_prompt: str, user_content: str, image_
         image_data_list=image_data_list,
         model=model,
         listing_slug=listing_slug,
+        allow_image_text_fallback=allow_image_text_fallback,
     )
 
 
@@ -388,7 +389,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
     )
 
 
-def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None):
+def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None, allow_image_text_fallback: bool = True):
     """Call Google Gemini API with proper system_instruction support.
     
     Args:
@@ -397,6 +398,7 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
         user_content: User content to analyze
         image_data_list: Optional list of (filename, base64_data, mime_type) tuples for images
         model: Optional model name override (e.g., "gemini-2.5-flash")
+        allow_image_text_fallback: Retry image quota failures as text-only output.
     """
     # Use provided model or fall back to default. If Gemini is overloaded,
     # try lighter models before surfacing the temporary provider failure.
@@ -502,7 +504,7 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
         if response.status_code == 429:
             # Check if it's actually a quota/rate limit or something else
             if "quota" in error_text.lower() or "rate limit" in error_text.lower():
-                if image_data_list:
+                if image_data_list and allow_image_text_fallback:
                     default_tracker.record_request(
                         model=request_model,
                         request_type="stream_generate_content",
@@ -530,6 +532,7 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                         image_data_list=None,
                         model=model_to_use,
                         listing_slug=listing_slug,
+                        allow_image_text_fallback=allow_image_text_fallback,
                     )
                     return
 

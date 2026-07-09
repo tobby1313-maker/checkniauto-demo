@@ -28,6 +28,7 @@ DATA_DIR = os.environ.get("SCRAPPER_DATA_DIR") or os.path.join(tempfile.gettempd
 AUTA_DIR = os.environ.get("SCRAPPER_AUTA_DIR") or os.path.join(DATA_DIR, "Auta")
 TOKEN_USAGE_PATH = os.environ.get("SCRAPPER_TOKEN_USAGE_PATH") or os.path.join(AUTA_DIR, "token_usage.json")
 MAX_RECENT_REQUESTS = 500
+IMAGE_INPUT_TOKENS_PER_ATTACHMENT = int(os.environ.get("SCRAPPER_IMAGE_INPUT_TOKENS_PER_ATTACHMENT", "1290") or 1290)
 INPUT_COST_PER_1M = float(os.environ.get("SCRAPPER_TOKEN_INPUT_COST_PER_1M", "0") or 0)
 OUTPUT_COST_PER_1M = float(os.environ.get("SCRAPPER_TOKEN_OUTPUT_COST_PER_1M", "0") or 0)
 TOKEN_COST_CURRENCY = os.environ.get("SCRAPPER_TOKEN_COST_CURRENCY", "EUR")
@@ -43,18 +44,17 @@ def estimate_text_tokens(text: str | None) -> int:
 
 
 def estimate_image_tokens(image_data_list: list | None) -> int:
-    """Estimate image payload tokens from base64 byte size."""
+    """Estimate multimodal input tokens without treating base64 as prompt text."""
     if not image_data_list:
         return 0
-    total_chars = 0
+    attachment_count = 0
     for image in image_data_list:
         try:
-            _filename, image_base64, _mime_type = image
+            _filename, _image_base64, _mime_type = image
         except (TypeError, ValueError):
             continue
-        total_chars += len(image_base64 or "")
-    # Base64 carries 4 chars for 3 bytes; keep the same rough token heuristic.
-    return max(0, round(total_chars / 4))
+        attachment_count += 1
+    return max(0, attachment_count * IMAGE_INPUT_TOKENS_PER_ATTACHMENT)
 
 
 def estimate_request_tokens(system_prompt: str | None, user_content: str | None, image_data_list: list | None = None) -> int:

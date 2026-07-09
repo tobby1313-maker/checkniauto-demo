@@ -1684,7 +1684,8 @@
         function setPosition(pct) {
             const p = Math.min(100, Math.max(0, pct));
             overlayProgressValue = p;
-            document.getElementById('overlayCar').style.left = Math.min(95, p) + '%';
+            const carPosition = p >= 100 ? 93 : Math.min(84, p * 0.9);
+            document.getElementById('overlayCar').style.left = carPosition + '%';
             document.getElementById('overlayProgressFill').style.width = p + '%';
             document.getElementById('overlayProgressPct').textContent = Math.round(p) + '%';
         }

@@ -2344,6 +2344,12 @@ def _normalize_report_structure_text(value):
     return "\n".join(_normalize_claim_text(line) for line in str(value or "").splitlines())
 
 
+def _normalize_heading_key(value):
+    normalized = _normalize_claim_text(value)
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
 FORBIDDEN_REPORT_CLAIMS = (
     ("verified_online_vin", r"\bvin\b.{0,50}\b(overeny|verified|confirmed)\b.{0,50}\b(online|internet)"),
     ("confirmed_no_accident", r"\b(nebolo|not)\b.{0,30}\b(havarovane|accident)"),
@@ -2358,6 +2364,34 @@ INTERNAL_REPORT_LABELS = (
     ("Evidence", "evidence"),
     ("Confidence", "confidence"),
 )
+
+REPORT_HEADING_EMOJIS = {
+    "rychle zhrnutie": "## 📋 Rýchle zhrnutie",
+    "data z inzeratu": "## 🧾 Dáta z inzerátu",
+    "vin a transparentnost": "## 🔍 VIN a transparentnosť",
+    "webove overenie": "## 🌐 Webové overenie",
+    "technicke rizika modelu a komponentov": "## 🔧 Technické riziká modelu a komponentov",
+    "cena a vyjednavanie": "## 💰 Cena a vyjednávanie",
+    "ocakavane naklady na najblizsich 30 000 km": "## 🛠️ Očakávané náklady na najbližších 30 000 km",
+    "analyza fotografii": "## 📸 Analýza fotografií",
+    "klady": "## ✅ Klady",
+    "zapory rizika": "## ❌ Zápory / riziká",
+    "otazky pre predajcu a kontrola pri obhliadke": "## ❓ Otázky pre predajcu a kontrola pri obhliadke",
+    "zaverecne odporucanie": "## 🏁 Záverečné odporúčanie",
+    "quick summary": "## 📋 Quick Summary",
+    "listing data": "## 🧾 Listing Data",
+    "vin and transparency": "## 🔍 VIN and Transparency",
+    "web verification": "## 🌐 Web Verification",
+    "technical risks": "## 🔧 Technical Risks",
+    "price and negotiation": "## 💰 Price and Negotiation",
+    "expected costs over the next 30 000 km": "## 🛠️ Expected Costs Over the Next 30,000 km",
+    "expected costs over the next 30 000 miles": "## 🛠️ Expected Costs Over the Next 30,000 Miles",
+    "photo analysis": "## 📸 Photo Analysis",
+    "pros": "## ✅ Pros",
+    "cons risks": "## ❌ Cons / Risks",
+    "questions for the seller and inspection checklist": "## ❓ Questions for the Seller and Inspection Checklist",
+    "final recommendation": "## 🏁 Final Recommendation",
+}
 
 
 UNVERIFIED_URL_HOSTS = (
@@ -2476,6 +2510,13 @@ def _soft_validate_final_report(report_text, backend_verdict):
     return warnings
 
 
+def _ensure_end_analysis_marker(report_text):
+    text = str(report_text or "").rstrip()
+    if "<!-- END_ANALYSIS -->" in text:
+        return text + "\n"
+    return text + "\n\n<!-- END_ANALYSIS -->\n"
+
+
 def _write_validation_warnings(slug_dir, warnings):
     if not warnings:
         return None
@@ -2576,6 +2617,110 @@ def _web_research_context(web_research_text, max_chars=FINAL_WEB_RESEARCH_CHARS)
         "unverified_source_notes": [_clip_text(line, 220) for line in unverified_notes[:6]],
         "evidence_excerpt": _clip_text(safe_excerpt, max_chars),
     }
+
+
+def _source_labels_from_url(url):
+    if not _is_verified_public_url(url):
+        return set()
+    host = urllib.parse.urlparse(str(url).strip()).netloc.lower()
+    if not host:
+        return set()
+    labels = {host}
+    if host.startswith("www."):
+        labels.add(host[4:])
+    return {label.strip() for label in labels if label.strip()}
+
+
+def _register_verified_source(source_map, label, url):
+    if not _is_verified_public_url(url):
+        return
+    labels = set()
+    if label:
+        labels.add(str(label).strip().lower())
+    labels.update(_source_labels_from_url(url))
+    for source_label in labels:
+        if source_label and source_label not in source_map:
+            source_map[source_label] = str(url).strip()
+
+
+def _verified_source_map(web_research_text, grok_research_json_text):
+    source_map = {}
+
+    for label, url in _markdown_links(web_research_text):
+        _register_verified_source(source_map, label, url)
+
+    data = _safe_model_json(grok_research_json_text)
+    for key in ("web_research_findings", "technical_risks"):
+        for item in data.get(key) or []:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("source_url") or item.get("url")
+            label = (
+                item.get("source")
+                or item.get("source_name")
+                or item.get("source_title")
+                or item.get("title")
+                or item.get("label")
+            )
+            _register_verified_source(source_map, label, url)
+
+    return source_map
+
+
+def _relink_web_research_line(line, source_map):
+    updated = str(line)
+    if _markdown_links(updated):
+        return updated
+
+    for label, url in source_map.items():
+        pattern = rf"\(({re.escape(label)})\)"
+        updated = re.sub(
+            pattern,
+            lambda match: f"([{match.group(1)}]({url}))",
+            updated,
+            flags=re.IGNORECASE,
+        )
+    return updated
+
+
+def _restore_clickable_web_research_links(report_text, grok_research_json_text, web_research_text):
+    source_map = _verified_source_map(web_research_text, grok_research_json_text)
+    if not source_map:
+        return report_text
+
+    section_match = re.search(
+        r"(^##\s+(?:Webov[eé]\s+overenie|Web Verification)\s*$)(.*?)(?=^\s*##\s+|\Z)",
+        str(report_text or ""),
+        re.MULTILINE | re.DOTALL,
+    )
+    if not section_match:
+        return report_text
+
+    section_body = section_match.group(2)
+    relinked_lines = [_relink_web_research_line(line, source_map) for line in section_body.splitlines()]
+    relinked_body = "\n".join(relinked_lines)
+    if relinked_body == section_body:
+        return report_text
+
+    return (
+        str(report_text or "")[: section_match.start(2)]
+        + relinked_body
+        + str(report_text or "")[section_match.end(2) :]
+    )
+
+
+def _normalize_report_headings(report_text):
+    normalized_lines = []
+    for line in str(report_text or "").splitlines():
+        heading_match = re.match(r"^(\s*##\s+)(.+?)\s*$", line)
+        if not heading_match:
+            normalized_lines.append(line)
+            continue
+
+        heading_key = _normalize_heading_key(heading_match.group(2))
+        normalized_lines.append(REPORT_HEADING_EMOJIS.get(heading_key, line))
+
+    return "\n".join(normalized_lines)
 
 
 def _compact_text_research_for_final(grok_research_json_text):
@@ -2955,6 +3100,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     image_data_list=image_data_list,
                     model=GEMINI_FLASH_MODEL,
                     listing_slug=slug,
+                    allow_image_text_fallback=False,
                 ),
             )
         except Exception as exc:
@@ -3102,7 +3248,13 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
 
     with open(os.path.join(slug_dir, "analysis_result_raw.md"), "w", encoding="utf-8") as f:
         f.write(full_report)
-    public_text = _strip_kb_section(full_report)
+    public_text = _normalize_report_headings(
+        _restore_clickable_web_research_links(
+            _ensure_end_analysis_marker(_strip_kb_section(full_report)),
+            grok_research_json_text,
+            web_research_text,
+        )
+    )
     with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
         f.write(public_text)
     validation_warnings.extend(_soft_validate_final_report(public_text, verdict))
@@ -3426,7 +3578,14 @@ def api_analyze(slug):
             vision_result_json = ""
             if image_data_list:
                 try:
-                    for chunk in _call_gemini(gemini_key, vision_system_prompt, vision_content, image_data_list=image_data_list, listing_slug=slug):
+                    for chunk in _call_gemini(
+                        gemini_key,
+                        vision_system_prompt,
+                        vision_content,
+                        image_data_list=image_data_list,
+                        listing_slug=slug,
+                        allow_image_text_fallback=False,
+                    ):
                         vision_result_json += chunk
                     # Save intermediate JSON
                     vision_json_path = os.path.join(slug_dir, "gemini_vision.json")
@@ -3486,7 +3645,13 @@ def api_analyze(slug):
             raw_path = os.path.join(slug_dir, "analysis_result_raw.md")
             with open(raw_path, "w", encoding="utf-8") as f:
                 f.write(full_report)
-            public_text = _strip_kb_section(full_report)
+            public_text = _normalize_report_headings(
+                _restore_clickable_web_research_links(
+                    _ensure_end_analysis_marker(_strip_kb_section(full_report)),
+                    grok_research_json_text,
+                    web_research_text,
+                )
+            )
             with open(result_path, "w", encoding="utf-8") as f:
                 f.write(public_text)
 

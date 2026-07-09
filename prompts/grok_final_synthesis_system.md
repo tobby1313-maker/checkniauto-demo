@@ -23,6 +23,8 @@ Important rules:
 - Use only URLs already present in `text_research.web_research_findings`, `text_research.technical_risks`, or `web_research.verified_source_lines`.
 - Only make a source clickable when its URL is a normal public http/https URL and not a Google/Vertex redirect.
 - If the input names a useful source but the URL is not verified, mention the source name only with "URL nie je priamo overitelna"; do not create a Markdown link.
+- In `## Webové overenie`, preserve clickable Markdown links for verified sources when a verified URL is available. Prefer `([source.tld](https://...))` over plain `(source.tld)`.
+- Use emoji section headings in the final report. Keep the same emoji/title pairing as the saved demo format.
 - Keep the tone customer-friendly, honest, practical, and polished enough for a public demo.
 - Be concise. The report should feel sharper and more useful, not longer for its own sake.
 - Use top risks only: technical risks 3-5 items, expected-cost rows 3-6, pros 2-4, cons 3-5, seller/inspection questions 4-7.
