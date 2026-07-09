@@ -39,6 +39,7 @@ from llm_client import (
     OpenRouterApiKeyError,
     GroundingTransientError,
 )
+from analysis_normalizer import normalize_analysis_markdown
 from token_tracker import default_tracker, estimate_output_tokens, estimate_request_tokens
 
 # Alias for backward compatibility - backup API keys will be managed in llm_client.py
@@ -472,7 +473,7 @@ def _read_listing_analysis_content(slug_dir, required=False):
         if required:
             raise FileNotFoundError("Analysis result not found")
         return None
-    return _read_text_file(result_path)
+    return normalize_analysis_markdown(_read_text_file(result_path), _read_car_info_text(slug_dir))
 
 
 def _build_listing_summary(slug, slug_dir, image_route_prefix="/api/listings"):
@@ -1311,6 +1312,10 @@ def _read_car_info_text(slug_dir):
         return f.read()
 
 
+def _public_analysis_markdown(text, slug_dir):
+    return normalize_analysis_markdown(text, _read_car_info_text(slug_dir))
+
+
 @app.route("/api/listings/<slug>/analysis-result")
 def api_listing_analysis_result(slug):
     slug_dir = os.path.join(AUTA_DIR, slug)
@@ -1320,7 +1325,7 @@ def api_listing_analysis_result(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        content = f.read()
+        content = _public_analysis_markdown(f.read(), slug_dir)
 
     # Check if there are KB blocks available to save
     kb_blocks = extract_kb_save_blocks(content)
@@ -1377,7 +1382,7 @@ def api_listing_analysis_export(slug):
         return jsonify({"error": "Result not found"}), 404
 
     with open(result_path, "r", encoding="utf-8") as f:
-        stripped_content = _strip_kb_section(f.read())
+        stripped_content = _public_analysis_markdown(_strip_kb_section(f.read()), slug_dir)
 
     embedded_content = _embed_collage_images(stripped_content, slug)
 
@@ -2259,6 +2264,86 @@ def _limited_list(value, max_items=6, max_chars=FINAL_TEXT_FIELD_CHARS, prefer_c
     return [_compact_value(item, max_chars) for item in items[:max_items]]
 
 
+def _vision_item_text(item):
+    if isinstance(item, dict):
+        return json.dumps(item, ensure_ascii=False).lower()
+    return str(item or "").lower()
+
+
+def _is_positive_vision_item(item):
+    text = _vision_item_text(item)
+    positive_markers = (
+        "dobrom stave",
+        "dobry stav",
+        "vyzera v dobrom stave",
+        "primerane ciste",
+        "bez zjavnych",
+        "bez viditelnych",
+        "bezne zahyby",
+        "konzistentne",
+        "consistent",
+    )
+    return any(marker in text for marker in positive_markers)
+
+
+def _vision_severity_rank(item):
+    if not isinstance(item, dict):
+        return 1
+    severity = str(item.get("severity") or "").strip().lower()
+    return {
+        "serious": 4,
+        "high": 4,
+        "medium": 3,
+        "minor": 2,
+        "low": 2,
+        "unknown": 1,
+    }.get(severity, 1)
+
+
+def _balanced_vision_list(value, max_items=6, max_chars=FINAL_TEXT_FIELD_CHARS):
+    if not isinstance(value, list):
+        return []
+    concerns = []
+    positives = []
+    neutral = []
+    for item in value:
+        bucket = positives if _is_positive_vision_item(item) else concerns
+        if bucket is concerns and _vision_severity_rank(item) <= 1:
+            neutral.append(item)
+            continue
+        bucket.append(item)
+
+    concerns = sorted(concerns, key=_vision_severity_rank, reverse=True)
+    positives = sorted(positives, key=_vision_severity_rank, reverse=True)
+    neutral = sorted(neutral, key=_vision_severity_rank, reverse=True)
+
+    selected = []
+    concern_count_used = 0
+    if concerns:
+        concern_quota = max_items - 1 if positives and max_items > 1 else max_items
+        selected.extend(concerns[:concern_quota])
+        concern_count_used = min(len(concerns), concern_quota)
+    remaining = max_items - len(selected)
+    if positives and remaining > 0:
+        selected.extend(positives[:1])
+        remaining = max_items - len(selected)
+    if remaining > 0:
+        for item in concerns[concern_count_used:]:
+            if len(selected) >= max_items:
+                break
+            if item not in selected:
+                selected.append(item)
+        remaining = max_items - len(selected)
+    if remaining > 0:
+        for item in positives[1:] + neutral:
+            if len(selected) >= max_items:
+                break
+            if item not in selected:
+                selected.append(item)
+
+    return [_compact_value(item, max_chars) for item in selected[:max_items]]
+
+
 def _compact_json_for_prompt(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
@@ -2723,6 +2808,104 @@ def _normalize_report_headings(report_text):
     return "\n".join(normalized_lines)
 
 
+def _vision_observation_bullet(item):
+    if not isinstance(item, dict):
+        text = str(item or "").strip()
+        return f"- {text}" if text else ""
+    label = str(item.get("photo_label") or "").strip()
+    observation = str(item.get("observation") or "").strip()
+    relevance = str(item.get("buyer_relevance") or "").strip()
+    parts = []
+    if observation:
+        parts.append(observation)
+    if relevance:
+        parts.append(relevance)
+    if not parts:
+        return ""
+    prefix = f"**{label}:** " if label else ""
+    return f"- {prefix}{' '.join(parts)}"
+
+
+def _high_confidence_dashboard_note(item):
+    if not isinstance(item, dict):
+        return False
+    confidence = _normalize_claim_text(item.get("confidence"))
+    if "nizka" in confidence or "low" in confidence:
+        return False
+    return bool(str(item.get("observation") or "").strip())
+
+
+def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
+    data = _safe_model_json(vision_result_json)
+    if not data.get("photos_provided"):
+        return [
+            "- Fotografie neboli poskytnuté alebo neboli spoľahlivo analyzovateľné."
+            if _demo_output_language(output_language) == "sk"
+            else "- Photos were not provided or could not be analyzed reliably."
+        ]
+
+    lines = []
+    for item in data.get("exterior_observations") or []:
+        bullet = _vision_observation_bullet(item)
+        if bullet:
+            lines.append(bullet)
+    for item in data.get("interior_observations") or []:
+        bullet = _vision_observation_bullet(item)
+        if bullet:
+            lines.append(bullet)
+    for item in data.get("visible_red_flags") or []:
+        bullet = _vision_observation_bullet(item)
+        if bullet:
+            lines.append(bullet)
+    for item in data.get("dashboard_or_warning_lights") or []:
+        if _high_confidence_dashboard_note(item):
+            bullet = _vision_observation_bullet(item)
+            if bullet:
+                lines.append(bullet)
+
+    view_coverage = data.get("view_coverage") if isinstance(data.get("view_coverage"), dict) else {}
+    missing_views = []
+    for key, label_sk, label_en in (
+        ("engine_bay", "motorový priestor", "engine bay"),
+        ("underbody", "podvozok", "underbody"),
+    ):
+        if str(view_coverage.get(key) or "").strip().lower() == "missing":
+            missing_views.append(label_sk if _demo_output_language(output_language) == "sk" else label_en)
+    if missing_views:
+        if _demo_output_language(output_language) == "sk":
+            lines.append(
+                "- **Chýbajúce pohľady:** "
+                + ", ".join(missing_views)
+                + " nie sú na fotkách viditeľné, preto ich stav nemožno spoľahlivo posúdiť."
+            )
+        else:
+            lines.append(
+                "- **Missing views:** "
+                + ", ".join(missing_views)
+                + " are not visible in the photos, so their condition cannot be assessed reliably."
+            )
+
+    return lines
+
+
+def _replace_photo_analysis_section(report_text, vision_result_json, output_language="sk"):
+    body_lines = _photo_analysis_lines_from_vision(vision_result_json, output_language)
+    if not body_lines:
+        return report_text
+    heading = "## 📸 Analýza fotografií" if _demo_output_language(output_language) == "sk" else "## 📸 Photo Analysis"
+    new_section = heading + "\n\n" + "\n".join(body_lines) + "\n\n"
+    pattern = re.compile(
+        r"(^##\s+.*?(?:Analýza fotografií|Photo Analysis)\s*$\n)(.*?)(?=^\s*##\s+|\Z)",
+        flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
+    )
+    if pattern.search(str(report_text or "")):
+        return pattern.sub(new_section, str(report_text or ""), count=1)
+    end_marker = "<!-- END_ANALYSIS -->"
+    if end_marker in str(report_text or ""):
+        return str(report_text or "").replace(end_marker, new_section + end_marker)
+    return str(report_text or "").rstrip() + "\n\n" + new_section
+
+
 def _compact_text_research_for_final(grok_research_json_text):
     data = _safe_model_json(grok_research_json_text)
     return {
@@ -2754,9 +2937,9 @@ def _compact_vision_for_final(vision_result_json):
         "photo_coverage": _compact_value(data.get("photo_coverage")),
         "view_coverage": _compact_value(data.get("view_coverage")),
         "photo_limitations": _limited_list(data.get("photo_limitations"), 5, 220),
-        "exterior_observations": _limited_list(data.get("exterior_observations"), 8, prefer_concerns=True),
-        "interior_observations": _limited_list(data.get("interior_observations"), 6, prefer_concerns=True),
-        "dashboard_or_warning_lights": _limited_list(data.get("dashboard_or_warning_lights"), 4, prefer_concerns=True),
+        "exterior_observations": _balanced_vision_list(data.get("exterior_observations"), 8),
+        "interior_observations": _balanced_vision_list(data.get("interior_observations"), 6),
+        "dashboard_or_warning_lights": _balanced_vision_list(data.get("dashboard_or_warning_lights"), 4),
         "visible_red_flags": _limited_list(data.get("visible_red_flags"), 6, prefer_concerns=True),
         "mileage_wear_consistency": _compact_value(data.get("mileage_wear_consistency")),
         "visual_verdict": _clip_text(data.get("visual_verdict"), 220),
@@ -3250,11 +3433,12 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         f.write(full_report)
     public_text = _normalize_report_headings(
         _restore_clickable_web_research_links(
-            _ensure_end_analysis_marker(_strip_kb_section(full_report)),
+            _ensure_end_analysis_marker(_public_analysis_markdown(_strip_kb_section(full_report), slug_dir)),
             grok_research_json_text,
             web_research_text,
         )
     )
+    public_text = _replace_photo_analysis_section(public_text, vision_result_json, output_language)
     with open(os.path.join(slug_dir, "analysis_result.md"), "w", encoding="utf-8") as f:
         f.write(public_text)
     validation_warnings.extend(_soft_validate_final_report(public_text, verdict))
@@ -3652,6 +3836,7 @@ def api_analyze(slug):
                     web_research_text,
                 )
             )
+            public_text = _replace_photo_analysis_section(public_text, vision_result_json, output_language)
             with open(result_path, "w", encoding="utf-8") as f:
                 f.write(public_text)
 

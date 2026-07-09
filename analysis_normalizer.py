@@ -48,11 +48,21 @@ def extract_listing_facts(car_info_text: str | None) -> ListingFacts:
 def normalize_analysis_markdown(text: str | None, car_info_text: str | None = None) -> str:
     """Return cleaned Markdown while preserving the report's intended structure."""
     value = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    value = _strip_outer_markdown_fence(value)
     value = _sanitize_grounding_redirects(value)
     value = _normalize_tables(value)
     value = _apply_fact_guard(value, extract_listing_facts(car_info_text))
     value = _trim_excess_blank_lines(value)
     return value.rstrip() + ("\n" if value.strip() else "")
+
+
+def _strip_outer_markdown_fence(text: str) -> str:
+    """Unwrap a report when the model returns a single fenced markdown block."""
+    stripped = text.strip()
+    match = re.match(r"^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$", stripped, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip("\n")
+    return text
 
 
 def _sanitize_grounding_redirects(text: str) -> str:

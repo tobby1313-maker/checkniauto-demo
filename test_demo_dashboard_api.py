@@ -234,6 +234,98 @@ class DemoDashboardApiTest(unittest.TestCase):
         self.assertEqual(payload["image_payload"]["coverage_mode"], "full_gallery_overview")
         self.assertEqual(payload["vision"]["view_coverage"]["engine_bay"], "visible_overview_only")
 
+    def test_final_synthesis_context_keeps_photo_labels_and_positive_vision_note(self):
+        context = web_server._build_final_synthesis_context(
+            "sk",
+            "# BMW X5\n\n## Photos\n- **Downloaded:** 20",
+            json.dumps({"listing_facts": {}, "market_assessment": {}, "consistency_checks": []}),
+            json.dumps({
+                "photos_provided": True,
+                "exterior_observations": [
+                    {
+                        "photo_label": "Foto 01",
+                        "observation": "Predný nárazník má drobné škrabance.",
+                        "severity": "minor",
+                    }
+                ],
+                "interior_observations": [
+                    {
+                        "photo_label": "Foto 18",
+                        "observation": "Zadné sedadlá vyzerajú v dobrom stave s bežnými záhybmi.",
+                        "severity": "minor",
+                    },
+                    {
+                        "photo_label": "Foto 08",
+                        "observation": "Sedadlo vodiča vykazuje opotrebenie na bočnici.",
+                        "severity": "medium",
+                    }
+                ],
+                "visual_verdict": "Viditeľné drobné nedostatky",
+            }),
+            json.dumps({"risk_score": 3, "allowed_final_verdict": "OPATRNE ZVÁŽIŤ"}),
+            "",
+            {},
+        )
+        payload = json.loads(context.split("\n\n", 1)[1])
+
+        interior = payload["vision"]["interior_observations"]
+        self.assertTrue(any(item.get("photo_label") == "Foto 08" for item in interior))
+        self.assertTrue(any(item.get("photo_label") == "Foto 18" for item in interior))
+        self.assertTrue(any("dobrom stave" in item.get("observation", "") for item in interior))
+
+    def test_photo_analysis_section_is_replaced_from_vision_json(self):
+        report = """# Analýza: BMW X5 xDrive30i
+
+## 📸 Analýza fotografií
+
+- Exteriér: stručné zhrnutie.
+
+## ✅ Klady
+
+- test
+
+<!-- END_ANALYSIS -->
+"""
+        vision = json.dumps({
+            "photos_provided": True,
+            "view_coverage": {
+                "engine_bay": "missing",
+                "underbody": "missing",
+            },
+            "exterior_observations": [
+                {
+                    "photo_label": "Foto 01",
+                    "observation": "Predné svetlomety vykazujú mierne zahmlenie.",
+                    "buyer_relevance": "Môže ovplyvniť svetelný výkon.",
+                    "severity": "minor",
+                }
+            ],
+            "interior_observations": [
+                {
+                    "photo_label": "Foto 18",
+                    "observation": "Zadné sedadlá vyzerajú v dobrom stave s bežnými záhybmi.",
+                    "buyer_relevance": "Dobrý stav pre zadných pasažierov.",
+                    "severity": "minor",
+                }
+            ],
+            "dashboard_or_warning_lights": [
+                {
+                    "photo_label": "Foto 08",
+                    "observation": "Prístrojová doska nie je dostatočne zaostrená.",
+                    "confidence": "Nízka",
+                    "requires_verification": True,
+                }
+            ],
+            "visible_red_flags": [],
+        }, ensure_ascii=False)
+
+        updated = web_server._replace_photo_analysis_section(report, vision, "sk")
+
+        self.assertIn("**Foto 01:** Predné svetlomety vykazujú mierne zahmlenie.", updated)
+        self.assertIn("**Foto 18:** Zadné sedadlá vyzerajú v dobrom stave", updated)
+        self.assertIn("**Chýbajúce pohľady:** motorový priestor, podvozok", updated)
+        self.assertNotIn("nie je dostatočne zaostrená", updated)
+
 
 if __name__ == "__main__":
     unittest.main()

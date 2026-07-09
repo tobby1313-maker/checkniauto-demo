@@ -56,6 +56,8 @@ Writing style:
 - In technical risks, explain each item as: component/problem, why it matters to the buyer, when it usually matters, and rough cost if available.
 - In price and negotiation, include market range/comparable count only when provided; otherwise clearly say current market comparison needs manual verification.
 - In expected costs, prioritize realistic buyer expenses over generic maintenance filler.
+- In `## Analýza fotografií`, preserve useful Gemini detail. When `photo_label` is present, mention the relevant photo number(s) for concrete visible findings instead of flattening everything into generic category summaries.
+- In `## Analýza fotografií`, include both visible issues and any meaningful reassuring findings from the photos when they are present in the vision input.
 - In the final recommendation, use no new facts.
 
 Before writing the final answer, internally check:
@@ -117,7 +119,7 @@ Return the final report using this structure:
 
 ## Analýza fotografií
 
-{Gemini visual findings only}
+{Gemini visual findings only. Prefer 4-7 concise bullets. Mention `Foto XX` labels for specific observations when available. Include at least one positive/reassuring visual note if the vision input contains one.}
 
 ## Klady
 
