@@ -73,16 +73,39 @@ def calculate_risk_score(
 
     vin_present = _truthy(vin_check.get("vin_present")) or bool(_clean(facts.get("vin")))
     vin_format = _clean(vin_check.get("format_check")).lower()
-    vin_problem = (not vin_present) or vin_format in {"problem", "skipped", "unknown", ""}
-    if vin_problem:
+    vin_invalid = vin_present and vin_format == "problem"
+    vin_missing_or_unverified = (not vin_present) or vin_format in {"skipped", "unknown", ""}
+    vin_problem = vin_invalid or vin_missing_or_unverified
+    if vin_invalid:
         missing_flags.add("VIN")
-        _add_rule(applied_rules, "vin_missing_or_unverifiable", 2, "VIN chyba alebo nie je spolahlivo overitelne.")
+        _add_rule(applied_rules, "vin_invalid_or_conflicting", 2, "VIN je uvedene, ale format alebo udaje posobia problematicky.")
+        priority_checks.append("Nechat predajcu vysvetlit VIN a overit ho mimo inzeratu pred rezervaciou auta.")
+    elif vin_missing_or_unverified:
+        missing_flags.add("VIN")
+        _add_rule(applied_rules, "vin_missing_request_before_viewing", 0, "VIN nie je v inzerate; vyziadat ho od predajcu pred obhliadkou.")
         priority_checks.append("Poziadat predajcu o VIN pred obhliadkou a overit ho mimo inzeratu.")
 
-    concern_checks = [
+    all_concern_checks = [
         item for item in _as_list(research.get("consistency_checks"))
         if _clean(_as_dict(item).get("result")).lower() == "concern"
     ]
+    plate_only_concern_checks = [
+        item for item in all_concern_checks
+        if _is_registration_plate_only_concern(_as_dict(item))
+    ]
+    concern_checks = [
+        item for item in all_concern_checks
+        if item not in plate_only_concern_checks
+    ]
+    if plate_only_concern_checks:
+        missing_flags.add("registration_plate")
+        _add_rule(
+            applied_rules,
+            "registration_plate_needs_verification",
+            0,
+            "SPZ/ECV alebo registracny udaj treba overit, sam o sebe vsak nemusi znamenat problem auta.",
+        )
+        priority_checks.append("Overit SPZ/ECV s dokladmi a predajcom pri komunikacii alebo obhliadke.")
     if concern_checks:
         _add_rule(applied_rules, "obvious_listing_conflict", 2, "Textova analyza nasla rozpor v udajoch inzeratu.")
         priority_checks.append("Nechat predajcu vysvetlit rozpory v udajoch pred rezervaciou auta.")
@@ -173,21 +196,21 @@ def calculate_risk_score(
     score = max(0, _sum_points(applied_rules))
     verdict = _verdict_for_score(score)
 
-    if vin_problem and service_missing:
+    if vin_invalid and service_missing:
         verdict = _cap_verdict(verdict, "🟠 ZVÁŽIŤ")
-        _add_override(overrides, "VIN missing + service history missing", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
-    if vin_problem and weak_photos:
+        _add_override(overrides, "invalid VIN + service history missing", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
+    if vin_invalid and weak_photos:
         verdict = _cap_verdict(verdict, "🟠 ZVÁŽIŤ")
-        _add_override(overrides, "VIN missing + weak photos", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
+        _add_override(overrides, "invalid VIN + weak photos", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
     if serious_damage:
         verdict = _cap_verdict(verdict, "🟠 ZVÁŽIŤ")
         _add_override(overrides, "serious visible red flags", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
     if concern_checks:
         verdict = _cap_verdict(verdict, "🔴 RIZIKOVÁ KÚPA")
         _add_override(overrides, "major listing contradiction", "Final verdict cannot be better than 🔴 RIZIKOVÁ KÚPA.")
-    if price_view == "rather_cheap" and vin_problem:
+    if price_view == "rather_cheap" and vin_invalid:
         verdict = _cap_verdict(verdict, "🔴 RIZIKOVÁ KÚPA")
-        _add_override(overrides, "suspiciously low price + missing VIN", "Final verdict cannot be better than 🔴 RIZIKOVÁ KÚPA.")
+        _add_override(overrides, "suspiciously low price + invalid VIN", "Final verdict cannot be better than 🔴 RIZIKOVÁ KÚPA.")
     if not photos_provided:
         verdict = _cap_verdict(verdict, "🟡 PRIJATEĽNÁ KÚPA")
         _add_override(overrides, "no photos", "Final verdict cannot be 🟢 DOBRÁ KÚPA.")
@@ -334,6 +357,44 @@ def _mentions_expensive_risk(item: dict[str, Any]) -> bool:
 def _is_high_confidence(value: Any) -> bool:
     text = _clean(value).lower()
     return text in {"vysoka", "vysoká", "high"}
+
+
+def _is_registration_plate_only_concern(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        _clean(item.get(key)).lower()
+        for key in ("check", "explanation", "item", "why_it_matters", "risk")
+    )
+    plate_keywords = (
+        "spz",
+        "ecv",
+        "ečv",
+        "evidencne cislo",
+        "evidenčné číslo",
+        "registration plate",
+        "license plate",
+        "number plate",
+    )
+    if not any(keyword in text for keyword in plate_keywords):
+        return False
+
+    identity_keywords = (
+        "vin",
+        "najazd",
+        "nájazd",
+        "mileage",
+        "odometer",
+        "rok",
+        "year",
+        "motor",
+        "engine",
+        "model",
+        "cena",
+        "price",
+        "povod",
+        "pôvod",
+        "origin",
+    )
+    return not any(keyword in text for keyword in identity_keywords)
 
 
 def _has_good_documentation(

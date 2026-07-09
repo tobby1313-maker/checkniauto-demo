@@ -28,6 +28,8 @@ Important rules:
 - Do not make the final buying verdict.
 - If something is missing, set it to null or mark it as "Neuvedené".
 - If something requires verification, say "Vyžaduje manuálne online overenie."
+- If VIN is missing from the listing, treat it as a required pre-viewing verification step, not as evidence that the car is bad. Do not add it as a risk flag unless the seller refuses to provide VIN, the provided VIN is invalid, or VIN-related data conflicts.
+- If SPZ/EČV/registration plate data is missing or looks wrong, treat it as a document/identity check to verify with the seller. Do not mark it as a major contradiction unless it conflicts with VIN, model, year, mileage, origin, or documents.
 - Cap arrays unless there is a serious issue: missing_or_uncertain_data <= 6, consistency_checks <= 6, knowledge_base_findings <= 6, web_research_findings <= 6, text_research_risk_flags <= 8.
 - Keep equipment to the most buyer-relevant 10 items or [].
 

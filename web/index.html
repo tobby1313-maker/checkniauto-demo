@@ -509,54 +509,6 @@
             flex-wrap: wrap;
         }
 
-        .result-summary {
-            display: grid;
-            grid-template-columns: 1.05fr 1fr 1.35fr 1.35fr;
-            gap: 0;
-            padding: 12px 0;
-            border-bottom: 1px solid var(--line);
-        }
-
-        .result-summary.hidden {
-            display: none;
-        }
-
-        .summary-item {
-            min-width: 0;
-            padding: 0 14px;
-            border-left: 1px solid var(--line);
-        }
-
-        .summary-item:first-child {
-            padding-left: 0;
-            border-left: 0;
-        }
-
-        .summary-label {
-            display: block;
-            margin-bottom: 4px;
-            color: var(--muted);
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: 0;
-            line-height: 1.2;
-            text-transform: uppercase;
-        }
-
-        .summary-value {
-            display: block;
-            color: var(--text);
-            font-size: 14px;
-            font-weight: 700;
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-        }
-
-        .summary-value.verdict {
-            color: var(--orange);
-            font-size: 15px;
-        }
-
         .result-content {
             min-height: calc(100vh - 170px);
             overflow: auto;
@@ -961,15 +913,6 @@
                 grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
             }
 
-            .result-summary {
-                grid-template-columns: 1fr 1fr;
-                row-gap: 12px;
-            }
-
-            .summary-item:nth-child(odd) {
-                padding-left: 0;
-                border-left: 0;
-            }
         }
 
         @media (max-width: 620px) {
@@ -994,22 +937,6 @@
             .language-select {
                 flex: 1;
                 min-width: 0;
-            }
-
-            .result-summary {
-                grid-template-columns: 1fr;
-            }
-
-            .summary-item,
-            .summary-item:nth-child(odd) {
-                padding: 10px 0 0;
-                border-left: 0;
-                border-top: 1px solid var(--line);
-            }
-
-            .summary-item:first-child {
-                padding-top: 0;
-                border-top: 0;
             }
 
             .layout,
@@ -1129,24 +1056,6 @@
                             <button class="btn small" id="exportPdfBtn" type="button">Export PDF</button>
                         </div>
                     </div>
-                    <div class="result-summary hidden" id="resultSummary" aria-label="Rýchly verdikt">
-                        <div class="summary-item">
-                            <span class="summary-label" id="summaryVerdictLabel">Hodnotenie</span>
-                            <strong class="summary-value verdict" id="summaryVerdictValue">-</strong>
-                        </div>
-                        <div class="summary-item">
-                            <span class="summary-label" id="summaryPriceLabel">Cena</span>
-                            <strong class="summary-value" id="summaryPriceValue">-</strong>
-                        </div>
-                        <div class="summary-item">
-                            <span class="summary-label" id="summaryRiskLabel">Najväčšie riziko</span>
-                            <strong class="summary-value" id="summaryRiskValue">-</strong>
-                        </div>
-                        <div class="summary-item">
-                            <span class="summary-label" id="summaryFirstLabel">Čo overiť ako prvé</span>
-                            <strong class="summary-value" id="summaryFirstValue">-</strong>
-                        </div>
-                    </div>
                     <div class="result-shell">
                         <aside class="result-photos hidden" id="resultPhotosPanel" aria-label="Referenčné fotky">
                             <div class="result-photos-head">
@@ -1217,15 +1126,6 @@
         const copyMarkdownBtn = document.querySelector("#copyMarkdownBtn");
         const exportPdfBtn = document.querySelector("#exportPdfBtn");
         const resultTitleEl = document.querySelector("#resultTitle");
-        const resultSummary = document.querySelector("#resultSummary");
-        const summaryVerdictLabel = document.querySelector("#summaryVerdictLabel");
-        const summaryVerdictValue = document.querySelector("#summaryVerdictValue");
-        const summaryPriceLabel = document.querySelector("#summaryPriceLabel");
-        const summaryPriceValue = document.querySelector("#summaryPriceValue");
-        const summaryRiskLabel = document.querySelector("#summaryRiskLabel");
-        const summaryRiskValue = document.querySelector("#summaryRiskValue");
-        const summaryFirstLabel = document.querySelector("#summaryFirstLabel");
-        const summaryFirstValue = document.querySelector("#summaryFirstValue");
         const resultPhotosPanel = document.querySelector("#resultPhotosPanel");
         const resultPhotosTitle = document.querySelector("#resultPhotosTitle");
         const resultPhotosCount = document.querySelector("#resultPhotosCount");
@@ -1273,12 +1173,6 @@
                 resultEmpty: "Výsledok analýzy sa zobrazí tu.",
                 copyMarkdown: "Kopírovať text",
                 exportPdf: "Export PDF",
-                summaryAria: "Rýchly verdikt",
-                summaryVerdict: "Hodnotenie",
-                summaryPrice: "Cena",
-                summaryRisk: "Najväčšie riziko",
-                summaryFirst: "Čo overiť ako prvé",
-                summaryMissing: "Neuvedené",
                 referencePhotos: "Referenčné fotky",
                 photosCount: "{count} fotiek",
                 copied: "Skopírované",
@@ -1325,12 +1219,6 @@
                 resultEmpty: "The analysis result will appear here.",
                 copyMarkdown: "Copy text",
                 exportPdf: "Export PDF",
-                summaryAria: "Quick verdict",
-                summaryVerdict: "Rating",
-                summaryPrice: "Price",
-                summaryRisk: "Biggest risk",
-                summaryFirst: "First thing to verify",
-                summaryMissing: "Not stated",
                 referencePhotos: "Reference photos",
                 photosCount: "{count} photos",
                 copied: "Copied",
@@ -1391,11 +1279,6 @@
             setText("#dashboardBtn", tr("dashboard"));
             setText("#copyMarkdownBtn", tr("copyMarkdown"));
             setText("#exportPdfBtn", tr("exportPdf"));
-            resultSummary.setAttribute("aria-label", tr("summaryAria"));
-            summaryVerdictLabel.textContent = tr("summaryVerdict");
-            summaryPriceLabel.textContent = tr("summaryPrice");
-            summaryRiskLabel.textContent = tr("summaryRisk");
-            summaryFirstLabel.textContent = tr("summaryFirst");
             setText("#resultPhotosTitle", tr("referencePhotos"));
             setText("#dashboardTitle", tr("dashboardTitle"));
             setText("#dashboardSubtitle", tr("dashboardSubtitle"));
@@ -1409,7 +1292,6 @@
                 statusEl.textContent = tr("ready");
                 logEl.textContent = tr("resultEmpty");
             }
-            renderResultSummary(latestResultText);
             renderReferencePhotos(latestReferencePhotos);
         }
 
@@ -1422,7 +1304,6 @@
         function resetWorkspace() {
             latestResultText = "";
             latestResultTitle = "Checkni Auto";
-            clearResultSummary();
             setReferencePhotos([]);
             pageEl.classList.remove("result-mode");
             analysisSection.classList.add("hidden");
@@ -1472,99 +1353,6 @@
             }[char]));
         }
 
-        function normalizeSummaryKey(value) {
-            return String(value || "")
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, " ")
-                .trim();
-        }
-
-        function plainMarkdown(value) {
-            return String(value || "")
-                .replace(/<!--[\s\S]*?-->/g, "")
-                .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-                .replace(/[`*_~]/g, "")
-                .replace(/\s+/g, " ")
-                .trim();
-        }
-
-        function parseSummaryBullet(line) {
-            const match = /^\s*[-*]\s+\*\*([^*]+?)\*\*\s*:?\s*(.*)$/.exec(line);
-            if (!match) return null;
-            const label = normalizeSummaryKey(match[1].replace(/:$/, ""));
-            return { label, value: plainMarkdown(match[2]) };
-        }
-
-        function assignSummaryField(summary, label, value) {
-            if (!value) return;
-            if ((label === "hodnotenie" || label === "rating") && !summary.verdict) {
-                summary.verdict = value;
-            } else if ((label === "cena" || label === "price") && !summary.price) {
-                summary.price = value;
-            } else if ((label === "najvacsie riziko" || label === "biggest risk") && !summary.risk) {
-                summary.risk = value;
-            } else if ((label === "co overit ako prve" || label === "first thing to verify") && !summary.first) {
-                summary.first = value;
-            }
-        }
-
-        function extractResultSummary(markdown) {
-            const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
-            const summary = { verdict: "", price: "", risk: "", first: "" };
-            let inQuickVerdict = false;
-            let foundQuickVerdict = false;
-
-            for (const line of lines) {
-                const trimmed = line.trim();
-                const heading = /^##\s+(.+)$/.exec(trimmed);
-                if (heading) {
-                    const key = normalizeSummaryKey(heading[1]);
-                    if (key === "rychly verdikt" || key === "quick verdict") {
-                        inQuickVerdict = true;
-                        foundQuickVerdict = true;
-                        continue;
-                    }
-                    if (inQuickVerdict) break;
-                }
-                if (!inQuickVerdict) continue;
-                const field = parseSummaryBullet(trimmed);
-                if (field) assignSummaryField(summary, field.label, field.value);
-            }
-
-            if (!foundQuickVerdict) {
-                for (const line of lines.slice(0, 24)) {
-                    const field = parseSummaryBullet(line.trim());
-                    if (field) assignSummaryField(summary, field.label, field.value);
-                }
-            }
-
-            return summary;
-        }
-
-        function clearResultSummary() {
-            resultSummary.classList.add("hidden");
-            summaryVerdictValue.textContent = "-";
-            summaryPriceValue.textContent = "-";
-            summaryRiskValue.textContent = "-";
-            summaryFirstValue.textContent = "-";
-        }
-
-        function renderResultSummary(markdown) {
-            const summary = extractResultSummary(markdown);
-            const hasSummary = Boolean(summary.verdict || summary.price || summary.risk || summary.first);
-            resultSummary.classList.toggle("hidden", !hasSummary);
-            if (!hasSummary) {
-                clearResultSummary();
-                return;
-            }
-            summaryVerdictValue.textContent = summary.verdict || tr("summaryMissing");
-            summaryPriceValue.textContent = summary.price || tr("summaryMissing");
-            summaryRiskValue.textContent = summary.risk || tr("summaryMissing");
-            summaryFirstValue.textContent = summary.first || tr("summaryMissing");
-        }
-
         function photoCountLabel(count) {
             return tr("photosCount").replace("{count}", String(count));
         }
@@ -1578,9 +1366,7 @@
             if (!photo) return null;
             const src = typeof photo === "string" ? photo : (photo.url || photo.src || photo.href || "");
             if (!src) return null;
-            const label = typeof photo === "string"
-                ? `${tr("referencePhotos")} ${index + 1}`
-                : (photo.filename || photo.name || photo.alt || `${tr("referencePhotos")} ${index + 1}`);
+            const label = `Foto ${index + 1}`;
             return { src, label };
         }
 
@@ -1606,7 +1392,7 @@
             const photos = files.map((file, index) => {
                 const url = URL.createObjectURL(file);
                 manualPreviewUrls.push(url);
-                return { url, filename: file.name || `${tr("referencePhotos")} ${index + 1}` };
+                return { url, label: `Foto ${index + 1}` };
             });
             setReferencePhotos(photos);
         }
@@ -1753,7 +1539,6 @@
             latestResultText = "";
             latestResultTitle = tr("progressTitle");
             resultTitleEl.textContent = latestResultTitle;
-            clearResultSummary();
             logEl.classList.add("raw-log");
             logEl.textContent = "";
             statusEl.textContent = tr("starting");
@@ -1868,7 +1653,6 @@
         function appendLog(line) {
             showResultPage();
             logEl.classList.add("raw-log");
-            clearResultSummary();
             // Replace initial placeholder text
             if (logEl.textContent === tr("resultEmpty")) {
                 logEl.textContent = "";
@@ -1883,7 +1667,6 @@
             latestResultTitle = title || tr("progressTitle");
             resultTitleEl.textContent = latestResultTitle;
             logEl.classList.remove("raw-log");
-            renderResultSummary(latestResultText);
             logEl.innerHTML = renderMarkdown(latestResultText);
             window.scrollTo({ top: 0, behavior: "smooth" });
             statusEl.textContent = tr("finish");

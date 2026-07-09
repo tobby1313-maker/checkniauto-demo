@@ -17,7 +17,7 @@ def _overrides(result):
 
 
 class RiskScorerTest(unittest.TestCase):
-    def test_missing_vin_and_no_photos_are_capped_conservatively(self):
+    def test_missing_vin_is_verification_task_not_vin_risk_cap(self):
         result = calculate_risk_score(
             _json(
                 {
@@ -37,9 +37,9 @@ class RiskScorerTest(unittest.TestCase):
             _json({"photos_provided": False, "photo_limitations": [], "visual_verdict": "Nedostatocne fotografie"}),
         )
 
-        self.assertIn("vin_missing_or_unverifiable", _rules(result))
+        self.assertIn("vin_missing_request_before_viewing", _rules(result))
         self.assertIn("missing_or_weak_photos", _rules(result))
-        self.assertIn("VIN missing + weak photos", _overrides(result))
+        self.assertNotIn("invalid VIN + weak photos", _overrides(result))
         self.assertIn("no photos", _overrides(result))
         self.assertIn("VIN", result["missing_data_flags"])
         self.assertIn("photos", result["missing_data_flags"])
@@ -96,7 +96,7 @@ class RiskScorerTest(unittest.TestCase):
         self.assertIn("obvious_listing_conflict", _rules(result))
         self.assertIn("major listing contradiction", _overrides(result))
 
-    def test_suspicious_cheap_price_with_missing_vin_is_risky(self):
+    def test_suspicious_cheap_price_with_missing_vin_does_not_force_risky_verdict(self):
         result = calculate_risk_score(
             _json(
                 {
@@ -114,9 +114,57 @@ class RiskScorerTest(unittest.TestCase):
             _json({"photos_provided": True, "photo_limitations": [], "visual_verdict": "Vyzerá vizuálne dobre"}),
         )
 
-        self.assertIn("price_suspicious_and_other_risks_exist", _rules(result))
-        self.assertIn("suspiciously low price + missing VIN", _overrides(result))
+        self.assertIn("vin_missing_request_before_viewing", _rules(result))
+        self.assertIn("price_suspiciously_low_or_high", _rules(result))
+        self.assertNotIn("suspiciously low price + invalid VIN", _overrides(result))
         self.assertIn("market_comparison", result["missing_data_flags"])
+
+    def test_invalid_vin_with_suspicious_cheap_price_is_risky(self):
+        result = calculate_risk_score(
+            _json(
+                {
+                    "listing_facts": {
+                        "vin": "INVALIDVINVALUE",
+                        "service_history": "full",
+                        "origin_or_country": "SK",
+                        "seller": "private",
+                    },
+                    "vin_check": {"vin_present": True, "format_check": "problem"},
+                    "market_assessment": {"price_view": "rather_cheap"},
+                    "consistency_checks": [],
+                    "knowledge_base_findings": [],
+                }
+            ),
+            _json({"photos_provided": True, "photo_limitations": [], "visual_verdict": "Looks visually ok"}),
+        )
+
+        self.assertIn("vin_invalid_or_conflicting", _rules(result))
+        self.assertIn("price_suspicious_and_other_risks_exist", _rules(result))
+        self.assertIn("suspiciously low price + invalid VIN", _overrides(result))
+
+    def test_spz_only_concern_is_verification_not_major_contradiction(self):
+        result = calculate_risk_score(
+            _json(
+                {
+                    "listing_facts": {
+                        "vin": "JMBXNGA1WBZ019167",
+                        "service_history": "full",
+                        "origin_or_country": "SK",
+                        "seller": "dealer",
+                    },
+                    "vin_check": {"vin_present": True, "format_check": "ok"},
+                    "market_assessment": {"price_view": "fair"},
+                    "consistency_checks": [{"result": "concern", "explanation": "SPZ on one photo looks different."}],
+                    "knowledge_base_findings": [],
+                }
+            ),
+            _json({"photos_provided": True, "photo_limitations": [], "visual_verdict": "Looks visually ok"}),
+        )
+
+        self.assertIn("registration_plate_needs_verification", _rules(result))
+        self.assertNotIn("obvious_listing_conflict", _rules(result))
+        self.assertNotIn("major listing contradiction", _overrides(result))
+        self.assertIn("registration_plate", result["missing_data_flags"])
 
     def test_good_documentation_reduces_score_without_negative_result(self):
         result = calculate_risk_score(
