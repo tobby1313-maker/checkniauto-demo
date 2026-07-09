@@ -47,11 +47,14 @@ def extract_listing_facts(car_info_text: str | None) -> ListingFacts:
 
 def normalize_analysis_markdown(text: str | None, car_info_text: str | None = None) -> str:
     """Return cleaned Markdown while preserving the report's intended structure."""
+    facts = extract_listing_facts(car_info_text)
     value = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
     value = _strip_outer_markdown_fence(value)
     value = _sanitize_grounding_redirects(value)
+    value = _remove_unavailable_url_notes(value)
     value = _normalize_tables(value)
-    value = _apply_fact_guard(value, extract_listing_facts(car_info_text))
+    value = _apply_fact_guard(value, facts)
+    value = _remove_false_negative_claims(value, facts)
     value = _trim_excess_blank_lines(value)
     return value.rstrip() + ("\n" if value.strip() else "")
 
@@ -88,6 +91,25 @@ def _sanitize_grounding_redirects(text: str) -> str:
 
 
 # ── Table helpers ────────────────────────────────────────────────
+
+def _remove_unavailable_url_notes(text: str) -> str:
+    """Hide internal/unusable citation labels from the public report."""
+    unavailable = r"URL (?:nie je priamo overite[ľl]n[áa]|cit[aá]cia nie je overite[ľl]n[áa])"
+    text = re.sub(
+        rf"\s*\((?:Google Search|Zdroj z Google Search|Google|Web|Search)?\s*,?\s*{unavailable}\)",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        rf"\s*-\s*(?:Google Search|Zdroj z Google Search|Google|Web|Search)?\s*,?\s*{unavailable}\b\.?",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    return text
+
 
 def _is_table_row(line: str) -> bool:
     return bool(re.match(r"^\s*\|.*\|\s*$", line or ""))
@@ -206,6 +228,120 @@ def _apply_fact_guard(text: str, facts: ListingFacts) -> str:
         text = re.sub(r"\b\d{1,3}(?:\s+\d{3})+\s*km\b", replace_km, text, flags=re.IGNORECASE)
 
     return text
+
+
+def _remove_false_negative_claims(text: str, facts: ListingFacts) -> str:
+    """Remove known model overreaches that conflict with extracted listing facts."""
+    if facts.mileage:
+        text = _remove_supported_mileage_false_negatives(text)
+    if facts.vin and not _has_invalid_or_conflicting_vin_claim(text):
+        text = _neutralize_public_vin_history_false_negatives(text)
+    return text
+
+
+def _remove_supported_mileage_false_negatives(text: str) -> str:
+    patterns = (
+        r"(?i)\bch[yý]baj[úu]ci [^.!\n;]*(?:n[aá]jazd|kilomet)[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
+        r"(?i)\babsencia [^.!\n;]*(?:n[aá]jazd|kilomet)[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
+        r"(?i)\bn[aá]jazd [^.!\n;]*(?:ch[yý]ba|nie je uveden[yý]|neuveden[yý])[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
+    )
+    return _clean_lines_with_patterns(text, patterns)
+
+
+def _neutralize_public_vin_history_false_negatives(text: str) -> str:
+    vin_manual_check = (
+        "VIN je uvedené; pred kúpou ho overte cez Cebia, CarVertical, "
+        "overenie originality alebo podobnú službu histórie vozidla."
+    )
+    replacements = (
+        (
+            r"(?i)Jeho form[aá]t je v poriadku, av[šs]ak nebolo mo[zž]n[eé] ho [^.!\n]*"
+            r"(?:datab[aá]zach hist[oó]rie vozidla|overi[tť] jeho minulos[tť])[^.!\n]*\."
+            r"\s*To zvy[šs]uje riziko skryt[yý]ch v[aá]d a nejasnej minulosti vozidla\.",
+            vin_manual_check,
+        ),
+        (
+            r"(?i)nebolo mo[zž]n[eé] ho [^.!\n]*(?:datab[aá]zach hist[oó]rie vozidla|overi[tť] jeho minulos[tť])[^.!\n]*\."
+            r"\s*To zvy[šs]uje riziko skryt[yý]ch v[aá]d a nejasnej minulosti vozidla\.",
+            "Históriu vozidla overte cez Cebia, CarVertical, overenie originality alebo podobnú službu.",
+        ),
+        (
+            r"(?i)Nevyskytli sa [^.!\n]*verejn[eé] z[aá]znamy alebo hist[oó]ria spojen[aá] s dan[yý]m VIN [čc][íi]slom[^.!\n]*\.",
+            "VIN overte cez Cebia, CarVertical, overenie originality alebo podobnú službu.",
+        ),
+        (
+            r"(?i)existuj[úu] rizik[aá] spojen[eé] s neoverite[ľl]n[yý]m VIN(?: [^.!\n]*)?",
+            "VIN je uvedené a pred kúpou ho treba overiť cez Cebia, CarVertical alebo podobnú službu",
+        ),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text)
+
+    line_patterns = (
+        r"(?i)\bneoverite[ľl]n[aá] hist[oó]ria vozidla cez VIN [čc][íi]slo [^.!\n;]*(?:verejn[yý]ch datab[aá]zach|datab[aá]z)[^.!\n;]*[.!]?",
+        r"(?i)\bVIN [^.!\n;]*(?:neoverite[ľl]n[yý]|nie je verejne overite[ľl]n[yý]|nebolo mo[zž]n[eé] overi[tť])[^.!\n;]*(?:hist[oó]ri|datab[aá]z|minulos)[^.!\n;]*[.!]?",
+        r"(?i)\bne[úu]pln[aá] hist[oó]ria vozidla kv[oô]li neoverite[ľl]n[eé]mu VIN[^.!\n;]*[.!]?",
+    )
+    return _clean_lines_with_patterns(text, line_patterns)
+
+
+def _clean_lines_with_patterns(text: str, patterns: tuple[str, ...]) -> str:
+    cleaned_lines: list[str] = []
+    for line in text.split("\n"):
+        original = line
+        updated = line
+        for pattern in patterns:
+            updated = re.sub(pattern, "", updated)
+        updated = _clean_false_negative_line(updated)
+        if _line_became_empty_bullet(original, updated):
+            continue
+        cleaned_lines.append(updated)
+    return "\n".join(cleaned_lines)
+
+
+def _clean_false_negative_line(line: str) -> str:
+    line = re.sub(r"\s+([,.;:])", r"\1", line)
+    line = re.sub(r"([,(;-])\s*([).!?:;])", r"\2", line)
+    line = re.sub(r"\s{2,}", " ", line)
+    line = re.sub(r"\s+-\s*[,.!?;:]\s*", " - ", line)
+    line = re.sub(r"\s*,\s*(?:ako aj|a)\b\s*,?\s*", " ", line, flags=re.IGNORECASE)
+    line = re.sub(r"\s*,\s*(?:ako aj|a)\b\s*$", ".", line, flags=re.IGNORECASE)
+    line = re.sub(r"\s+ale\s*[,.!?;:]\s*", " ", line, flags=re.IGNORECASE)
+    line = re.sub(r"\(\s*\)", "", line)
+    line = re.sub(r"\s+([.!?])$", r"\1", line)
+    if re.fullmatch(r"\s*(?:[-*]\s*)?(?:\*\*[^*]+:\*\*)?\s*", line):
+        return ""
+    if re.fullmatch(r"\s*vzh[ľl]adom na\s*", line, flags=re.IGNORECASE):
+        return ""
+    return line.rstrip()
+
+
+def _line_became_empty_bullet(original: str, updated: str) -> bool:
+    if original.lstrip().startswith(("-", "*")):
+        return not re.sub(r"^[-*]\s*", "", updated.strip()).strip()
+    return False
+
+
+def _has_invalid_or_conflicting_vin_claim(text: str) -> bool:
+    vin_lines = [line.lower() for line in text.split("\n") if "vin" in line.lower()]
+    risk_words = (
+        "neplat",
+        "invalid",
+        "problem",
+        "konflikt",
+        "conflict",
+        "rozpor",
+        "nesedi",
+        "nesúlad",
+        "nesulad",
+        "odmiet",
+        "refus",
+        "krad",
+        "stolen",
+        "hav[aá]ri",
+        "accident",
+    )
+    return any(any(re.search(word, line) for word in risk_words) for line in vin_lines)
 
 
 def _looks_like_split_mileage(candidate_digits: str, canonical_digits: str) -> bool:

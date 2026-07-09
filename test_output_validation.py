@@ -10,7 +10,59 @@ import web_server
 class OutputValidationTest(unittest.TestCase):
     def test_final_report_with_matching_verdict_and_end_marker_has_no_warnings(self):
         warnings = web_server._soft_validate_final_report(
-            "# Report\n\n**RISKY**\n\n<!-- END_ANALYSIS -->",
+            """# Analyza: Test
+
+## Rychle zhrnutie
+
+**RISKY**
+
+## Data z inzeratu
+
+| Polozka | Hodnota | Poznamka |
+|---|---:|---|
+| Cena | 10 000 EUR | Test |
+
+## VIN a transparentnost
+
+VIN je uvedene.
+
+## Webove overenie
+
+- Manualne overit.
+
+## Cena a vyjednavanie
+
+Cena je orientacna.
+
+## Ocakavane naklady na najblizsich 30 000 km
+
+| Polozka | Preco | Odhad EUR | Urgentnost |
+|---|---|---:|---|
+| Kontrola | Test | 100 - 200 | Nizka |
+
+## Analyza fotografii
+
+- Fotografie skontrolovat pri obhliadke.
+
+## Klady
+
+- Test klad.
+
+## Zapory / rizika
+
+- Test riziko.
+
+## Otazky pre predajcu a kontrola pri obhliadke
+
+| Otazka / ukon | Preco |
+|---|---|
+| Overit doklady | Test |
+
+## Zaverecne odporucanie
+
+**RISKY**
+
+<!-- END_ANALYSIS -->""",
             "RISKY",
         )
 

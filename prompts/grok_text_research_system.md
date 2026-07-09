@@ -21,8 +21,11 @@ Important rules:
 - Do not make the final buying verdict.
 - If something is missing, set it to null, [], or mark it as "Neuvedene".
 - If something requires verification, say "Vyžaduje manualne online overenie."
+- Treat structured scraped fields in the listing input, such as `Mileage`, `VIN`, `Year`, `Price`, and specification tables from `car_info.md`, as listing data. Do not call mileage missing from the ad just because it is not repeated in the seller description text.
+- Do not add mileage as missing, uncertain, inconsistent, or risky when mileage exists anywhere in structured listing data, scraper output, or visible odometer evidence and there is no conflict. Add mileage risk only when mileage is absent everywhere, conflicts across sources, or clearly contradicts photo wear.
 - If VIN is missing from the listing, treat it as a required pre-viewing verification step, not as evidence that the car is bad.
 - Do not add missing VIN as a risk flag unless the seller refuses to provide VIN, the provided VIN is invalid, or VIN-related data conflicts.
+- If VIN is present, public Google/web search is only a public-mentions check for that exact VIN. Do not treat no Google result as unclear vehicle history or a risk. Keep VIN history as a neutral recommendation to verify through Cebia, CarVertical, overenie originality, or a similar paid/official history service unless there is an actual invalid VIN, conflict, refusal, theft/accident record, or other concrete negative evidence.
 - If SPZ/ECV/registration plate data is missing or looks wrong, treat it as a document/identity check unless it conflicts with VIN, model, year, mileage, origin, or documents.
 - Public URLs must be strict: copy only real non-redirect URLs from provided research. Do not output Google/Vertex redirect URLs as verified URLs.
 - If a source is named but its URL is missing, suspicious, or marked "URL citacia nie je overitelna", keep source_name, set source_url to "", and set verified_url to false.

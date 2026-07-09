@@ -11,6 +11,14 @@ CAR_INFO = """
 """
 
 
+SUZUKI_CAR_INFO = """
+# Suzuki SX4 S-Cross 1.4 BoosterJet 4x4 A/T
+
+- **Mileage:** 150 195 km
+- **VIN:** TSMJYBA2S00546662
+"""
+
+
 BROKEN_MARKDOWN = """# ðŸš— AnalÃ½za: Mitsubishi ASX 1,6 benzÃ­n MIVEC 2WD Invite
 
 ## ðŸ§¾ DÃ¡ta z inzerÃ¡tu
@@ -43,6 +51,55 @@ redirect/AUZIYQGIl2_6aJq6IoUGXlbHMooVrG7GT865m-MVeK92xP5OIrZti)
 """
 
 
+SUZUKI_FALSE_NEGATIVE_MARKDOWN = """# Analýza: Suzuki SX4 S-Cross
+
+## Rýchle zhrnutie
+
+- **Cena:** Férová - cena vozidla je v rámci trhového priemeru, ale absencia nájazdu kilometrov v inzeráte môže byť argumentom na mierne zníženie ceny.
+- **Najväčšie riziko:** Neúplná história vozidla kvôli neoveriteľnému VIN a chýbajúci údaj o nájazde kilometrov v inzeráte.
+
+## Dáta z inzerátu
+
+| Položka | Hodnota | Poznámka |
+|---|---:|---|
+| Nájazd | 150 195 km | Údaj z fotografie prístrojovej dosky. |
+
+## VIN a transparentnosť
+
+VIN číslo TSMJYBA2S00546662 je uvedené v inzeráte. Jeho formát je v poriadku, avšak nebolo možné ho v rámci verejne dostupných zdrojov priamo identifikovať v databázach histórie vozidla alebo overiť jeho minulosť. To zvyšuje riziko skrytých vád a nejasnej minulosti vozidla.
+
+## Webové overenie
+
+- Nevyskytli sa žiadne verejné záznamy alebo história spojená s daným VIN číslom (Google Search, URL nie je priamo overiteľná).
+
+## Cena a vyjednávanie
+
+Vzhľadom na chýbajúci údaj o nájazde kilometrov v pôvodnom inzeráte (ktorý bol zistený až z fotky), ako aj potenciálne náklady na údržbu prevodovky a pohonu 4x4, je možné skúsiť vyjednávať o miernom znížení ceny.
+
+## Zápory / riziká
+
+- Chýbajúci údaj o nájazde kilometrov v popise inzerátu (zistený až z fotky).
+- Neoveriteľná história vozidla cez VIN číslo vo verejných databázach.
+- Potenciálne drahé opravy motora, automatickej prevodovky a pohonu 4x4 pri zanedbanej údržbe alebo vyššom nájazde.
+
+## Záverečné odporúčanie
+
+Hoci sú vizuálne nedostatky minimálne a nájazd kilometrov zistený z fotky je konzistentný s opotrebením, existujú riziká spojené s neoveriteľným VIN a potenciálnymi nákladmi na údržbu motora, prevodovky a pohonu 4x4.
+"""
+
+
+INVALID_VIN_MARKDOWN = """# Analýza: Test
+
+## VIN a transparentnosť
+
+VIN číslo TSMJYBA2S00546662 je uvedené, ale kontrola ukazuje neplatný alebo konfliktný VIN.
+
+## Zápory / riziká
+
+- Neplatný alebo konfliktný VIN je reálne riziko identity vozidla.
+"""
+
+
 class AnalysisNormalizerTest(unittest.TestCase):
     def test_strips_outer_markdown_fence(self):
         fenced = "```markdown\n# Analýza: Test\n\n- **Cena:** 10 000 EUR\n```\n"
@@ -70,6 +127,40 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertNotIn("vertexaisearch.cloud.google.com", cleaned)
         self.assertIn("autorubik.sk", cleaned)
         self.assertIn("garaz.cz", cleaned)
+
+    def test_removes_unavailable_url_parentheticals(self):
+        markdown = (
+            "- Motor treba overiť (Google Search, URL nie je priamo overiteľná).\n"
+            "- Prevodovka má servisné riziko (URL nie je priamo overiteľná).\n"
+            "- Zdroj ostáva bez interného popisku.\n"
+        )
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+        self.assertNotIn("URL nie je priamo overiteľná", cleaned)
+        self.assertNotIn("Google Search", cleaned)
+        self.assertIn("- Motor treba overiť.", cleaned)
+        self.assertIn("- Prevodovka má servisné riziko.", cleaned)
+
+    def test_removes_supported_mileage_false_negative_from_report(self):
+        cleaned = normalize_analysis_markdown(SUZUKI_FALSE_NEGATIVE_MARKDOWN, SUZUKI_CAR_INFO)
+        self.assertNotIn("Chýbajúci údaj o nájazde kilometrov", cleaned)
+        self.assertNotIn("absencia nájazdu kilometrov", cleaned)
+        self.assertNotIn("chýbajúci údaj o nájazde kilometrov", cleaned)
+        self.assertIn("150 195 km", cleaned)
+        self.assertIn("Potenciálne drahé opravy motora", cleaned)
+
+    def test_neutralizes_public_vin_history_when_vin_is_present(self):
+        cleaned = normalize_analysis_markdown(SUZUKI_FALSE_NEGATIVE_MARKDOWN, SUZUKI_CAR_INFO)
+        self.assertNotIn("Neoveriteľná história vozidla cez VIN číslo", cleaned)
+        self.assertNotIn("zvyšuje riziko skrytých vád", cleaned)
+        self.assertNotIn("riziká spojené s neoveriteľným VIN", cleaned)
+        self.assertNotIn("formát je v poriadku", cleaned)
+        self.assertIn("overte cez Cebia", cleaned)
+        self.assertIn("CarVertical", cleaned)
+
+    def test_preserves_invalid_vin_risk(self):
+        cleaned = normalize_analysis_markdown(INVALID_VIN_MARKDOWN, SUZUKI_CAR_INFO)
+        self.assertIn("neplatný alebo konfliktný VIN", cleaned)
+        self.assertIn("Neplatný alebo konfliktný VIN je reálne riziko", cleaned)
 
 
 if __name__ == "__main__":
