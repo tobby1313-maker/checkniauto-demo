@@ -2895,7 +2895,7 @@ def _replace_photo_analysis_section(report_text, vision_result_json, output_lang
     heading = "## 📸 Analýza fotografií" if _demo_output_language(output_language) == "sk" else "## 📸 Photo Analysis"
     new_section = heading + "\n\n" + "\n".join(body_lines) + "\n\n"
     pattern = re.compile(
-        r"(^##\s+.*?(?:Analýza fotografií|Photo Analysis)\s*$\n)(.*?)(?=^\s*##\s+|\Z)",
+        r"(^##\s+[^\n]*(?:Analýza fotografií|Photo Analysis)[^\n]*\n)(.*?)(?=^\s*##\s+|\Z)",
         flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
     )
     if pattern.search(str(report_text or "")):
@@ -3263,8 +3263,10 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
     image_data_list, _image_meta = prepare_llm_images(slug_dir)
     if image_data_list:
         image_payload_context = _compact_json_for_prompt(_image_meta)
+        vision_language = "Slovak" if _demo_output_language(output_language) == "sk" else "English"
         vision_content = (
             "Analyze only the attached vehicle photos/collages. "
+            f"Write all human-readable JSON string values in {vision_language}. "
             "Use listing text only for labels and mileage context.\n"
             "Image payload metadata follows. If full_gallery_included is true, overview sheets cover the full listing gallery; "
             "do not mark a buyer-relevant view as missing from the listing unless it is absent from those overview sheets. "
@@ -3750,8 +3752,10 @@ def api_analyze(slug):
             # Prepare image collages
             image_data_list, _image_meta = prepare_llm_images(slug_dir)
             image_payload_context = _compact_json_for_prompt(_image_meta)
+            vision_language = "Slovak" if _demo_output_language(output_language) == "sk" else "English"
             vision_content = (
                 "Analyze only the attached vehicle photos/collages. "
+                f"Write all human-readable JSON string values in {vision_language}. "
                 "If full_gallery_included is true, overview sheets cover the full listing gallery; "
                 "do not mark a buyer-relevant view as missing from the listing unless it is absent from those overview sheets. "
                 "Use 'not assessable in detail' for views visible only in overview thumbnails.\n\n"

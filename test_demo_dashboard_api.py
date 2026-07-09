@@ -276,6 +276,10 @@ class DemoDashboardApiTest(unittest.TestCase):
     def test_photo_analysis_section_is_replaced_from_vision_json(self):
         report = """# Analýza: BMW X5 xDrive30i
 
+## 📋 Rýchle zhrnutie
+
+- **Hodnotenie:** TEST
+
 ## 📸 Analýza fotografií
 
 - Exteriér: stručné zhrnutie.
@@ -321,6 +325,8 @@ class DemoDashboardApiTest(unittest.TestCase):
 
         updated = web_server._replace_photo_analysis_section(report, vision, "sk")
 
+        self.assertIn("## 📋 Rýchle zhrnutie", updated)
+        self.assertIn("- **Hodnotenie:** TEST", updated)
         self.assertIn("**Foto 01:** Predné svetlomety vykazujú mierne zahmlenie.", updated)
         self.assertIn("**Foto 18:** Zadné sedadlá vyzerajú v dobrom stave", updated)
         self.assertIn("**Chýbajúce pohľady:** motorový priestor, podvozok", updated)
