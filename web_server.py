@@ -2889,8 +2889,29 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
             ),
         )
     else:
-        for chunk in _stream_text_model(text_provider, text_api_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
-            grok_research_json_text += chunk
+        try:
+            for chunk in _stream_text_model(text_provider, text_api_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
+                grok_research_json_text += chunk
+        except (RateLimitError, ConnectionError) as exc:
+            if text_provider != "openrouter":
+                raise
+            safe_log(f"OpenRouter text/research failed; falling back to Gemini: {exc}")
+            yield f"data: {json.dumps({'status': 'OpenRouter text/research unavailable; falling back to Gemini.'})}\n\n"
+            text_provider = "gemini"
+            text_api_key = ""
+            text_model_name = _model_display_name(text_provider)
+            grok_research_json_text, _text_key = yield from _collect_gemini_with_key_fallback(
+                gemini_key_entries,
+                "text/research analysis",
+                lambda key: _call_gemini(
+                    key,
+                    grok_text_system_prompt,
+                    grok_text_content,
+                    image_data_list=None,
+                    model=GEMINI_FLASH_LITE_MODEL,
+                    listing_slug=slug,
+                ),
+            )
     with open(os.path.join(slug_dir, "grok_research.json"), "w", encoding="utf-8") as f:
         f.write(grok_research_json_text)
     validation_warnings.extend(
@@ -3032,14 +3053,52 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         if not final_done:
             raise RateLimitError("Gemini final synthesis failed for all configured API keys.")
     else:
-        for chunk in _stream_text_model(text_provider, text_api_key, final_system_prompt, final_content, listing_slug=slug):
-            full_report += chunk
-            output_tokens += estimate_output_tokens(chunk)
-            if chunk:
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
-            if output_tokens >= next_token_update:
-                yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
-                next_token_update += 250
+        try:
+            for chunk in _stream_text_model(text_provider, text_api_key, final_system_prompt, final_content, listing_slug=slug):
+                full_report += chunk
+                output_tokens += estimate_output_tokens(chunk)
+                if chunk:
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
+                if output_tokens >= next_token_update:
+                    yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': output_tokens}})}\n\n"
+                    next_token_update += 250
+        except (RateLimitError, ConnectionError) as exc:
+            if text_provider != "openrouter" or full_report:
+                raise
+            safe_log(f"OpenRouter final synthesis failed; falling back to Gemini: {exc}")
+            yield f"data: {json.dumps({'status': 'OpenRouter final synthesis unavailable; falling back to Gemini.'})}\n\n"
+            final_done = False
+            for index, entry in enumerate(gemini_key_entries):
+                attempt_text = ""
+                attempt_output_tokens = 0
+                try:
+                    for chunk in _call_gemini(
+                        entry["key"],
+                        final_system_prompt,
+                        final_content,
+                        image_data_list=None,
+                        model=GEMINI_FLASH_MODEL,
+                        listing_slug=slug,
+                    ):
+                        attempt_text += chunk
+                        attempt_output_tokens += estimate_output_tokens(chunk)
+                        if chunk:
+                            yield f"data: {json.dumps({'text': chunk})}\n\n"
+                        if attempt_output_tokens >= next_token_update:
+                            yield f"data: {json.dumps({'token_usage': {'input_tokens': final_input_tokens, 'output_tokens': attempt_output_tokens}})}\n\n"
+                            next_token_update += 250
+                    full_report = attempt_text
+                    output_tokens = attempt_output_tokens
+                    final_done = True
+                    break
+                except (ApiKeyError, RateLimitError) as gemini_exc:
+                    if attempt_text or index >= len(gemini_key_entries) - 1:
+                        raise
+                    status = _gemini_retry_status(entry, gemini_key_entries[index + 1], "final synthesis", gemini_exc)
+                    yield f"data: {json.dumps({'status': status})}\n\n"
+
+            if not final_done:
+                raise RateLimitError("Gemini final synthesis failed for all configured API keys.")
 
     with open(os.path.join(slug_dir, "analysis_result_raw.md"), "w", encoding="utf-8") as f:
         f.write(full_report)

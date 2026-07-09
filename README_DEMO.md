@@ -286,8 +286,9 @@ analysis_images/
   OpenRouter handles text/research and final synthesis. A single OpenRouter key
   is shared across models; the app chooses the model via the request payload.
   The default free-model order is `qwen/qwen3-next-80b-a3b-instruct:free`,
-  `nvidia/nemotron-3-super-120b-a12b:free`,
-  `google/gemma-4-26b-a4b-it:free`, then `openai/gpt-oss-20b:free`.
+  `google/gemma-4-26b-a4b-it:free`, `openai/gpt-oss-20b:free`,
+  `meta-llama/llama-3.3-70b-instruct:free`,
+  `nvidia/nemotron-3-super-120b-a12b:free`, then `openrouter/free`.
 - If a primary Gemini key fails before producing output, the backup key is
   retried when configured.
 
