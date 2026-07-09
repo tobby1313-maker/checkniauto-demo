@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -168,6 +169,70 @@ class DemoDashboardApiTest(unittest.TestCase):
 
         self.assertEqual(len(indices), 20)
         self.assertEqual(indices[-1], 41)
+
+    def test_prepare_llm_images_uses_full_gallery_overview_for_large_gallery(self):
+        from PIL import Image
+
+        listing_dir = Path(self.temp_dir.name) / "large-gallery"
+        images_dir = listing_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        for index in range(104):
+            image = Image.new(
+                "RGB",
+                (80, 60),
+                ((index * 3) % 255, (index * 7) % 255, (index * 11) % 255),
+            )
+            image.save(images_dir / f"{index + 1:03d}_photo.jpg", format="JPEG")
+
+        image_data, image_meta = web_server.prepare_llm_images(str(listing_dir))
+
+        self.assertEqual(len(image_data), web_server.MAX_ANALYSIS_COLLAGES)
+        self.assertEqual(image_meta["coverage_mode"], "full_gallery_overview")
+        self.assertEqual(image_meta["original_count"], 104)
+        self.assertEqual(image_meta["selected_count"], 104)
+        self.assertEqual(image_meta["overview_count"], web_server.LLM_OVERVIEW_ATTACHMENTS)
+        self.assertEqual(image_meta["detail_count"], web_server.LLM_COLLAGE_COLUMNS * web_server.LLM_COLLAGE_ROWS)
+        self.assertTrue(image_meta["overview_includes_all"])
+        self.assertTrue(image_meta["full_gallery_included"])
+        self.assertTrue(all(group["type"] == "overview" for group in image_meta["overview_groups"]))
+        covered = [
+            item["original_name"]
+            for group in image_meta["overview_groups"]
+            for item in group["items"]
+        ]
+        self.assertEqual(len(covered), 104)
+        self.assertEqual(set(covered), {f"{index + 1:03d}_photo.jpg" for index in range(104)})
+
+    def test_final_synthesis_context_includes_image_payload_metadata(self):
+        image_meta = {
+            "coverage_mode": "full_gallery_overview",
+            "original_count": 104,
+            "selected_count": 104,
+            "overview_count": 4,
+            "detail_count": 4,
+            "overview_includes_all": True,
+            "full_gallery_included": True,
+        }
+
+        context = web_server._build_final_synthesis_context(
+            "sk",
+            "# Mazda CX-5\n\n## Photos\n- **Downloaded:** 104",
+            json.dumps({"listing_facts": {}, "market_assessment": {}, "consistency_checks": []}),
+            json.dumps({
+                "photos_provided": True,
+                "photo_limitations": ["Engine bay visible only in overview; not assessable in detail."],
+                "view_coverage": {"engine_bay": "visible_overview_only"},
+                "visual_verdict": "Vyzerá vizuálne dobre",
+            }),
+            json.dumps({"risk_score": 1, "allowed_final_verdict": "ZVAZIT"}),
+            "",
+            image_meta,
+        )
+        payload = json.loads(context.split("\n\n", 1)[1])
+
+        self.assertTrue(payload["image_payload"]["full_gallery_included"])
+        self.assertEqual(payload["image_payload"]["coverage_mode"], "full_gallery_overview")
+        self.assertEqual(payload["vision"]["view_coverage"]["engine_bay"], "visible_overview_only")
 
 
 if __name__ == "__main__":

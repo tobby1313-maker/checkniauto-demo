@@ -16,6 +16,30 @@
   "properties": {
     "source_role": { "type": "string", "pattern": "vision" },
     "photos_provided": { "type": "boolean" },
+    "photo_coverage": {
+      "type": "object",
+      "properties": {
+        "coverage_mode": {
+          "type": "string",
+          "enum": ["detail_all", "full_gallery_overview", "detail_limited", "raw_limited", "none"]
+        },
+        "original_count": { "type": "integer" },
+        "analyzed_count": { "type": "integer" },
+        "full_gallery_overview": { "type": "boolean" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "view_coverage": {
+      "type": "object",
+      "properties": {
+        "exterior": { "type": "string", "enum": ["visible_detail", "visible_overview_only", "missing", "unknown"] },
+        "interior": { "type": "string", "enum": ["visible_detail", "visible_overview_only", "missing", "unknown"] },
+        "dashboard": { "type": "string", "enum": ["visible_detail", "visible_overview_only", "missing", "unknown"] },
+        "engine_bay": { "type": "string", "enum": ["visible_detail", "visible_overview_only", "missing", "unknown"] },
+        "tires": { "type": "string", "enum": ["visible_detail", "visible_overview_only", "missing", "unknown"] },
+        "underbody": { "type": "string", "enum": ["visible_detail", "visible_overview_only", "missing", "unknown"] }
+      }
+    },
     "photo_limitations": { "type": "array", "items": { "type": "string" } },
     "exterior_observations": {
       "type": "array",

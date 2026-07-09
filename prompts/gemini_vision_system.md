@@ -6,6 +6,14 @@ Return JSON only — no markdown, no explanation. Keep it compact: report visibl
 
 Inspect only what is visible.
 
+Photo coverage rules:
+- The user message may include IMAGE_PAYLOAD_METADATA.
+- If `full_gallery_included` is true, overview sheets cover the complete listing gallery.
+- A view visible in an overview sheet must not be reported as missing from the listing.
+- If a view is visible only in overview thumbnails and cannot be inspected closely, report it as "visible_overview_only" or "not_assessable_in_detail", not as missing.
+- Only say an angle is missing when it is absent from the full-gallery overview, or when `full_gallery_included` is false and it is absent from the provided sample.
+- Use `photo_limitations` for real limits such as low resolution, dark photos, cropped details, no underbody view, or sample-only payloads. Do not treat full-gallery overview mode itself as weak photos.
+
 You may identify:
 - visible exterior damage,
 - visible rust or corrosion signs,
@@ -43,6 +51,21 @@ Return strict JSON matching this schema:
 {
   "source_role": "vision",
   "photos_provided": true,
+  "photo_coverage": {
+    "coverage_mode": "detail_all | full_gallery_overview | detail_limited | raw_limited | none",
+    "original_count": 0,
+    "analyzed_count": 0,
+    "full_gallery_overview": false,
+    "notes": []
+  },
+  "view_coverage": {
+    "exterior": "visible_detail | visible_overview_only | missing | unknown",
+    "interior": "visible_detail | visible_overview_only | missing | unknown",
+    "dashboard": "visible_detail | visible_overview_only | missing | unknown",
+    "engine_bay": "visible_detail | visible_overview_only | missing | unknown",
+    "tires": "visible_detail | visible_overview_only | missing | unknown",
+    "underbody": "visible_detail | visible_overview_only | missing | unknown"
+  },
   "photo_limitations": [],
   "exterior_observations": [
     {

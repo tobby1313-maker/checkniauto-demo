@@ -24,7 +24,8 @@ The analysis pipeline is:
 1. Scrape or import the listing into a temporary `Auta/<slug>/` job folder.
 2. Run Gemini grounded web research for listing/model context when available.
 3. Run text/research analysis with Grok when `GROK_API_KEY` is configured,
-   otherwise with Gemini.
+   otherwise OpenRouter when `OPENROUTER_API_KEY` is configured, otherwise
+   Gemini.
 4. Run Gemini vision analysis on representative uploaded or scraped photos.
 5. Calculate a deterministic backend risk score in `risk_scorer.py`.
 6. Generate the final buyer-facing report with the same text provider used in
@@ -46,6 +47,8 @@ $env:GEMINI_PRIMARY_API_KEY="..."
 $env:GEMINI_BACKUP_API_KEY="..."
 # Optional. If omitted, Gemini is used for text and final synthesis.
 $env:GROK_API_KEY="..."
+# Optional. Used for text/final synthesis when Grok is omitted.
+$env:OPENROUTER_API_KEY="..."
 
 python web_server.py
 ```
@@ -78,6 +81,7 @@ FLASK_SECRET_KEY=<strong-random-secret>
 GEMINI_PRIMARY_API_KEY=<server-side-key>
 GEMINI_BACKUP_API_KEY=<optional-backup-key>
 GROK_API_KEY=<optional-text-provider-key>
+OPENROUTER_API_KEY=<optional-text-provider-key>
 SCRAPPER_DATA_DIR=<optional-writable-data-dir>
 ```
 
@@ -94,6 +98,9 @@ temp directory in `scrapper-demo/Auta`.
 | `GEMINI_PRIMARY_API_KEY` | empty | Required Gemini key for web research, vision, and Gemini fallback. |
 | `GEMINI_BACKUP_API_KEY` | empty | Optional second Gemini key retried on key/quota failures. |
 | `GROK_API_KEY` | empty | Optional Grok key for text/research and final synthesis. |
+| `OPENROUTER_API_KEY` | empty | Optional OpenRouter key for text/research and final synthesis when Grok is not configured. One key can call multiple OpenRouter models; the request model id selects the model. |
+| `OPENROUTER_MODEL` | `qwen/qwen3-next-80b-a3b-instruct:free` | Optional primary OpenRouter model id. |
+| `OPENROUTER_FALLBACK_MODELS` | built-in free model list | Optional comma-separated OpenRouter model ids retried on rate-limit/unavailable responses. |
 | `DEMO_RATE_LIMIT_PER_IP` | `3/day` | Daily demo analysis limit per client IP. Set `0` to disable. |
 | `DEMO_MAX_CONCURRENT_JOBS` | `1` | Maximum simultaneous demo analyses. |
 | `DEMO_JOB_TTL_MINUTES` | `60` | Age after which old demo job folders are cleaned up. |
@@ -275,6 +282,12 @@ analysis_images/
   provider.
 - Grok is optional. If `GROK_API_KEY` is set, Grok handles text/research and
   final synthesis while Gemini still handles web research and vision.
+- OpenRouter is optional. If `OPENROUTER_API_KEY` is set and Grok is not set,
+  OpenRouter handles text/research and final synthesis. A single OpenRouter key
+  is shared across models; the app chooses the model via the request payload.
+  The default free-model order is `qwen/qwen3-next-80b-a3b-instruct:free`,
+  `nvidia/nemotron-3-super-120b-a12b:free`,
+  `google/gemma-4-26b-a4b-it:free`, then `openai/gpt-oss-20b:free`.
 - If a primary Gemini key fails before producing output, the backup key is
   retried when configured.
 

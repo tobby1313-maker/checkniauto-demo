@@ -74,6 +74,45 @@ class RiskScorerTest(unittest.TestCase):
         self.assertIn("visible_serious_damage_or_red_flags", _rules(result))
         self.assertIn("serious visible red flags", _overrides(result))
 
+    def test_overview_only_photo_limitation_is_not_weak_photos(self):
+        result = calculate_risk_score(
+            _json(
+                {
+                    "listing_facts": {
+                        "vin": "JMBXNGA1WBZ019167",
+                        "year": "2022",
+                        "mileage": "40 000 km",
+                        "service_history": "full",
+                        "origin_or_country": "SK",
+                        "seller": "dealer",
+                    },
+                    "vin_check": {"vin_present": True, "format_check": "ok"},
+                    "market_assessment": {"price_view": "fair"},
+                    "consistency_checks": [],
+                    "knowledge_base_findings": [],
+                }
+            ),
+            _json(
+                {
+                    "photos_provided": True,
+                    "photo_coverage": {
+                        "coverage_mode": "full_gallery_overview",
+                        "original_count": 104,
+                        "analyzed_count": 104,
+                        "full_gallery_overview": True,
+                    },
+                    "view_coverage": {"engine_bay": "visible_overview_only"},
+                    "photo_limitations": [
+                        "Engine bay is visible only in overview; not assessable in detail."
+                    ],
+                    "visual_verdict": "VyzerÃ¡ vizuÃ¡lne dobre",
+                }
+            ),
+        )
+
+        self.assertNotIn("missing_or_weak_photos", _rules(result))
+        self.assertNotIn("photos", result["missing_data_flags"])
+
     def test_listing_contradiction_caps_verdict_as_risky(self):
         result = calculate_risk_score(
             _json(

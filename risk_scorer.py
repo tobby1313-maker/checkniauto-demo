@@ -130,9 +130,14 @@ def calculate_risk_score(
     photos_provided = _truthy(vision_data.get("photos_provided"))
     visual_verdict = _clean(vision_data.get("visual_verdict")).lower()
     photo_limitations = _as_list(vision_data.get("photo_limitations"))
+    material_photo_limitations = [
+        limitation
+        for limitation in photo_limitations
+        if not _is_benign_photo_limitation(limitation)
+    ]
     weak_photos = (
         not photos_provided
-        or bool(photo_limitations)
+        or bool(material_photo_limitations)
         or "nedost" in visual_verdict
         or "insufficient" in visual_verdict
     )
@@ -395,6 +400,55 @@ def _is_registration_plate_only_concern(item: dict[str, Any]) -> bool:
         "origin",
     )
     return not any(keyword in text for keyword in identity_keywords)
+
+
+def _is_benign_photo_limitation(value: Any) -> bool:
+    text = _clean(value).lower()
+    if not text:
+        return True
+
+    hard_missing_phrases = (
+        "missing from listing",
+        "absent from listing",
+        "absent from gallery",
+        "no photos",
+        "unusable",
+        "nedost",
+        "chybaju fotografie",
+        "chybaju v inzerate",
+        "nie su fotografie",
+        "nie su v inzerate",
+        "low resolution",
+        "blur",
+        "blurry",
+        "dark",
+        "cropped",
+        "underbody",
+        "podvoz",
+        "slabom svetle",
+        "tmav",
+        "rozmaz",
+        "nekval",
+    )
+    if any(phrase in text for phrase in hard_missing_phrases):
+        return False
+
+    benign_phrases = (
+        "not assessable in detail",
+        "visible only in overview",
+        "visible_overview_only",
+        "overview",
+        "contact sheet",
+        "thumbnail",
+        "sample",
+        "representative",
+        "detail sample",
+        "analyzed sample",
+        "vzork",
+        "prehlad",
+        "nahlad",
+    )
+    return any(phrase in text for phrase in benign_phrases)
 
 
 def _has_good_documentation(

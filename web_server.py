@@ -31,10 +31,12 @@ from werkzeug.utils import secure_filename
 from llm_client import (
     analyze_with_llm,
     analyze_with_grok,
+    analyze_with_openrouter,
     extract_kb_save_blocks,
     RateLimitError,
     ApiKeyError,
     GrokApiKeyError,
+    OpenRouterApiKeyError,
     GroundingTransientError,
 )
 from token_tracker import default_tracker, estimate_output_tokens, estimate_request_tokens
@@ -85,6 +87,11 @@ LLM_COLLAGE_LABEL_HEIGHT = 34
 LLM_COLLAGE_MARGIN = 10
 LLM_COLLAGE_QUALITY = 90
 LLM_IMAGE_END_POSITION = 1.0
+LLM_OVERVIEW_ATTACHMENTS = max(1, MAX_ANALYSIS_COLLAGES - 1)
+LLM_OVERVIEW_CELL_MIN_SIZE = 150
+LLM_OVERVIEW_CELL_MAX_SIZE = 280
+LLM_OVERVIEW_LABEL_HEIGHT = 26
+LLM_OVERVIEW_MARGIN = 6
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".avif"}
 SUPPORTED_SCRAPER_HOSTS = ("autobazar.eu", "autobazar.sk", "bazos.sk", "bazos.cz")
 
@@ -806,6 +813,10 @@ def _demo_api_keys():
 
 def _demo_grok_api_key():
     return os.environ.get("GROK_API_KEY", "").strip()
+
+
+def _demo_openrouter_api_key():
+    return os.environ.get("OPENROUTER_API_KEY", "").strip()
 
 
 def _demo_output_language(value):
@@ -1544,6 +1555,85 @@ def _create_llm_collage(items, output_path):
     return output_path, "image/jpeg"
 
 
+def _overview_grid_dimensions(item_count):
+    if item_count <= 0:
+        return 1, 1, LLM_OVERVIEW_CELL_MAX_SIZE
+
+    columns = 1
+    while columns * columns < item_count:
+        columns += 1
+    rows = (item_count + columns - 1) // columns
+
+    max_columns = max(1, 1800 // LLM_OVERVIEW_CELL_MIN_SIZE)
+    if columns > max_columns:
+        columns = max_columns
+        rows = (item_count + columns - 1) // columns
+
+    cell_size = max(
+        LLM_OVERVIEW_CELL_MIN_SIZE,
+        min(LLM_OVERVIEW_CELL_MAX_SIZE, 1800 // max(1, columns)),
+    )
+    return columns, rows, cell_size
+
+
+def _create_llm_overview_sheet(items, output_path):
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+    columns, rows, cell_size = _overview_grid_dimensions(len(items))
+    label_height = LLM_OVERVIEW_LABEL_HEIGHT
+    margin = LLM_OVERVIEW_MARGIN
+    width = (columns * cell_size) + ((columns + 1) * margin)
+    height = (rows * (cell_size + label_height)) + ((rows + 1) * margin)
+    canvas = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(canvas)
+
+    try:
+        font = ImageFont.truetype("arial.ttf", 16)
+    except Exception:
+        font = ImageFont.load_default()
+
+    for slot, item in enumerate(items):
+        row = slot // columns
+        col = slot % columns
+        x = margin + col * (cell_size + margin)
+        y = margin + row * (cell_size + label_height + margin)
+
+        label = f"Foto {item['gallery_number']:03d}"
+        draw.rectangle(
+            [x, y, x + cell_size, y + label_height],
+            fill=(17, 24, 39),
+        )
+        draw.text((x + 6, y + 4), label, fill="white", font=font)
+
+        image_box_y = y + label_height
+        with Image.open(item["source_path"]) as img:
+            img = ImageOps.exif_transpose(img)
+            img.thumbnail((cell_size, cell_size), Image.Resampling.LANCZOS)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+            bg = Image.new("RGB", (cell_size, cell_size), (245, 245, 245))
+            paste_x = (cell_size - img.width) // 2
+            paste_y = (cell_size - img.height) // 2
+            bg.paste(img, (paste_x, paste_y))
+            canvas.paste(bg, (x, image_box_y))
+
+        draw.rectangle(
+            [x, image_box_y, x + cell_size, image_box_y + cell_size],
+            outline=(209, 213, 219),
+            width=1,
+        )
+
+    canvas.save(
+        output_path,
+        format="JPEG",
+        quality=LLM_COLLAGE_QUALITY,
+        optimize=True,
+        progressive=True,
+    )
+    return output_path, "image/jpeg"
+
+
 def _chunk_items(items, chunk_size):
     for start in range(0, len(items), chunk_size):
         yield items[start:start + chunk_size]
@@ -1557,9 +1647,16 @@ def prepare_llm_images(slug_dir):
     images_dir = os.path.join(slug_dir, "images")
     if not os.path.isdir(images_dir):
         return [], {
+            "coverage_mode": "none",
             "original_count": 0,
             "selected_originals": [],
+            "selected_count": 0,
+            "overview_count": 0,
+            "detail_count": 0,
+            "overview_includes_all": False,
+            "full_gallery_included": False,
             "optimized_files": [],
+            "collage_groups": [],
         }
 
     originals = [
@@ -1589,12 +1686,136 @@ def prepare_llm_images(slug_dir):
                 _sent += 1
             except Exception as _e:
                 safe_log(f"Warning: could not read {_f}: {_e}")
-        return _out, {"original_count": len(originals), "selected_count": _sent, "collage_count": 0, "optimized_files": [_n for _n, _, _ in _out], "collage_groups": [], "error": "Pillow missing; sent original photos."}
+        return _out, {
+            "coverage_mode": "raw_limited",
+            "original_count": len(originals),
+            "selected_originals": [_n for _n, _, _ in _out],
+            "selected_count": _sent,
+            "overview_count": 0,
+            "detail_count": _sent,
+            "overview_includes_all": False,
+            "full_gallery_included": _sent == len(originals),
+            "collage_count": 0,
+            "optimized_files": [_n for _n, _, _ in _out],
+            "collage_groups": [],
+            "error": "Pillow missing; sent original photos.",
+        }
 
-    selected_indices = _select_representative_indices(len(originals))
     analysis_dir = os.path.join(slug_dir, ".analysis_images")
     os.makedirs(analysis_dir, exist_ok=True)
 
+    if len(originals) > MAX_ANALYSIS_IMAGES:
+        overview_items = [
+            {
+                "gallery_number": idx + 1,
+                "number": idx + 1,
+                "original_name": original_name,
+                "source_path": os.path.join(images_dir, original_name),
+            }
+            for idx, original_name in enumerate(originals)
+        ]
+        detail_indices = _select_representative_indices(
+            len(originals),
+            limit=LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS,
+        )
+        detail_items = [
+            {
+                "gallery_number": idx + 1,
+                "number": idx + 1,
+                "original_name": originals[idx],
+                "source_path": os.path.join(images_dir, originals[idx]),
+            }
+            for idx in detail_indices
+        ]
+
+        image_data_list = []
+        optimized_files = []
+        collage_groups = []
+        overview_groups = []
+        chunk_size = (len(overview_items) + LLM_OVERVIEW_ATTACHMENTS - 1) // LLM_OVERVIEW_ATTACHMENTS
+
+        for overview_number, overview_group in enumerate(_chunk_items(overview_items, chunk_size), start=1):
+            output_name = f"overview_{overview_number:02d}_full_gallery.jpg"
+            output_path = os.path.join(analysis_dir, output_name)
+            try:
+                collage_path, mime_type = _create_llm_overview_sheet(overview_group, output_path)
+                with open(collage_path, "rb") as f:
+                    img_base64 = base64.b64encode(f.read()).decode("utf-8")
+                collage_name = os.path.basename(collage_path)
+                optimized_files.append(collage_name)
+                group_meta = {
+                    "collage": collage_name,
+                    "type": "overview",
+                    "covers_full_gallery": False,
+                    "coverage_scope": "full_gallery_chunk",
+                    "items": [
+                        {
+                            "number": item["gallery_number"],
+                            "original_name": item["original_name"],
+                        }
+                        for item in overview_group
+                    ],
+                }
+                overview_groups.append(group_meta)
+                collage_groups.append(group_meta)
+                image_data_list.append((collage_name, img_base64, mime_type))
+            except Exception as e:
+                item_names = ", ".join(item["original_name"] for item in overview_group)
+                safe_log(f"Warning: Could not create overview sheet from {item_names}: {e}")
+
+        if detail_items and len(image_data_list) < MAX_ANALYSIS_COLLAGES:
+            output_name = "detail_01_representative_llm.jpg"
+            output_path = os.path.join(analysis_dir, output_name)
+            try:
+                collage_path, mime_type = _create_llm_collage(detail_items, output_path)
+                with open(collage_path, "rb") as f:
+                    img_base64 = base64.b64encode(f.read()).decode("utf-8")
+                collage_name = os.path.basename(collage_path)
+                optimized_files.append(collage_name)
+                group_meta = {
+                    "collage": collage_name,
+                    "type": "detail",
+                    "covers_full_gallery": False,
+                    "items": [
+                        {
+                            "number": item["gallery_number"],
+                            "original_name": item["original_name"],
+                        }
+                        for item in detail_items
+                    ],
+                }
+                collage_groups.append(group_meta)
+                image_data_list.append((collage_name, img_base64, mime_type))
+            except Exception as e:
+                item_names = ", ".join(item["original_name"] for item in detail_items)
+                safe_log(f"Warning: Could not create representative detail collage from {item_names}: {e}")
+
+        overview_originals = [
+            item["original_name"]
+            for group in overview_groups
+            for item in group["items"]
+        ]
+        overview_covered_count = len(overview_originals)
+        full_gallery_included = overview_covered_count == len(originals)
+
+        return image_data_list, {
+            "coverage_mode": "full_gallery_overview",
+            "original_count": len(originals),
+            "selected_originals": overview_originals,
+            "detail_originals": [item["original_name"] for item in detail_items],
+            "selected_count": overview_covered_count,
+            "overview_count": len(overview_groups),
+            "detail_count": len(detail_items),
+            "overview_includes_all": full_gallery_included,
+            "full_gallery_included": full_gallery_included,
+            "collage_count": len(image_data_list),
+            "collage_capacity": LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS,
+            "optimized_files": optimized_files,
+            "collage_groups": collage_groups,
+            "overview_groups": overview_groups,
+        }
+
+    selected_indices = _select_representative_indices(len(originals))
     selected_items = []
     selected_originals = []
     optimized_files = []
@@ -1619,7 +1840,7 @@ def prepare_llm_images(slug_dir):
 
             seen_hashes.append(hash_value)
             selected_items.append({
-                "number": len(selected_items) + 1,
+                "number": idx + 1,
                 "original_name": original_name,
                 "source_path": source_path,
             })
@@ -1643,6 +1864,8 @@ def prepare_llm_images(slug_dir):
             optimized_files.append(collage_name)
             collage_groups.append({
                 "collage": collage_name,
+                "type": "detail",
+                "covers_full_gallery": len(selected_originals) == len(originals),
                 "items": [
                     {
                         "number": item["number"],
@@ -1659,11 +1882,17 @@ def prepare_llm_images(slug_dir):
             safe_log(f"Warning: Could not create image collage from {item_names}: {e}")
 
     return image_data_list, {
+        "coverage_mode": "detail_all" if len(selected_originals) == len(originals) else "detail_limited",
         "original_count": len(originals),
         "selected_originals": selected_originals,
+        "detail_originals": selected_originals,
         "optimized_files": optimized_files,
         "collage_count": len(image_data_list),
         "selected_count": len(selected_originals),
+        "overview_count": 0,
+        "detail_count": len(selected_originals),
+        "overview_includes_all": False,
+        "full_gallery_included": len(selected_originals) == len(originals),
         "collage_capacity": chunk_size,
         "collage_groups": collage_groups,
     }
@@ -1821,12 +2050,17 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
     except ImportError:
         image_data_list = []
         image_meta = {
+            "coverage_mode": "none",
             "original_count": 0,
             "selected_originals": [],
             "optimized_files": [],
             "collage_groups": [],
             "collage_count": 0,
             "selected_count": 0,
+            "overview_count": 0,
+            "detail_count": 0,
+            "overview_includes_all": False,
+            "full_gallery_included": False,
             "collage_capacity": LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS,
             "error": "Pillow is not installed. Run: pip install -r requirements.txt",
         }
@@ -1835,14 +2069,21 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
         f"\n\n## 📸 FOTOGRAFIE ({image_meta.get('collage_count', len(image_data_list))} koláží / attachmentov, "
         f"{image_meta.get('selected_count', 0)} vybraných fotiek z {image_meta['original_count']} originálov)\n"
     )
+    image_list += (
+        f"- Coverage mode: {image_meta.get('coverage_mode', 'unknown')}\n"
+        f"- Full gallery included in image payload: {bool(image_meta.get('full_gallery_included'))}\n"
+        f"- Overview sheets include all originals: {bool(image_meta.get('overview_includes_all'))}\n"
+        f"- Overview sheets: {image_meta.get('overview_count', 0)}, detail photos: {image_meta.get('detail_count', 0)}\n"
+    )
     if image_meta.get("error"):
         image_list += f"- ⚠️ {image_meta['error']}\n"
     for group in image_meta.get("collage_groups", []):
+        group_type = group.get("type", "detail")
         item_list = ", ".join(
             f"Foto {item['number']:02d} = `{item['original_name']}`"
             for item in group["items"]
         )
-        image_list += f"- {group['collage']} obsahuje: {item_list}\n"
+        image_list += f"- {group['collage']} ({group_type}) obsahuje: {item_list}\n"
 
     if image_meta.get("selected_count", len(image_data_list)) < image_meta["original_count"]:
         image_list += (
@@ -2365,6 +2606,8 @@ def _compact_vision_for_final(vision_result_json):
     data = _safe_model_json(vision_result_json)
     return {
         "photos_provided": data.get("photos_provided"),
+        "photo_coverage": _compact_value(data.get("photo_coverage")),
+        "view_coverage": _compact_value(data.get("view_coverage")),
         "photo_limitations": _limited_list(data.get("photo_limitations"), 5, 220),
         "exterior_observations": _limited_list(data.get("exterior_observations"), 8, prefer_concerns=True),
         "interior_observations": _limited_list(data.get("interior_observations"), 6, prefer_concerns=True),
@@ -2396,18 +2639,22 @@ def _build_final_synthesis_context(
     vision_result_json,
     risk_score_json,
     web_research_text,
+    image_meta=None,
 ):
     compact_payload = {
         "output_language": _demo_output_language(output_language),
         "listing": _listing_context_object(car_info_text),
         "text_research": _compact_text_research_for_final(grok_research_json_text),
         "vision": _compact_vision_for_final(vision_result_json),
+        "image_payload": _compact_value(image_meta or {}),
         "backend_risk_score": _compact_risk_score_for_final(risk_score_json),
         "web_research": _web_research_context(web_research_text),
     }
     return (
         "Use only this compact structured context. "
-        "Do not infer missing details from omitted raw text.\n\n"
+        "Do not infer missing details from omitted raw text. "
+        "If image_payload.full_gallery_included is true, do not describe a view as missing from the listing "
+        "unless vision.view_coverage says that view is absent from the full-gallery overview.\n\n"
         + _compact_json_for_prompt(compact_payload)
     )
 
@@ -2417,6 +2664,21 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
         {
             "source_role": "vision",
             "photos_provided": False,
+            "photo_coverage": {
+                "coverage_mode": "none",
+                "original_count": 0,
+                "analyzed_count": 0,
+                "full_gallery_overview": False,
+                "notes": [message],
+            },
+            "view_coverage": {
+                "exterior": "unknown",
+                "interior": "unknown",
+                "dashboard": "unknown",
+                "engine_bay": "unknown",
+                "tires": "unknown",
+                "underbody": "unknown",
+            },
             "photo_limitations": [message],
             "exterior_observations": [],
             "interior_observations": [],
@@ -2445,13 +2707,20 @@ def _stream_text_model(provider, api_key, system_prompt, user_content, listing_s
     if provider == "grok":
         yield from analyze_with_grok(api_key, system_prompt, user_content, listing_slug=listing_slug)
         return
+    if provider == "openrouter":
+        yield from analyze_with_openrouter(api_key, system_prompt, user_content, listing_slug=listing_slug)
+        return
 
     from llm_client import _call_gemini
     yield from _call_gemini(api_key, system_prompt, user_content, image_data_list=None, listing_slug=listing_slug)
 
 
 def _model_display_name(provider):
-    return "Grok" if provider == "grok" else "Gemini"
+    if provider == "grok":
+        return "Grok"
+    if provider == "openrouter":
+        return "OpenRouter"
+    return "Gemini"
 
 
 def _gemini_key_entries(gemini_keys):
@@ -2532,7 +2801,7 @@ def _collect_gemini_with_key_fallback(
     return "", None
 
 
-def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="sk"):
+def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="sk", openrouter_key=""):
     """Run separated text/research, Gemini vision, scoring, and final synthesis."""
     slug_dir = _safe_slug_dir(slug)
     if not os.path.isdir(slug_dir):
@@ -2583,7 +2852,15 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         safe_log(f"Web research warning: {exc}")
         yield f"data: {json.dumps({'status': 'Web research unavailable; continuing with listing data.'})}\n\n"
 
-    text_provider = "grok" if grok_key else "gemini"
+    if grok_key:
+        text_provider = "grok"
+        text_api_key = grok_key
+    elif openrouter_key:
+        text_provider = "openrouter"
+        text_api_key = openrouter_key
+    else:
+        text_provider = "gemini"
+        text_api_key = ""
     text_model_name = _model_display_name(text_provider)
 
     yield f"data: {json.dumps({'status': f'Phase 1/4: {text_model_name} text and research analysis...'})}\n\n"
@@ -2612,7 +2889,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
             ),
         )
     else:
-        for chunk in _stream_text_model(text_provider, grok_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
+        for chunk in _stream_text_model(text_provider, text_api_key, grok_text_system_prompt, grok_text_content, listing_slug=slug):
             grok_research_json_text += chunk
     with open(os.path.join(slug_dir, "grok_research.json"), "w", encoding="utf-8") as f:
         f.write(grok_research_json_text)
@@ -2636,9 +2913,14 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
     vision_result_json = ""
     image_data_list, _image_meta = prepare_llm_images(slug_dir)
     if image_data_list:
+        image_payload_context = _compact_json_for_prompt(_image_meta)
         vision_content = (
             "Analyze only the attached vehicle photos/collages. "
-            "Use listing text only for labels and mileage context.\n\n"
+            "Use listing text only for labels and mileage context.\n"
+            "Image payload metadata follows. If full_gallery_included is true, overview sheets cover the full listing gallery; "
+            "do not mark a buyer-relevant view as missing from the listing unless it is absent from those overview sheets. "
+            "Use 'not assessable in detail' for views visible only in overview thumbnails.\n\n"
+            f"IMAGE_PAYLOAD_METADATA:\n{image_payload_context}\n\n"
             f"{model_listing_context}"
         )
         try:
@@ -2708,6 +2990,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         vision_result_json,
         risk_score_json,
         web_research_text,
+        _image_meta,
     )
 
     full_report = ""
@@ -2749,7 +3032,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         if not final_done:
             raise RateLimitError("Gemini final synthesis failed for all configured API keys.")
     else:
-        for chunk in _stream_text_model(text_provider, grok_key, final_system_prompt, final_content, listing_slug=slug):
+        for chunk in _stream_text_model(text_provider, text_api_key, final_system_prompt, final_content, listing_slug=slug):
             full_report += chunk
             output_tokens += estimate_output_tokens(chunk)
             if chunk:
@@ -2792,18 +3075,24 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
 
 def _demo_analysis_events(slug, output_language="sk"):
     grok_key = _demo_grok_api_key()
+    openrouter_key = _demo_openrouter_api_key()
     keys = _demo_api_keys()
     if not keys:
         yield f"data: {json.dumps({'error': 'Gemini API keys are not configured on the server.'})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
-    text_provider = "Grok" if grok_key else "Gemini"
+    if grok_key:
+        text_provider = "Grok"
+    elif openrouter_key:
+        text_provider = "OpenRouter"
+    else:
+        text_provider = "Gemini"
     backup_status = " Backup Gemini retry is enabled." if len(keys) > 1 else ""
     yield f"data: {json.dumps({'status': f'Using {text_provider} for text/final synthesis and Gemini for vision.{backup_status}'})}\n\n"
     try:
-        yield from _multi_model_analysis_events(slug, grok_key, keys, output_language)
-    except (ApiKeyError, GrokApiKeyError, RateLimitError) as exc:
+        yield from _multi_model_analysis_events(slug, grok_key, keys, output_language, openrouter_key=openrouter_key)
+    except (ApiKeyError, GrokApiKeyError, OpenRouterApiKeyError, RateLimitError) as exc:
         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
     except Exception as exc:
         safe_log(f"Demo multi-model analysis error: {exc}")
@@ -2967,12 +3256,13 @@ def api_analyze(slug):
       3. Backend deterministic scoring
       4. Final synthesis, same text provider as step 1
 
-    Optional JSON body: {"grok_api_key": "...", "gemini_api_key": "..."}
+    Optional JSON body: {"grok_api_key": "...", "openrouter_api_key": "...", "gemini_api_key": "..."}
     Returns SSE stream of progress and final report.
     """
     data = request.get_json(silent=True) or {}
     demo_gemini_keys = _demo_api_keys()
     grok_key = (data.get("grok_api_key") or _demo_grok_api_key()).strip()
+    openrouter_key = (data.get("openrouter_api_key") or _demo_openrouter_api_key()).strip()
     provided_gemini_key = (data.get("gemini_api_key") or "").strip()
     gemini_keys = _gemini_key_entries(
         ([provided_gemini_key] if provided_gemini_key else []) + demo_gemini_keys
@@ -2988,7 +3278,12 @@ def api_analyze(slug):
 
     def generate():
         try:
-            yield from _multi_model_analysis_events(slug, grok_key, [entry["key"] for entry in gemini_keys])
+            yield from _multi_model_analysis_events(
+                slug,
+                grok_key,
+                [entry["key"] for entry in gemini_keys],
+                openrouter_key=openrouter_key,
+            )
             return
 
             from llm_client import _call_gemini, _call_grok, run_grounded_web_research
@@ -3059,7 +3354,15 @@ def api_analyze(slug):
 
             # Prepare image collages
             image_data_list, _image_meta = prepare_llm_images(slug_dir)
-            vision_content = f"Listing details:\n\n{car_info_text}"
+            image_payload_context = _compact_json_for_prompt(_image_meta)
+            vision_content = (
+                "Analyze only the attached vehicle photos/collages. "
+                "If full_gallery_included is true, overview sheets cover the full listing gallery; "
+                "do not mark a buyer-relevant view as missing from the listing unless it is absent from those overview sheets. "
+                "Use 'not assessable in detail' for views visible only in overview thumbnails.\n\n"
+                f"IMAGE_PAYLOAD_METADATA:\n{image_payload_context}\n\n"
+                f"Listing details:\n\n{car_info_text}"
+            )
 
             vision_result_json = ""
             if image_data_list:
@@ -3101,6 +3404,9 @@ def api_analyze(slug):
 
 ## Gemini vision JSON
 {vision_result_json}
+
+## Image payload metadata
+{_compact_json_for_prompt(_image_meta)}
 {web_section}
 """
 
