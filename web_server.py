@@ -2966,10 +2966,14 @@ def _replace_photo_analysis_section(report_text, vision_result_json, output_lang
 def _compact_text_research_for_final(grok_research_json_text):
     data = _safe_model_json(grok_research_json_text)
     return {
+        "evidence_summary": _compact_value(data.get("evidence_summary")),
         "listing_facts": _compact_value(data.get("listing_facts")),
+        "seller_claims": _limited_list(data.get("seller_claims"), 8, prefer_concerns=True),
         "missing_or_uncertain_data": _limited_list(data.get("missing_or_uncertain_data"), 6, prefer_concerns=True),
+        "data_conflicts": _limited_list(data.get("data_conflicts"), 6, prefer_concerns=True),
         "consistency_checks": _limited_list(data.get("consistency_checks"), 6, prefer_concerns=True),
         "vin_check": _compact_value(data.get("vin_check")),
+        "safety_and_recall": _compact_value(data.get("safety_and_recall")),
         "knowledge_base_findings": _limited_list(data.get("knowledge_base_findings"), 6, prefer_concerns=True),
         "web_research_findings": [
             _sanitize_source_item(item)
@@ -2980,8 +2984,16 @@ def _compact_text_research_for_final(grok_research_json_text):
             for item in _limited_list(data.get("technical_risks"), 6, prefer_concerns=True)
         ],
         "market_assessment": _compact_value(data.get("market_assessment")),
-        "expected_costs": _limited_list(data.get("expected_costs"), 6, prefer_concerns=True),
+        "market_comparables": [
+            _sanitize_source_item(item)
+            for item in _limited_list(data.get("market_comparables"), 5, prefer_concerns=True)
+        ],
+        "expected_costs": _limited_list(data.get("expected_costs"), 8, prefer_concerns=True),
         "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 8, prefer_concerns=True),
+        "sources_used": [
+            _sanitize_source_item(item)
+            for item in _limited_list(data.get("sources_used"), 16, prefer_concerns=True)
+        ],
         "parse_error": data.get("_parse_error", False),
         "raw_preview": data.get("_raw_preview"),
     }
@@ -2992,7 +3004,10 @@ def _compact_vision_for_final(vision_result_json):
     return {
         "photos_provided": data.get("photos_provided"),
         "photo_coverage": _compact_value(data.get("photo_coverage")),
+        "odometer": _compact_value(data.get("odometer")),
         "view_coverage": _compact_value(data.get("view_coverage")),
+        "supported_observations": _balanced_vision_list(data.get("supported_observations"), 10),
+        "missing_views": _limited_list(data.get("missing_views"), 8, 160),
         "photo_limitations": _limited_list(data.get("photo_limitations"), 5, 220),
         "exterior_observations": _balanced_vision_list(data.get("exterior_observations"), 8),
         "interior_observations": _balanced_vision_list(data.get("interior_observations"), 6),
@@ -3000,6 +3015,7 @@ def _compact_vision_for_final(vision_result_json):
         "visible_red_flags": _limited_list(data.get("visible_red_flags"), 6, prefer_concerns=True),
         "mileage_wear_consistency": _compact_value(data.get("mileage_wear_consistency")),
         "visual_verdict": _clip_text(data.get("visual_verdict"), 220),
+        "visible_vin": _clip_text(data.get("visible_vin"), 40),
         "parse_error": data.get("_parse_error", False),
         "raw_preview": data.get("_raw_preview"),
     }
@@ -3056,6 +3072,13 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
                 "full_gallery_overview": False,
                 "notes": [message],
             },
+            "odometer": {
+                "visible": False,
+                "reading_km": None,
+                "photo_label": "",
+                "confidence": None,
+                "notes": message,
+            },
             "view_coverage": {
                 "exterior": "unknown",
                 "interior": "unknown",
@@ -3064,6 +3087,8 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
                 "tires": "unknown",
                 "underbody": "unknown",
             },
+            "supported_observations": [],
+            "missing_views": [],
             "photo_limitations": [message],
             "exterior_observations": [],
             "interior_observations": [],
@@ -3075,6 +3100,7 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
                 "confidence": "Nizka",
             },
             "visual_verdict": "Nedostatocne fotografie",
+            "visible_vin": "",
             "must_not_infer": [
                 "accident history",
                 "service history",

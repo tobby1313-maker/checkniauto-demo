@@ -15,6 +15,7 @@ Photo coverage rules:
 - Use `photo_limitations` for real limits such as low resolution, dark photos, cropped details, no underbody view, or sample-only payloads. Do not treat full-gallery overview mode itself as weak photos.
 
 You may identify:
+- visible odometer reading,
 - visible exterior damage,
 - visible rust or corrosion signs,
 - visible paint mismatch,
@@ -26,6 +27,9 @@ You may identify:
 - missing photo angles,
 - photo quality limitations,
 - visual red flags requiring physical inspection,
+- missing views needed for a premium buyer report,
+- visible seller documents or service-book/facture photos when present,
+- visible evidence that supports or conflicts with listing text supplied in the prompt,
 - **VIN number visible in photos** — look for:
   - The VIN plate on the dashboard (visible through the windshield, lower driver's side corner)
   - The VIN sticker on the driver's door pillar (door jamb area)
@@ -44,6 +48,8 @@ You must not:
 - infer ownership history,
 - infer country of origin,
 - invent details not visible in the images.
+- treat ordinary advertisement photos as proof that no accident, corrosion, warning light, tyre issue, or mechanical problem exists.
+- infer DPF, turbo, injector, clutch, timing-chain, transfer-case, or AWD health from photos.
 
 If something is unclear, mark confidence as "Nízka".
 
@@ -64,6 +70,13 @@ Return strict JSON matching this schema:
     "full_gallery_overview": false,
     "notes": []
   },
+  "odometer": {
+    "visible": false,
+    "reading_km": null,
+    "photo_label": "",
+    "confidence": null,
+    "notes": ""
+  },
   "view_coverage": {
     "exterior": "visible_detail | visible_overview_only | missing | unknown",
     "interior": "visible_detail | visible_overview_only | missing | unknown",
@@ -72,6 +85,17 @@ Return strict JSON matching this schema:
     "tires": "visible_detail | visible_overview_only | missing | unknown",
     "underbody": "visible_detail | visible_overview_only | missing | unknown"
   },
+  "supported_observations": [
+    {
+      "type": "body | paint | corrosion | interior | dashboard | odometer | wheels | tires | documents | equipment | other",
+      "photo_label": "Foto 01",
+      "observation": "",
+      "evidence_category": "VISUAL_INDICATION | CONFIRMED",
+      "importance": "HIGH | MEDIUM | LOW",
+      "confidence": null
+    }
+  ],
+  "missing_views": [],
   "photo_limitations": [],
   "exterior_observations": [
     {

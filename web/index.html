@@ -452,12 +452,17 @@
 
         .result-photo-link {
             display: block;
+            width: 100%;
+            padding: 0;
             overflow: hidden;
             border: 1px solid var(--line);
             border-radius: 8px;
             background: var(--surface-soft);
             color: inherit;
+            font: inherit;
+            text-align: left;
             text-decoration: none;
+            cursor: pointer;
         }
 
         .result-photo-link:hover,
@@ -507,6 +512,130 @@
             justify-content: flex-end;
             gap: 8px;
             flex-wrap: wrap;
+        }
+
+        .photo-lightbox {
+            position: fixed;
+            inset: 0;
+            z-index: 1200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 180ms ease, visibility 180ms ease;
+        }
+
+        body.lightbox-open { overflow: hidden; }
+
+        .photo-lightbox.active {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        .photo-lightbox-backdrop {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: rgba(8, 12, 18, 0.84);
+            cursor: pointer;
+        }
+
+        .photo-lightbox-dialog {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr) auto;
+            width: min(1180px, 100%);
+            max-height: calc(100vh - 48px);
+            padding: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--surface) 92%, #0b1018);
+            box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
+        }
+
+        .photo-lightbox-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 0 10px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .photo-lightbox-close {
+            min-width: 38px;
+            min-height: 34px;
+            padding: 5px 10px;
+            font-size: 22px;
+            line-height: 1;
+        }
+
+        .photo-lightbox-stage {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 240px;
+            overflow: hidden;
+            border-radius: 9px;
+            background: rgba(0, 0, 0, 0.24);
+        }
+
+        .photo-lightbox-image {
+            display: block;
+            max-width: calc(100% - 112px);
+            max-height: calc(100vh - 170px);
+            object-fit: contain;
+        }
+
+        .photo-lightbox-nav {
+            position: absolute;
+            top: 50%;
+            display: grid;
+            place-items: center;
+            width: 42px;
+            height: 58px;
+            padding: 0;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 9px;
+            background: rgba(8, 12, 18, 0.66);
+            color: #fff;
+            font-size: 36px;
+            line-height: 1;
+            transform: translateY(-50%);
+            cursor: pointer;
+        }
+
+        .photo-lightbox-nav:hover,
+        .photo-lightbox-nav:focus-visible {
+            border-color: var(--orange);
+            background: rgba(8, 12, 18, 0.88);
+            outline: none;
+            box-shadow: var(--focus);
+        }
+
+        .photo-lightbox-nav:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+
+        .photo-lightbox-nav.previous { left: 14px; }
+        .photo-lightbox-nav.next { right: 14px; }
+
+        .photo-lightbox-caption {
+            min-height: 20px;
+            padding: 10px 2px 0;
+            color: var(--muted);
+            font-size: 13px;
+            text-align: center;
         }
 
         .result-content {
@@ -1087,6 +1216,7 @@
                             <span class="status" id="status">Pripravené</span>
                         </div>
                         <div class="result-actions">
+                            <button class="btn small" id="shareAnalysisBtn" type="button" disabled>Zdieľať</button>
                             <button class="btn small" id="copyMarkdownBtn" type="button">Kopírovať text</button>
                             <button class="btn small" id="exportPdfBtn" type="button">Export PDF</button>
                         </div>
@@ -1119,6 +1249,22 @@
             <div class="dashboard-status" id="dashboardStatus"></div>
             <div class="dashboard-list" id="dashboardList"></div>
         </aside>
+    </div>
+
+    <div class="photo-lightbox" id="photoLightbox" aria-hidden="true">
+        <button class="photo-lightbox-backdrop" id="photoLightboxBackdrop" type="button" aria-label="Zavrieť fotografiu"></button>
+        <div class="photo-lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="photoLightboxCounter">
+            <div class="photo-lightbox-toolbar">
+                <span id="photoLightboxCounter">1 / 1</span>
+                <button class="btn ghost small photo-lightbox-close" id="photoLightboxCloseBtn" type="button" aria-label="Zavrieť fotografiu">×</button>
+            </div>
+            <div class="photo-lightbox-stage">
+                <button class="photo-lightbox-nav previous" id="photoLightboxPreviousBtn" type="button" aria-label="Predchádzajúca fotografia">‹</button>
+                <img class="photo-lightbox-image" id="photoLightboxImage" alt="">
+                <button class="photo-lightbox-nav next" id="photoLightboxNextBtn" type="button" aria-label="Ďalšia fotografia">›</button>
+            </div>
+            <div class="photo-lightbox-caption" id="photoLightboxCaption"></div>
+        </div>
     </div>
 
     <!-- Progress Overlay -->
@@ -1161,6 +1307,7 @@
         const imagesInput = document.querySelector("#images");
         const newAnalysisBtn = document.querySelector("#newAnalysisBtn");
         const dashboardBtn = document.querySelector("#dashboardBtn");
+        const shareAnalysisBtn = document.querySelector("#shareAnalysisBtn");
         const copyMarkdownBtn = document.querySelector("#copyMarkdownBtn");
         const exportPdfBtn = document.querySelector("#exportPdfBtn");
         const resultTitleEl = document.querySelector("#resultTitle");
@@ -1173,14 +1320,25 @@
         const dashboardStatus = document.querySelector("#dashboardStatus");
         const dashboardCloseBtn = document.querySelector("#dashboardCloseBtn");
         const dashboardBackdrop = document.querySelector("#dashboardBackdrop");
+        const photoLightbox = document.querySelector("#photoLightbox");
+        const photoLightboxBackdrop = document.querySelector("#photoLightboxBackdrop");
+        const photoLightboxCloseBtn = document.querySelector("#photoLightboxCloseBtn");
+        const photoLightboxPreviousBtn = document.querySelector("#photoLightboxPreviousBtn");
+        const photoLightboxNextBtn = document.querySelector("#photoLightboxNextBtn");
+        const photoLightboxImage = document.querySelector("#photoLightboxImage");
+        const photoLightboxCounter = document.querySelector("#photoLightboxCounter");
+        const photoLightboxCaption = document.querySelector("#photoLightboxCaption");
         let currentLanguage = outputLanguage.value || "sk";
         let abortController = null;
         const maxManualImages = 12;
         const submitButtons = [document.querySelector("#urlSubmit"), document.querySelector("#manualSubmit")];
         let latestResultText = "";
         let latestResultTitle = "Checkni Auto";
+        let latestAnalysisSlug = "";
         let latestReferencePhotos = [];
         let manualPreviewUrls = [];
+        let lightboxIndex = 0;
+        let lightboxPreviousFocus = null;
 
         const translations = {
             sk: {
@@ -1209,11 +1367,20 @@
                 starting: "Spúšťam analýzu...",
                 finish: "Hotovo",
                 resultEmpty: "Výsledok analýzy sa zobrazí tu.",
+                shareAnalysis: "Zdieľať",
                 copyMarkdown: "Kopírovať text",
                 exportPdf: "Export PDF",
                 referencePhotos: "Referenčné fotky",
                 photosCount: "{count} fotiek",
                 copied: "Skopírované",
+                shareCopied: "Odkaz skopírovaný",
+                shared: "Pripravené na zdieľanie",
+                noAnalysisToShare: "Táto analýza ešte nemá uložený odkaz",
+                loadingSharedAnalysis: "Načítavam zdieľanú analýzu...",
+                closePhoto: "Zavrieť fotografiu",
+                previousPhoto: "Predchádzajúca fotografia",
+                nextPhoto: "Ďalšia fotografia",
+                photoCounter: "{current} / {total}",
                 noResultToCopy: "Nie je čo kopírovať",
                 dashboardTitle: "Predchádzajúce analýzy",
                 dashboardSubtitle: "Uložené výsledky z demo analýz",
@@ -1269,11 +1436,20 @@
                 starting: "Starting analysis...",
                 finish: "Finished",
                 resultEmpty: "The analysis result will appear here.",
+                shareAnalysis: "Share",
                 copyMarkdown: "Copy text",
                 exportPdf: "Export PDF",
                 referencePhotos: "Reference photos",
                 photosCount: "{count} photos",
                 copied: "Copied",
+                shareCopied: "Link copied",
+                shared: "Ready to share",
+                noAnalysisToShare: "This analysis does not have a saved link yet",
+                loadingSharedAnalysis: "Loading shared analysis...",
+                closePhoto: "Close photo",
+                previousPhoto: "Previous photo",
+                nextPhoto: "Next photo",
+                photoCounter: "{current} / {total}",
                 noResultToCopy: "Nothing to copy",
                 dashboardTitle: "Previous analyses",
                 dashboardSubtitle: "Saved demo analysis results",
@@ -1350,6 +1526,7 @@
             setText("#resultTitle", latestResultTitle === "Checkni Auto" ? tr("progressTitle") : latestResultTitle);
             setText("#newAnalysisBtn", tr("newAnalysis"));
             setText("#dashboardBtn", tr("dashboard"));
+            setText("#shareAnalysisBtn", tr("shareAnalysis"));
             setText("#copyMarkdownBtn", tr("copyMarkdown"));
             setText("#exportPdfBtn", tr("exportPdf"));
             setText("#resultPhotosTitle", tr("referencePhotos"));
@@ -1358,6 +1535,10 @@
             setText("#dashboardCloseBtn", tr("dashboardClose"));
             setText("#overlayTitle", tr("overlayTitle"));
             setText("#overlayCancelBtn", tr("overlayCancel"));
+            photoLightboxBackdrop.setAttribute("aria-label", tr("closePhoto"));
+            photoLightboxCloseBtn.setAttribute("aria-label", tr("closePhoto"));
+            photoLightboxPreviousBtn.setAttribute("aria-label", tr("previousPhoto"));
+            photoLightboxNextBtn.setAttribute("aria-label", tr("nextPhoto"));
 
             document.querySelector("#title").placeholder = tr("titlePlaceholder");
             document.querySelector("#sourceUrl").placeholder = tr("sourceUrlPlaceholder");
@@ -1379,6 +1560,7 @@
         function resetWorkspace() {
             latestResultText = "";
             latestResultTitle = "Checkni Auto";
+            setCurrentAnalysisSlug("");
             setReferencePhotos([]);
             pageEl.classList.remove("result-mode");
             analysisSection.classList.add("hidden");
@@ -1445,7 +1627,77 @@
             return { src, label };
         }
 
+        function setCurrentAnalysisSlug(slug, updateUrl = true) {
+            latestAnalysisSlug = String(slug || "").trim();
+            shareAnalysisBtn.disabled = !latestAnalysisSlug;
+            if (!updateUrl) return;
+
+            const url = new URL(window.location.href);
+            if (latestAnalysisSlug) {
+                url.searchParams.set("analysis", latestAnalysisSlug);
+            } else {
+                url.searchParams.delete("analysis");
+            }
+            window.history.replaceState(
+                { analysisSlug: latestAnalysisSlug || null },
+                "",
+                `${url.pathname}${url.search}${url.hash}`
+            );
+        }
+
+        function analysisDeepLink() {
+            if (!latestAnalysisSlug) return "";
+            const url = new URL(window.location.href);
+            url.searchParams.set("analysis", latestAnalysisSlug);
+            return url.toString();
+        }
+
+        function renderPhotoLightbox() {
+            const photo = latestReferencePhotos[lightboxIndex];
+            if (!photo) return;
+            photoLightboxImage.src = photo.src;
+            photoLightboxImage.alt = photo.label || `${tr("referencePhotos")} ${lightboxIndex + 1}`;
+            photoLightboxCaption.textContent = photo.label || "";
+            photoLightboxCounter.textContent = trFormat("photoCounter", {
+                current: lightboxIndex + 1,
+                total: latestReferencePhotos.length
+            });
+            const disabled = latestReferencePhotos.length < 2;
+            photoLightboxPreviousBtn.disabled = disabled;
+            photoLightboxNextBtn.disabled = disabled;
+        }
+
+        function openPhotoLightbox(index) {
+            if (!latestReferencePhotos.length) return;
+            lightboxIndex = Math.max(0, Math.min(Number(index) || 0, latestReferencePhotos.length - 1));
+            lightboxPreviousFocus = document.activeElement;
+            renderPhotoLightbox();
+            photoLightbox.classList.add("active");
+            photoLightbox.setAttribute("aria-hidden", "false");
+            document.body.classList.add("lightbox-open");
+            photoLightboxCloseBtn.focus();
+        }
+
+        function closePhotoLightbox() {
+            if (!photoLightbox.classList.contains("active")) return;
+            photoLightbox.classList.remove("active");
+            photoLightbox.setAttribute("aria-hidden", "true");
+            document.body.classList.remove("lightbox-open");
+            photoLightboxImage.removeAttribute("src");
+            if (lightboxPreviousFocus && typeof lightboxPreviousFocus.focus === "function") {
+                lightboxPreviousFocus.focus();
+            }
+            lightboxPreviousFocus = null;
+        }
+
+        function movePhotoLightbox(delta) {
+            if (!latestReferencePhotos.length) return;
+            lightboxIndex = (lightboxIndex + delta + latestReferencePhotos.length) % latestReferencePhotos.length;
+            renderPhotoLightbox();
+        }
+
         function setReferencePhotos(photos) {
+            closePhotoLightbox();
             latestReferencePhotos = (photos || []).map(normalizePhoto).filter(Boolean);
             renderReferencePhotos(latestReferencePhotos);
         }
@@ -1455,10 +1707,10 @@
             resultPhotosTitle.textContent = tr("referencePhotos");
             resultPhotosCount.textContent = photoCountLabel(list.length);
             resultPhotosPanel.classList.toggle("hidden", list.length === 0);
-            resultPhotoList.innerHTML = list.map((photo, index) => `<a class="result-photo-link" href="${escapeHtml(photo.src)}" target="_blank" rel="noopener noreferrer">
+            resultPhotoList.innerHTML = list.map((photo, index) => `<button class="result-photo-link" type="button" data-photo-index="${index}" aria-label="${escapeHtml(photo.label || `${tr("referencePhotos")} ${index + 1}`)}">
                 <img src="${escapeHtml(photo.src)}" alt="${escapeHtml(photo.label || `${tr("referencePhotos")} ${index + 1}`)}" loading="lazy">
                 <span class="result-photo-caption">${escapeHtml(photo.label || `${tr("referencePhotos")} ${index + 1}`)}</span>
-            </a>`).join("");
+            </button>`).join("");
         }
 
         function collectManualReferencePhotos() {
@@ -1613,6 +1865,7 @@
             showResultPage();
             latestResultText = "";
             latestResultTitle = tr("progressTitle");
+            setCurrentAnalysisSlug("");
             resultTitleEl.textContent = latestResultTitle;
             logEl.classList.add("raw-log");
             logEl.textContent = "";
@@ -1910,6 +2163,7 @@
                     if (data.error) throw new Error(data.error);
                     if (data.slug) {
                         resultSlug = data.slug;
+                        setCurrentAnalysisSlug(resultSlug, false);
                     }
                     if (data.status) {
                         statusEl.textContent = data.status;
@@ -2014,6 +2268,42 @@
             } finally {
                 setBusy(false);
                 hideOverlay();
+            }
+        }
+
+        async function shareAnalysis() {
+            const url = analysisDeepLink();
+            if (!url) {
+                statusEl.textContent = tr("noAnalysisToShare");
+                statusEl.classList.add("error");
+                return;
+            }
+
+            const shareData = {
+                title: latestResultTitle,
+                text: `${latestResultTitle} - Checkni Auto`,
+                url
+            };
+
+            try {
+                if (navigator.share) {
+                    await navigator.share(shareData);
+                    statusEl.textContent = tr("shared");
+                } else {
+                    await navigator.clipboard.writeText(url);
+                    statusEl.textContent = tr("shareCopied");
+                }
+                statusEl.classList.remove("error");
+            } catch (error) {
+                if (error.name === "AbortError") return;
+                try {
+                    await navigator.clipboard.writeText(url);
+                    statusEl.textContent = tr("shareCopied");
+                    statusEl.classList.remove("error");
+                } catch (clipboardError) {
+                    statusEl.textContent = clipboardError.message || error.message;
+                    statusEl.classList.add("error");
+                }
             }
         }
 
@@ -2215,6 +2505,7 @@
             if (!response.ok) throw new Error("Saved analysis not found");
             const data = await response.json();
             const title = data.parsed?.title || data.title || data.slug;
+            setCurrentAnalysisSlug(data.slug || slug);
             revokeManualPreviewUrls();
             setReferencePhotos(data.images || []);
             showResult(data.analysis_content || "", title);
@@ -2225,11 +2516,32 @@
             closeDashboard();
         }
 
+        async function loadDeepLinkedAnalysis() {
+            const slug = new URLSearchParams(window.location.search).get("analysis");
+            if (!slug) return;
+
+            showResultPage();
+            statusEl.textContent = tr("loadingSharedAnalysis");
+            try {
+                await showSavedAnalysis(slug);
+            } catch (error) {
+                resetWorkspace();
+                statusEl.textContent = error.message;
+                statusEl.classList.add("error");
+            }
+        }
+
         themeToggle.addEventListener('click', () => {
             setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
         });
 
         newAnalysisBtn.addEventListener('click', resetToLandingState);
+        shareAnalysisBtn.addEventListener('click', () => {
+            shareAnalysis().catch((error) => {
+                statusEl.textContent = error.message;
+                statusEl.classList.add("error");
+            });
+        });
         copyMarkdownBtn.addEventListener('click', () => {
             copyAnalysisText().catch((error) => {
                 statusEl.textContent = error.message;
@@ -2246,6 +2558,25 @@
             showSavedAnalysis(item.dataset.slug).catch((error) => {
                 dashboardStatus.textContent = error.message;
             });
+        });
+
+        resultPhotoList.addEventListener("click", (event) => {
+            const photoButton = event.target.closest(".result-photo-link");
+            if (!photoButton) return;
+            openPhotoLightbox(photoButton.dataset.photoIndex);
+        });
+        photoLightboxBackdrop.addEventListener("click", closePhotoLightbox);
+        photoLightboxCloseBtn.addEventListener("click", closePhotoLightbox);
+        photoLightboxPreviousBtn.addEventListener("click", () => movePhotoLightbox(-1));
+        photoLightboxNextBtn.addEventListener("click", () => movePhotoLightbox(1));
+        photoLightbox.addEventListener("click", (event) => {
+            if (event.target === photoLightbox) closePhotoLightbox();
+        });
+        document.addEventListener("keydown", (event) => {
+            if (!photoLightbox.classList.contains("active")) return;
+            if (event.key === "Escape") closePhotoLightbox();
+            if (event.key === "ArrowLeft") movePhotoLightbox(-1);
+            if (event.key === "ArrowRight") movePhotoLightbox(1);
         });
 
         document.getElementById('overlayCancelBtn').addEventListener('click', () => {
@@ -2266,6 +2597,7 @@
 
         applyLanguage(localStorage.getItem('checkni-auto-language') || outputLanguage.value);
         setTheme(initialTheme());
+        loadDeepLinkedAnalysis();
     </script>
 </body>
 </html>

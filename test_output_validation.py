@@ -144,10 +144,32 @@ Cena je orientacna.
     def test_grok_schema_contract_accepts_new_buyer_value_fields(self):
         payload = {
             "source_role": "text_research",
+            "evidence_summary": {
+                "data_completeness_score": 70,
+                "overall_confidence": "MEDIUM",
+                "strongest_evidence": ["VIN and mileage are listed."],
+                "weakest_evidence": ["Service invoices are missing."],
+            },
             "listing_facts": {"title": "Mazda CX-5", "price": "9999 EUR"},
+            "seller_claims": [
+                {
+                    "claim": "Regular service history.",
+                    "evidence_category": "LISTING_CLAIM",
+                    "verification_status": "Needs invoices.",
+                    "buyer_relevance": "Service quality affects near-term costs.",
+                }
+            ],
             "missing_or_uncertain_data": [],
+            "data_conflicts": [],
             "consistency_checks": [],
             "vin_check": {"vin_present": True, "format_check": "ok"},
+            "safety_and_recall": {
+                "status": "INSUFFICIENT_DATA",
+                "summary": "Recall status requires VIN check.",
+                "required_action": "Ask authorized service to check VIN campaigns.",
+                "evidence_category": "NEEDS_VERIFICATION",
+                "source_ids": [],
+            },
             "knowledge_base_findings": [],
             "web_research_findings": [
                 {
@@ -185,6 +207,18 @@ Cena je orientacna.
                 "negotiation_reason": "Service history is missing.",
                 "price_view": "fair",
             },
+            "market_comparables": [
+                {
+                    "description": "Mazda CX-5 2.0 AWD, similar year.",
+                    "price_eur": 9300,
+                    "mileage_km": 165000,
+                    "material_difference": "Slightly higher mileage.",
+                    "relevance": "MEDIUM",
+                    "source_name": "Autobazar.EU",
+                    "source_url": "https://www.autobazar.eu/mazda/cx-5/",
+                    "verified_url": True,
+                }
+            ],
             "expected_costs": [
                 {
                     "item": "AWD fluids and inspection",
@@ -196,6 +230,17 @@ Cena je orientacna.
                 }
             ],
             "text_research_risk_flags": [],
+            "sources_used": [
+                {
+                    "source_id": "src-1",
+                    "source_name": "Autobazar.EU",
+                    "source_type": "MARKET_COMPARABLE",
+                    "reliability": "MEDIUM",
+                    "source_url": "https://www.autobazar.eu/mazda/cx-5/",
+                    "verified_url": True,
+                    "used_for": "Market orientation.",
+                }
+            ],
         }
 
         warnings = web_server._soft_validate_json_contract(
@@ -222,10 +267,34 @@ Cena je orientacna.
         )
         grok_json = json.dumps(
             {
+                "evidence_summary": {"overall_confidence": "MEDIUM"},
                 "listing_facts": {"title": "Mazda CX-5", "price": "9999 EUR"},
+                "seller_claims": [
+                    {
+                        "claim": "Service book is available.",
+                        "evidence_category": "LISTING_CLAIM",
+                        "buyer_relevance": "Needs invoice verification.",
+                    }
+                ],
                 "missing_or_uncertain_data": [],
+                "data_conflicts": [
+                    {
+                        "issue": "Mileage differs between listing and odometer photo.",
+                        "source_a": "Listing: 158303 km",
+                        "source_b": "Photo: 158420 km",
+                        "interpretation": "Small upward difference can be normal use after listing.",
+                        "importance": "LOW",
+                    }
+                ],
                 "consistency_checks": [],
                 "vin_check": {"vin_present": True, "format_check": "ok"},
+                "safety_and_recall": {
+                    "status": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+                    "summary": "Production-window campaign needs exact VIN confirmation.",
+                    "required_action": "Check VIN with authorized service.",
+                    "evidence_category": "NEEDS_VERIFICATION",
+                    "source_ids": ["src-recall"],
+                },
                 "knowledge_base_findings": [],
                 "web_research_findings": [
                     {
@@ -262,6 +331,18 @@ Cena je orientacna.
                     "negotiation_anchor_eur": 9300,
                     "price_view": "fair",
                 },
+                "market_comparables": [
+                    {
+                        "description": "Comparable CX-5 AWD.",
+                        "price_eur": 9300,
+                        "mileage_km": 165000,
+                        "material_difference": "Similar drivetrain, slightly higher mileage.",
+                        "relevance": "HIGH",
+                        "source_name": "Autobazar.EU",
+                        "source_url": "https://www.autobazar.eu/mazda/cx-5/",
+                        "verified_url": True,
+                    }
+                ],
                 "expected_costs": [
                     {
                         "item": "AWD fluids",
@@ -273,13 +354,38 @@ Cena je orientacna.
                     }
                 ],
                 "text_research_risk_flags": [],
+                "sources_used": [
+                    {
+                        "source_id": "src-recall",
+                        "source_name": "Recall registry",
+                        "source_type": "REGULATORY",
+                        "reliability": "HIGH",
+                        "source_url": "https://www.autobazar.eu/mazda/cx-5/",
+                        "verified_url": True,
+                        "used_for": "Recall check.",
+                    }
+                ],
             }
         )
         context = web_server._build_final_synthesis_context(
             "sk",
             car_info_text,
             grok_json,
-            json.dumps({"photos_provided": False, "photo_limitations": []}),
+            json.dumps({
+                "photos_provided": False,
+                "odometer": {"visible": True, "reading_km": 158420, "photo_label": "Foto 08"},
+                "supported_observations": [
+                    {
+                        "type": "odometer",
+                        "photo_label": "Foto 08",
+                        "observation": "Odometer shows 158420 km.",
+                        "evidence_category": "CONFIRMED",
+                        "importance": "MEDIUM",
+                    }
+                ],
+                "missing_views": ["engine bay"],
+                "photo_limitations": [],
+            }),
             json.dumps({"risk_score": 4, "allowed_final_verdict": "RIZIKOVA KUPA"}),
             "\n".join(
                 [
@@ -296,6 +402,12 @@ Cena je orientacna.
             450,
         )
         self.assertEqual(payload["text_research"]["market_assessment"]["negotiation_anchor_eur"], 9300)
+        self.assertEqual(payload["text_research"]["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
+        self.assertEqual(payload["text_research"]["safety_and_recall"]["status"], "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK")
+        self.assertEqual(payload["text_research"]["market_comparables"][0]["relevance"], "HIGH")
+        self.assertEqual(payload["text_research"]["sources_used"][0]["source_id"], "src-recall")
+        self.assertEqual(payload["vision"]["odometer"]["reading_km"], 158420)
+        self.assertEqual(payload["vision"]["missing_views"], ["engine bay"])
         self.assertTrue(payload["text_research"]["web_research_findings"][0]["verified_url"])
         self.assertFalse(payload["text_research"]["web_research_findings"][1]["verified_url"])
         self.assertEqual(payload["text_research"]["web_research_findings"][1]["source_url"], "")

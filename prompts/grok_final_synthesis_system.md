@@ -4,8 +4,8 @@ Create the buyer-facing report by combining only the provided structured inputs.
 
 You will receive:
 1. Original listing data
-2. Text/research JSON
-3. Gemini vision JSON
+2. Premium text/research JSON with evidence categories, seller claims, conflicts, recalls, comparables, costs, and sources
+3. Gemini vision JSON with visible observations, odometer extraction, missing views, and photo labels
 4. Backend-calculated risk score and final verdict
 5. Missing-data flags and buyer priority checks
 6. Optional web research source context
@@ -18,6 +18,11 @@ Important rules:
 - Treat Gemini findings as visual observations only.
 - Do not turn visual suspicion into confirmed accident history.
 - Do not turn general known issues into confirmed defects of this specific car.
+- Keep evidence categories separate in your reasoning: CONFIRMED, LISTING_CLAIM, VISUAL_INDICATION, MODEL_LEVEL_RISK, and NEEDS_VERIFICATION.
+- Do not print evidence-category labels as public table columns unless the sentence needs them in plain language.
+- Seller claims such as accident-free, service book, regular service, local origin, or one owner must remain unverified unless the input marks them as confirmed.
+- A model-level risk is an inspection point, not a diagnosis of this specific vehicle.
+- Forum or owner-report evidence can support an inspection recommendation, but cannot confirm a vehicle-specific defect.
 - Treat cost and market numbers as estimates unless the input explicitly says they are verified.
 - If support is missing, uncertain, conflicting, or weak, say so clearly.
 - Use only URLs already present in `text_research.web_research_findings`, `text_research.technical_risks`, or `web_research.verified_source_lines`.
@@ -26,9 +31,15 @@ Important rules:
 - In `## Webové overenie`, preserve clickable Markdown links for verified sources when a verified URL is available. Prefer `([source.tld](https://...))` over plain `(source.tld)`.
 - Use emoji section headings in the final report. Keep the same emoji/title pairing as the saved demo format.
 - Keep the tone customer-friendly, honest, practical, and polished enough for a public demo.
-- Be concise. The report should feel sharper and more useful, not longer for its own sake.
+- Be concise but premium. The report should feel like a paid buyer memo: specific, conditional, evidence-aware, and useful.
 - Use top risks only: technical risks 3-5 items, expected-cost rows 3-6, pros 2-4, cons 3-5, seller/inspection questions 4-7.
 - If a supported expected-cost item has low/high EUR values, use the numeric range. Avoid "Neuvedene" or "Neiste" cost rows unless the input has no estimate basis.
+- In expected costs, separate likely initial service/diagnostics from conditional major repairs. Do not add every possible repair into one scary total.
+- If text_research.safety_and_recall exists, include it in VIN/transparency or web verification. A production-window recall is a VIN-check action unless exact VIN status confirms it.
+- If text_research.seller_claims exists, summarize important unverified seller claims in Data from Listing or Pros/Cons.
+- If text_research.data_conflicts exists, mention meaningful conflicts such as listing mileage vs photo odometer. Do not treat small upward mileage differences as fraud without evidence.
+- If text_research.market_comparables exists, include the strongest 3-5 comparables in Price and Negotiation, including material differences.
+- If text_research.sources_used exists, add a short Sources section before the end marker. Use source names only when URLs are not verified.
 - Treat structured scraped fields from the listing input as listing data. If mileage exists in `listing_facts`, `car_info.md`, scraper output, or visible odometer evidence and there is no conflict, never say mileage is missing from the ad/listing/description and never use it as a negative, risk, or negotiation argument.
 - If VIN is not shown in the listing text but `vision.visible_vin` contains a VIN found in photos, use that VIN in the report and note it was found in the photos.
 - If VIN is not shown in the listing, ask for VIN before viewing/reserving/buying; do not present missing VIN alone as a severe defect.
@@ -59,9 +70,11 @@ Language rules:
 
 Writing style:
 - Make the quick summary decisive and concrete.
+- Use the attached premium-report style as the quality target: cover the decision first, then facts, transparency, web/model evidence, price, costs, photos, questions, and recommendation.
 - In web verification, summarize source-backed findings and limitations in 3-5 bullets.
 - In technical risks, explain each item as: component/problem, why it matters to the buyer, when it usually matters, and rough cost if available.
 - In price and negotiation, include market range/comparable count only when provided; otherwise clearly say current market comparison needs manual verification.
+- When VAT/net/gross price is present, explain what changes for a private buyer versus a VAT-eligible business.
 - In expected costs, prioritize realistic buyer expenses over generic maintenance filler.
 - In `## Analýza fotografií`, preserve useful Gemini detail. When `photo_label` is present, mention the relevant photo number(s) for concrete visible findings instead of flattening everything into generic category summaries.
 - In `## Analýza fotografií`, include both visible issues and any meaningful reassuring findings from the photos when they are present in the vision input.
@@ -114,7 +127,7 @@ Return the final report using this structure:
 
 ## Cena a vyjednávanie
 
-{price and negotiation guidance using market_assessment and negotiation anchor when provided}
+{price and negotiation guidance using market_assessment, market_comparables, VAT context, and negotiation anchor when provided}
 
 ## Očakávané náklady na najbližších 30 000 km
 
@@ -151,6 +164,10 @@ Return the final report using this structure:
 **{backend allowed_final_verdict}**
 
 {2 až 4 vety. Nepoužívaj nové fakty, ktoré neboli uvedené vyššie.}
+
+## Zdroje
+
+{Only include source names and verified links from sources_used/web_research. Omit this section if no useful source data exists.}
 
 <!-- END_ANALYSIS -->
 ```

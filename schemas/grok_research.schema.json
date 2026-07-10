@@ -3,26 +3,47 @@
   "type": "object",
   "required": [
     "source_role",
+    "evidence_summary",
     "listing_facts",
+    "seller_claims",
     "missing_or_uncertain_data",
+    "data_conflicts",
     "consistency_checks",
     "vin_check",
+    "safety_and_recall",
     "knowledge_base_findings",
     "web_research_findings",
     "technical_risks",
     "market_assessment",
+    "market_comparables",
     "expected_costs",
-    "text_research_risk_flags"
+    "text_research_risk_flags",
+    "sources_used"
   ],
   "properties": {
     "source_role": { "type": "string", "pattern": "text_research" },
+    "evidence_summary": {
+      "type": "object",
+      "properties": {
+        "data_completeness_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "overall_confidence": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "strongest_evidence": { "type": "array", "items": { "type": "string" } },
+        "weakest_evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "listing_facts": {
       "type": "object",
       "properties": {
         "title": { "type": "string" },
         "price": { "type": "string" },
+        "asking_price_gross_eur": { "type": ["integer", "number", "null"] },
+        "asking_price_net_eur": { "type": ["integer", "number", "null"] },
+        "vat_context": { "type": "string" },
+        "registration_date": { "type": "string" },
         "year": { "type": "string" },
         "mileage": { "type": "string" },
+        "advertised_mileage_km": { "type": ["integer", "number", "null"] },
+        "photo_odometer_km": { "type": ["integer", "number", "null"] },
         "engine": { "type": "string" },
         "power": { "type": "string" },
         "fuel": { "type": "string" },
@@ -35,6 +56,21 @@
         "equipment": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "seller_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "claim": { "type": "string" },
+          "evidence_category": {
+            "type": "string",
+            "enum": ["CONFIRMED", "LISTING_CLAIM", "VISUAL_INDICATION", "MODEL_LEVEL_RISK", "NEEDS_VERIFICATION"]
+          },
+          "verification_status": { "type": "string" },
+          "buyer_relevance": { "type": "string" }
+        }
+      }
+    },
     "missing_or_uncertain_data": {
       "type": "array",
       "items": {
@@ -43,6 +79,19 @@
           "item": { "type": "string" },
           "why_it_matters": { "type": "string" },
           "severity": { "type": "string", "enum": ["low", "medium", "high"] }
+        }
+      }
+    },
+    "data_conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "issue": { "type": "string" },
+          "source_a": { "type": "string" },
+          "source_b": { "type": "string" },
+          "interpretation": { "type": "string" },
+          "importance": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
         }
       }
     },
@@ -70,6 +119,22 @@
         "notes": { "type": "string" }
       }
     },
+    "safety_and_recall": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["NO_RELEVANT_CAMPAIGN_FOUND", "CAMPAIGN_CONFIRMED_COMPLETED", "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK", "OPEN_CAMPAIGN", "INSUFFICIENT_DATA"]
+        },
+        "summary": { "type": "string" },
+        "required_action": { "type": "string" },
+        "evidence_category": {
+          "type": "string",
+          "enum": ["CONFIRMED", "LISTING_CLAIM", "VISUAL_INDICATION", "MODEL_LEVEL_RISK", "NEEDS_VERIFICATION"]
+        },
+        "source_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "knowledge_base_findings": {
       "type": "array",
       "items": {
@@ -77,6 +142,10 @@
         "properties": {
           "component": { "type": "string" },
           "risk": { "type": "string" },
+          "evidence_category": {
+            "type": "string",
+            "enum": ["CONFIRMED", "LISTING_CLAIM", "VISUAL_INDICATION", "MODEL_LEVEL_RISK", "NEEDS_VERIFICATION"]
+          },
           "evidence": { "type": "string" },
           "confidence": { "type": "string", "enum": ["Vysoka", "Stredna", "Nizka"] },
           "notes": { "type": "string" }
@@ -89,6 +158,10 @@
         "type": "object",
         "properties": {
           "claim": { "type": "string" },
+          "evidence_category": {
+            "type": "string",
+            "enum": ["CONFIRMED", "LISTING_CLAIM", "VISUAL_INDICATION", "MODEL_LEVEL_RISK", "NEEDS_VERIFICATION"]
+          },
           "source_name": { "type": "string" },
           "source_url": { "type": "string" },
           "verified_url": { "type": "boolean" },
@@ -109,10 +182,18 @@
         "properties": {
           "component": { "type": "string" },
           "issue": { "type": "string" },
+          "risk_level": { "type": "string", "enum": ["HIGH", "MEDIUM", "CHECK"] },
+          "evidence_category": {
+            "type": "string",
+            "enum": ["CONFIRMED", "LISTING_CLAIM", "VISUAL_INDICATION", "MODEL_LEVEL_RISK", "NEEDS_VERIFICATION"]
+          },
           "buyer_impact": { "type": "string" },
+          "specific_vehicle_evidence": { "type": "string" },
+          "verification_action": { "type": "string" },
           "typical_trigger_or_interval": { "type": "string" },
           "estimated_cost_eur_low": { "type": ["integer", "number", "null"] },
           "estimated_cost_eur_high": { "type": ["integer", "number", "null"] },
+          "cost_condition": { "type": "string" },
           "source_basis": { "type": "string" },
           "source_name": { "type": "string" },
           "source_url": { "type": "string" },
@@ -138,6 +219,22 @@
         }
       }
     },
+    "market_comparables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "price_eur": { "type": ["integer", "number", "null"] },
+          "mileage_km": { "type": ["integer", "number", "null"] },
+          "material_difference": { "type": "string" },
+          "relevance": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+          "source_name": { "type": "string" },
+          "source_url": { "type": "string" },
+          "verified_url": { "type": "boolean" }
+        }
+      }
+    },
     "expected_costs": {
       "type": "array",
       "items": {
@@ -147,6 +244,7 @@
           "why": { "type": "string" },
           "estimated_cost_eur_low": { "type": ["integer", "number", "null"] },
           "estimated_cost_eur_high": { "type": ["integer", "number", "null"] },
+          "cost_type": { "type": "string", "enum": ["initial_service", "diagnostic", "conditional_repair", "major_downside"] },
           "urgency": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
           "basis": { "type": "string" }
         }
@@ -161,6 +259,24 @@
           "why_it_matters_to_buyer": { "type": "string" },
           "evidence": { "type": "string" },
           "confidence": { "type": "string", "enum": ["Vysoka", "Stredna", "Nizka"] }
+        }
+      }
+    },
+    "sources_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": { "type": "string" },
+          "source_name": { "type": "string" },
+          "source_type": {
+            "type": "string",
+            "enum": ["OFFICIAL", "REGULATORY", "LISTING", "VEHICLE_HISTORY", "MARKET_COMPARABLE", "TECHNICAL_PUBLICATION", "REPAIR_SOURCE", "OWNER_REPORT", "OTHER"]
+          },
+          "reliability": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+          "source_url": { "type": "string" },
+          "verified_url": { "type": "boolean" },
+          "used_for": { "type": "string" }
         }
       }
     }

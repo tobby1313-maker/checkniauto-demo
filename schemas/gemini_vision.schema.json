@@ -29,6 +29,16 @@
         "notes": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "odometer": {
+      "type": "object",
+      "properties": {
+        "visible": { "type": "boolean" },
+        "reading_km": { "type": ["integer", "number", "null"] },
+        "photo_label": { "type": "string" },
+        "confidence": { "type": ["integer", "number", "null"] },
+        "notes": { "type": "string" }
+      }
+    },
     "view_coverage": {
       "type": "object",
       "properties": {
@@ -40,6 +50,24 @@
         "underbody": { "type": "string", "enum": ["visible_detail", "visible_overview_only", "missing", "unknown"] }
       }
     },
+    "supported_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["body", "paint", "corrosion", "interior", "dashboard", "odometer", "wheels", "tires", "documents", "equipment", "other"]
+          },
+          "photo_label": { "type": "string" },
+          "observation": { "type": "string" },
+          "evidence_category": { "type": "string", "enum": ["VISUAL_INDICATION", "CONFIRMED"] },
+          "importance": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+          "confidence": { "type": ["integer", "number", "null"] }
+        }
+      }
+    },
+    "missing_views": { "type": "array", "items": { "type": "string" } },
     "photo_limitations": { "type": "array", "items": { "type": "string" } },
     "exterior_observations": {
       "type": "array",
