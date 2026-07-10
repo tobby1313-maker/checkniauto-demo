@@ -122,11 +122,25 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertIn("- **VIN:** JMBXNGA1WBZ019167", cleaned)
         self.assertIn("inzerÃ¡tom (178 000 km)", cleaned)
 
-    def test_removes_grounding_redirect_urls(self):
+    def test_removes_grounding_redirect_urls_and_source_labels(self):
         cleaned = normalize_analysis_markdown(BROKEN_MARKDOWN, CAR_INFO)
         self.assertNotIn("vertexaisearch.cloud.google.com", cleaned)
-        self.assertIn("autorubik.sk", cleaned)
-        self.assertIn("garaz.cz", cleaned)
+        self.assertNotIn("autorubik.sk", cleaned)
+        self.assertNotIn("garaz.cz", cleaned)
+
+    def test_removes_public_markdown_and_plain_urls_but_keeps_finding(self):
+        markdown = (
+            "- Prevodovku treba skontrolovať ([Honda](https://www.honda.eu/)).\n"
+            "- Servisná kontrola: https://www.example.org/check?part=cvt.\n"
+        )
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertIn("- Prevodovku treba skontrolovať.", cleaned)
+        self.assertIn("- Servisná kontrola:", cleaned)
+        self.assertNotIn("Honda", cleaned)
+        self.assertNotIn("http://", cleaned)
+        self.assertNotIn("https://", cleaned)
 
     def test_removes_unavailable_url_parentheticals(self):
         markdown = (
@@ -197,7 +211,7 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertIn("| VIN kontrola | - | 20 EUR | Nízka |", cleaned)
         self.assertIn("| Palivové čerpadlo | Len pri potvrdenej chybe", cleaned)
 
-    def test_removes_standalone_sources_section_but_keeps_inline_links(self):
+    def test_removes_standalone_sources_section_and_inline_links(self):
         markdown = """## Webové overenie
 
 - Prevodovku treba skontrolovať ([Honda](https://www.honda.eu/)).
@@ -217,7 +231,9 @@ Auto riešiť iba po kontrole.
         self.assertNotIn("## Zdroje", cleaned)
         self.assertNotIn("Auto-Data.net", cleaned)
         self.assertNotIn("Car-recalls.eu", cleaned)
-        self.assertIn("[Honda](https://www.honda.eu/)", cleaned)
+        self.assertIn("Prevodovku treba skontrolovať.", cleaned)
+        self.assertNotIn("Honda", cleaned)
+        self.assertNotIn("https://", cleaned)
         self.assertIn("## Záverečné odporúčanie", cleaned)
 
     def test_removes_english_sources_section_before_end_marker(self):

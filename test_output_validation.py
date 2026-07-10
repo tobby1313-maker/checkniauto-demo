@@ -132,6 +132,19 @@ Cena je orientacna.
             },
         )
 
+    def test_public_report_normalization_removes_all_external_links(self):
+        cleaned = web_server.normalize_analysis_markdown(
+            "# Report\n\n"
+            "- Overte servis ([Zdroj](https://www.example.com/service)).\n"
+            "- Detail je na https://www.example.com/detail.\n",
+            "",
+        )
+
+        self.assertIn("- Overte servis.", cleaned)
+        self.assertIn("- Detail je na", cleaned)
+        self.assertNotIn("https://", cleaned)
+        self.assertFalse(web_server._markdown_links(cleaned))
+
     def test_json_contract_validation_warns_without_failing(self):
         warnings = web_server._soft_validate_json_contract(
             "grok_research.json",

@@ -1853,26 +1853,17 @@
         }
 
         function inlineMarkdown(value) {
-            let html = escapeHtml(value);
-            const links = [];
+            let publicText = replaceMarkdownLinks(String(value || ""), () => "");
+            publicText = publicText.replace(/https?:\/\/[^\s<]+/gi, "");
+            publicText = publicText.replace(/\(\s*\)/g, "");
+            publicText = publicText.replace(/\[\s*\]/g, "");
+            publicText = publicText.replace(/\s+([,.;:])/g, "$1");
+            publicText = publicText.replace(/\(\s*([,.;:])/g, "$1");
 
-            const markdownLinkToken = (label, url) => {
-                const token = `%%CHECKNI_LINK_${links.length}%%`;
-                links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
-                return token;
-            };
-
-            html = replaceMarkdownLinks(html, markdownLinkToken);
+            let html = escapeHtml(publicText);
             html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
             html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
             html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-            html = html.replace(/(https?:\/\/[^\s<]+)/g, (match) => {
-                const parts = splitTrailingUrlPunctuation(match);
-                return `<a href="${parts.url}" target="_blank" rel="noopener noreferrer">${parts.url}</a>${parts.trailing}`;
-            });
-            links.forEach((link, index) => {
-                html = html.replace(`%%CHECKNI_LINK_${index}%%`, link);
-            });
             return html;
         }
 

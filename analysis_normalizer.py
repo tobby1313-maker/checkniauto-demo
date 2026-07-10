@@ -2,6 +2,7 @@
 
 Safe transformations:
   - Google Search grounding redirect URL sanitization
+  - Public hyperlink removal (raw research artifacts retain their URLs)
   - Basic VIN and mileage canonicalization
   - Table structure repair (split rows across lines)
   - Blank line normalization
@@ -51,6 +52,7 @@ def normalize_analysis_markdown(text: str | None, car_info_text: str | None = No
     value = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
     value = _strip_outer_markdown_fence(value)
     value = _sanitize_grounding_redirects(value)
+    value = _remove_public_hyperlinks(value)
     value = _remove_unavailable_url_notes(value)
     value = _remove_standalone_sources_section(value)
     value = _normalize_tables(value)
@@ -70,10 +72,9 @@ def _strip_outer_markdown_fence(text: str) -> str:
 
 
 def _sanitize_grounding_redirects(text: str) -> str:
-    """Replace Google Search grounding redirect URLs with their display text."""
+    """Remove Google Search grounding redirects from the public report."""
     def replace_markdown_link(match: re.Match[str]) -> str:
-        label = re.sub(r"\s+", " ", match.group(1)).strip()
-        return label or "URL citácia nie je overiteľná"
+        return ""
 
     text = re.sub(
         r"\[([^\]\n]{1,120})\]\(\s*https?://vertexaisearch\.cloud\.google\.com[\s\S]*?\)",
@@ -83,12 +84,64 @@ def _sanitize_grounding_redirects(text: str) -> str:
     )
     text = re.sub(
         r"https?://vertexaisearch\.cloud\.google\.com/\S+",
-        "URL citácia nie je overiteľná",
+        "",
         text,
         flags=re.IGNORECASE,
     )
     text = re.sub(r"\s+([,.;:])", r"\1", text)
     return text
+
+
+def _remove_public_hyperlinks(text: str) -> str:
+    """Remove Markdown and plain URLs while keeping the surrounding finding."""
+    value = str(text or "")
+    output: list[str] = []
+    index = 0
+
+    while index < len(value):
+        label_start = value.find("[", index)
+        if label_start < 0:
+            output.append(value[index:])
+            break
+        label_end = value.find("](", label_start + 1)
+        if label_end < 0:
+            output.append(value[index:])
+            break
+        url_start = label_end + 2
+        if not value.startswith(("http://", "https://"), url_start):
+            output.append(value[index : label_end + 2])
+            index = label_end + 2
+            continue
+
+        depth = 0
+        url_end = url_start
+        while url_end < len(value):
+            char = value[url_end]
+            if char.isspace():
+                break
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            url_end += 1
+
+        if url_end >= len(value) or value[url_end] != ")":
+            output.append(value[index:url_start])
+            index = url_start
+            continue
+
+        output.append(value[index:label_start])
+        index = url_end + 1
+
+    value = "".join(output)
+    value = re.sub(r"https?://[^\s<>]+", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\(\s*\)", "", value)
+    value = re.sub(r"\[\s*\]", "", value)
+    value = re.sub(r"\s+([,.;:])", r"\1", value)
+    value = re.sub(r"\(\s*([,.;:])", r"\1", value)
+    return value
 
 
 # ── Table helpers ────────────────────────────────────────────────

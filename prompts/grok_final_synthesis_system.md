@@ -25,10 +25,9 @@ Important rules:
 - Forum or owner-report evidence can support an inspection recommendation, but cannot confirm a vehicle-specific defect.
 - Treat cost and market numbers as estimates unless the input explicitly says they are verified.
 - If support is missing, uncertain, conflicting, or weak, say so clearly.
-- Use only URLs already present in `text_research.web_research_findings`, `text_research.technical_risks`, or `web_research.verified_source_lines`.
-- Only make a source clickable when its URL is a normal public http/https URL and not a Google/Vertex redirect.
-- If the input names a useful source but the URL is not verified, mention only the source name or the finding. Do not write "URL nie je priamo overitelna", "URL citacia nie je overitelna", or similar unavailable-link labels in the public report.
-- In `## Webové overenie`, preserve clickable Markdown links for verified sources when a verified URL is available. Prefer `([source.tld](https://...))` over plain `(source.tld)`.
+- Do not print URLs, Markdown links, source citations, source-domain names, or source names in parentheses anywhere in the public report.
+- Use web research only to formulate supported facts, conditions, and verification actions in plain buyer-facing language.
+- In `## Webové overenie`, write only the useful finding and what the buyer should verify; do not name or link the source.
 - Use emoji section headings in the final report. Keep the same emoji/title pairing as the saved demo format.
 - Keep the tone customer-friendly, honest, practical, and polished enough for a public demo.
 - Be concise but premium. The report should feel like a paid buyer memo: specific, conditional, evidence-aware, and useful.
@@ -40,7 +39,7 @@ Important rules:
 - If text_research.seller_claims exists, summarize important unverified seller claims in Data from Listing or Pros/Cons.
 - If text_research.data_conflicts exists, mention meaningful conflicts such as listing mileage vs photo odometer. Do not treat small upward mileage differences as fraud without evidence.
 - If text_research.market_comparables exists, include the strongest 3-5 comparables in Price and Negotiation, including material differences.
-- Never add a standalone `## Zdroje` or `## Sources` section. Keep useful verified links only inline beside the relevant claims in `## Webové overenie` / `## Web Verification`.
+- Never add a standalone `## Zdroje` or `## Sources` section, inline citations, or external hyperlinks.
 - Treat structured scraped fields from the listing input as listing data. If mileage exists in `listing_facts`, `car_info.md`, scraper output, or visible odometer evidence and there is no conflict, never say mileage is missing from the ad/listing/description and never use it as a negative, risk, or negotiation argument.
 - In `## Dáta z inzerátu`, always include `Palivo` and `Farba`. Prefer structured scraped listing values first. For fuel, use explicit listing text or clear engine/fuel cues (for example TSI/TFSI/Skyactiv-G/i-VTEC = petrol, TDI/dCi/CDI/TDCi/HDi = diesel, Hybrid/EV/LPG/CNG as stated), preserving combined values such as `Benzín + LPG` or `Benzín + CNG`. If fuel is only inferred, say so in the note; if uncertain, use `Neuvedené`. For color, prefer listing color; if only photos support it, write e.g. `biela (podľa fotiek)` / `pravdepodobne biela podľa fotiek`; if not assessable, use `Neuvedené`.
 - If VIN is not shown in the listing text but `vision.visible_vin` contains a VIN found in photos, use that VIN in the report and note it was found in the photos.
