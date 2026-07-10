@@ -327,10 +327,56 @@ class DemoDashboardApiTest(unittest.TestCase):
 
         self.assertIn("## 📋 Rýchle zhrnutie", updated)
         self.assertIn("- **Hodnotenie:** TEST", updated)
+        self.assertIn("### Exteriér", updated)
+        self.assertIn("### Interiér", updated)
+        self.assertIn("### Červené vlajky a limity fotografií", updated)
         self.assertIn("**Foto 01:** Predné svetlomety vykazujú mierne zahmlenie.", updated)
         self.assertIn("**Foto 18:** Zadné sedadlá vyzerajú v dobrom stave", updated)
         self.assertIn("**Chýbajúce pohľady:** motorový priestor, podvozok", updated)
+        self.assertIn("Fotografie však nevylučujú skryté chyby", updated)
         self.assertNotIn("nie je dostatočne zaostrená", updated)
+
+    def test_photo_analysis_includes_documents_and_red_flag_details(self):
+        report = """# Analýza: Mazda CX-5
+
+## 📸 Analýza fotografií
+
+- Starý text.
+
+## ✅ Klady
+
+- Test.
+
+<!-- END_ANALYSIS -->
+"""
+        vision = json.dumps({
+            "photos_provided": True,
+            "supported_observations": [
+                {
+                    "type": "documents",
+                    "photo_label": "Foto 15",
+                    "observation": "Na sedadle sú viditeľné manuály a servisná knižka.",
+                    "notes": "Ich obsah a úplnosť nemožno z fotografie potvrdiť.",
+                }
+            ],
+            "exterior_observations": [],
+            "interior_observations": [],
+            "visible_red_flags": [
+                {
+                    "photo_label": "Foto 04",
+                    "red_flag": "Pravý blatník má odlišný odtieň.",
+                    "why_it_matters": "Treba ho preveriť meračom laku.",
+                }
+            ],
+        }, ensure_ascii=False)
+
+        updated = web_server._replace_photo_analysis_section(report, vision, "sk")
+
+        self.assertIn("**Foto 15:** Na sedadle sú viditeľné manuály a servisná knižka.", updated)
+        self.assertIn("Ich obsah a úplnosť nemožno z fotografie potvrdiť.", updated)
+        self.assertIn("**Foto 04:** Pravý blatník má odlišný odtieň.", updated)
+        self.assertIn("Treba ho preveriť meračom laku.", updated)
+        self.assertNotIn("neboli označené zjavné vážne vizuálne poškodenia", updated)
 
     def test_photo_analysis_replacement_preserves_bare_following_headings(self):
         report = """# Analýza: Mazda CX-5

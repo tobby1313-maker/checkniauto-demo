@@ -168,8 +168,8 @@ DEMO_SKIP_KB = os.environ.get("DEMO_SKIP_KB", "true").lower() in {"1", "true", "
 MAX_UPLOAD_BYTES = int(os.environ.get("DEMO_MAX_UPLOAD_MB", "24")) * 1024 * 1024
 FINAL_LISTING_DESCRIPTION_CHARS = 900
 MODEL_LISTING_DESCRIPTION_CHARS = 1400
-FINAL_TEXT_FIELD_CHARS = 420
-FINAL_WEB_RESEARCH_CHARS = 1800
+FINAL_TEXT_FIELD_CHARS = 640
+FINAL_WEB_RESEARCH_CHARS = 2800
 
 os.makedirs(AUTA_DIR, exist_ok=True)
 
@@ -2194,28 +2194,13 @@ def healthz():
 
 
 def _build_text_research_context(car_info_text, output_language="sk", web_research_text=""):
-    kb_section = ""
-    try:
-        from main import find_matching_kb_files
-        matched = find_matching_kb_files(KB_DIR, car_info_text)
-        if matched:
-            kb_section = "\n\n## Knowledge base matches\n"
-            for category, filepath in matched:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    kb_section += f"\n### [{category}] {os.path.basename(filepath)}\n```json\n{f.read()}\n```\n"
-    except Exception as exc:
-        safe_log(f"KB matching warning: {exc}")
-
-    if DEMO_MODE and DEMO_SKIP_KB:
-        kb_section = ""
-
     web_section = ""
     if web_research_text:
         web_section = f"\n\n## Provided web research results\n{web_research_text}"
 
     return f"""## Listing data
 {car_info_text}
-{kb_section}{web_section}
+{web_section}
 
 ## Output language
 {_demo_output_language(output_language)}
@@ -2864,8 +2849,13 @@ def _vision_observation_bullet(item):
         text = str(item or "").strip()
         return f"- {text}" if text else ""
     label = str(item.get("photo_label") or "").strip()
-    observation = str(item.get("observation") or "").strip()
-    relevance = str(item.get("buyer_relevance") or "").strip()
+    observation = str(item.get("observation") or item.get("red_flag") or "").strip()
+    relevance = str(
+        item.get("buyer_relevance")
+        or item.get("why_it_matters")
+        or item.get("notes")
+        or ""
+    ).strip()
     parts = []
     if observation:
         parts.append(observation)
@@ -2888,31 +2878,89 @@ def _high_confidence_dashboard_note(item):
 
 def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
     data = _safe_model_json(vision_result_json)
+    language = _demo_output_language(output_language)
     if not data.get("photos_provided"):
         return [
             "- Fotografie neboli poskytnuté alebo neboli spoľahlivo analyzovateľné."
-            if _demo_output_language(output_language) == "sk"
+            if language == "sk"
             else "- Photos were not provided or could not be analyzed reliably."
         ]
 
-    lines = []
-    for item in data.get("exterior_observations") or []:
-        bullet = _vision_observation_bullet(item)
-        if bullet:
-            lines.append(bullet)
-    for item in data.get("interior_observations") or []:
-        bullet = _vision_observation_bullet(item)
-        if bullet:
-            lines.append(bullet)
-    for item in data.get("visible_red_flags") or []:
-        bullet = _vision_observation_bullet(item)
-        if bullet:
-            lines.append(bullet)
-    for item in data.get("dashboard_or_warning_lights") or []:
-        if _high_confidence_dashboard_note(item):
+    seen = set()
+
+    def unique_bullets(items):
+        bullets = []
+        for item in items or []:
             bullet = _vision_observation_bullet(item)
-            if bullet:
-                lines.append(bullet)
+            if isinstance(item, dict):
+                key = _normalize_claim_text(
+                    " ".join(
+                        str(value or "")
+                        for value in (
+                            item.get("photo_label"),
+                            item.get("observation") or item.get("red_flag"),
+                        )
+                    )
+                )
+            else:
+                key = _normalize_claim_text(bullet)
+            if bullet and key not in seen:
+                seen.add(key)
+                bullets.append(bullet)
+        return bullets
+
+    supported = [item for item in data.get("supported_observations") or [] if isinstance(item, dict)]
+    exterior_types = {"body", "paint", "corrosion", "wheels", "tires"}
+    interior_types = {"interior", "dashboard", "odometer", "documents", "equipment"}
+    exterior_supported = [item for item in supported if str(item.get("type") or "").lower() in exterior_types]
+    interior_supported = [item for item in supported if str(item.get("type") or "").lower() in interior_types]
+
+    exterior = unique_bullets((data.get("exterior_observations") or []) + exterior_supported)
+    interior_items = list(data.get("interior_observations") or []) + interior_supported
+    interior_items.extend(
+        item
+        for item in data.get("dashboard_or_warning_lights") or []
+        if _high_confidence_dashboard_note(item)
+    )
+    interior = unique_bullets(interior_items)
+    red_flags = unique_bullets(data.get("visible_red_flags") or [])
+
+    lines = ["### Exteriér" if language == "sk" else "### Exterior"]
+    if exterior:
+        lines.extend(exterior)
+    else:
+        lines.append(
+            "- Exteriér nie je na poskytnutých fotografiách dostatočne detailný na spoľahlivé hodnotenie."
+            if language == "sk"
+            else "- The exterior is not shown in enough detail for a reliable assessment."
+        )
+
+    lines.extend(["", "### Interiér" if language == "sk" else "### Interior"])
+    if interior:
+        lines.extend(interior)
+    else:
+        lines.append(
+            "- Interiér nie je na poskytnutých fotografiách dostatočne detailný na spoľahlivé hodnotenie."
+            if language == "sk"
+            else "- The interior is not shown in enough detail for a reliable assessment."
+        )
+
+    lines.extend(
+        [
+            "",
+            "### Červené vlajky a limity fotografií"
+            if language == "sk"
+            else "### Red Flags and Photo Limitations",
+        ]
+    )
+    if red_flags:
+        lines.extend(red_flags)
+    else:
+        lines.append(
+            "- Na analyzovaných fotografiách neboli označené zjavné vážne vizuálne poškodenia. Fotografie však nevylučujú skryté chyby, staršie opravy ani koróziu mimo záberu."
+            if language == "sk"
+            else "- No obvious serious visual damage was flagged in the analyzed photos. Photos cannot exclude hidden defects, earlier repairs, or corrosion outside the frame."
+        )
 
     view_coverage = data.get("view_coverage") if isinstance(data.get("view_coverage"), dict) else {}
     missing_views = []
@@ -2921,9 +2969,9 @@ def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
         ("underbody", "podvozok", "underbody"),
     ):
         if str(view_coverage.get(key) or "").strip().lower() == "missing":
-            missing_views.append(label_sk if _demo_output_language(output_language) == "sk" else label_en)
+            missing_views.append(label_sk if language == "sk" else label_en)
     if missing_views:
-        if _demo_output_language(output_language) == "sk":
+        if language == "sk":
             lines.append(
                 "- **Chýbajúce pohľady:** "
                 + ", ".join(missing_views)
@@ -2935,6 +2983,15 @@ def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
                 + ", ".join(missing_views)
                 + " are not visible in the photos, so their condition cannot be assessed reliably."
             )
+
+    for limitation in (data.get("photo_limitations") or [])[:4]:
+        text = str(limitation or "").strip()
+        if not text:
+            continue
+        if any(_normalize_claim_text(text) in _normalize_claim_text(line) for line in lines):
+            continue
+        label = "Obmedzenie" if language == "sk" else "Limitation"
+        lines.append(f"- **{label}:** {text}")
 
     return lines
 
@@ -2974,25 +3031,25 @@ def _compact_text_research_for_final(grok_research_json_text):
         "consistency_checks": _limited_list(data.get("consistency_checks"), 6, prefer_concerns=True),
         "vin_check": _compact_value(data.get("vin_check")),
         "safety_and_recall": _compact_value(data.get("safety_and_recall")),
-        "knowledge_base_findings": _limited_list(data.get("knowledge_base_findings"), 6, prefer_concerns=True),
+        "knowledge_base_findings": [],
         "web_research_findings": [
             _sanitize_source_item(item)
-            for item in _limited_list(data.get("web_research_findings"), 8, prefer_concerns=True)
+            for item in _limited_list(data.get("web_research_findings"), 12, prefer_concerns=True)
         ],
         "technical_risks": [
             _sanitize_source_item(item)
-            for item in _limited_list(data.get("technical_risks"), 6, prefer_concerns=True)
+            for item in _limited_list(data.get("technical_risks"), 8, prefer_concerns=True)
         ],
         "market_assessment": _compact_value(data.get("market_assessment")),
         "market_comparables": [
             _sanitize_source_item(item)
             for item in _limited_list(data.get("market_comparables"), 5, prefer_concerns=True)
         ],
-        "expected_costs": _limited_list(data.get("expected_costs"), 8, prefer_concerns=True),
-        "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 8, prefer_concerns=True),
+        "expected_costs": _limited_list(data.get("expected_costs"), 10, prefer_concerns=True),
+        "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 10, prefer_concerns=True),
         "sources_used": [
             _sanitize_source_item(item)
-            for item in _limited_list(data.get("sources_used"), 16, prefer_concerns=True)
+            for item in _limited_list(data.get("sources_used"), 20, prefer_concerns=True)
         ],
         "parse_error": data.get("_parse_error", False),
         "raw_preview": data.get("_raw_preview"),

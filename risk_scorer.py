@@ -154,13 +154,19 @@ def calculate_risk_score(
         _add_rule(applied_rules, "visible_serious_damage_or_red_flags", 2, "Vizuálna analyza oznacila vazne viditelne rizika alebo red flags.")
         priority_checks.append("Pred kupou urobit fyzicku kontrolu karoserie a diagnostiku.")
 
-    kb_findings = [_as_dict(item) for item in _as_list(research.get("knowledge_base_findings"))]
-    expensive_findings = [item for item in kb_findings if _mentions_expensive_risk(item)]
+    researched_findings = [
+        _as_dict(item)
+        for item in (
+            _as_list(research.get("technical_risks"))
+            + _as_list(research.get("knowledge_base_findings"))
+        )
+    ]
+    expensive_findings = [item for item in researched_findings if _mentions_expensive_risk(item)]
     high_conf_expensive = [item for item in expensive_findings if _is_high_confidence(item.get("confidence"))]
     if high_conf_expensive:
-        _add_rule(applied_rules, "high_confidence_expensive_known_risk", 2, "Knowledge base obsahuje drahe zname riziko s vysokou istotou.")
+        _add_rule(applied_rules, "high_confidence_expensive_known_risk", 2, "Research obsahuje relevantne drahe zname riziko s vysokou istotou.")
     elif expensive_findings:
-        _add_rule(applied_rules, "relevant_expensive_known_risk", 1, "Knowledge base obsahuje relevantne potencialne drahe riziko.")
+        _add_rule(applied_rules, "relevant_expensive_known_risk", 1, "Research obsahuje relevantne potencialne drahe riziko.")
 
     price_view = _clean(market.get("price_view")).lower()
     suspicious_price = price_view in {
@@ -342,7 +348,13 @@ def _has_visual_severity(vision: dict[str, Any], severities: set[str]) -> bool:
 
 
 def _mentions_expensive_risk(item: dict[str, Any]) -> bool:
-    text = " ".join(_clean(item.get(key)).lower() for key in ("risk", "notes", "component"))
+    text = " ".join(
+        _clean(item.get(key)).lower()
+        for key in ("risk", "issue", "notes", "component", "buyer_impact", "cost_condition")
+    )
+    estimated_high = _extract_int(item.get("estimated_cost_eur_high"))
+    if estimated_high is not None and estimated_high >= 1000:
+        return True
     keywords = (
         "drah",
         "expensive",

@@ -230,6 +230,39 @@ class RiskScorerTest(unittest.TestCase):
         self.assertIn("excellent_documentation_and_low_risk_profile", _rules(result))
         self.assertEqual(result["risk_score"], 0)
 
+    def test_source_backed_expensive_technical_risk_affects_score_without_kb(self):
+        result = calculate_risk_score(
+            _json(
+                {
+                    "listing_facts": {
+                        "vin": "JM3KE4DYXE0325836",
+                        "year": "2014",
+                        "mileage": "182 734 km",
+                        "service_history": "regular service claimed",
+                        "origin_or_country": "SK",
+                        "seller": "dealer",
+                    },
+                    "vin_check": {"vin_present": True, "format_check": "ok"},
+                    "market_assessment": {"price_view": "fair"},
+                    "consistency_checks": [],
+                    "knowledge_base_findings": [],
+                    "technical_risks": [
+                        {
+                            "component": "automatic transmission",
+                            "issue": "Valve-body repair is a conditional high-mileage risk.",
+                            "evidence_category": "MODEL_LEVEL_RISK",
+                            "estimated_cost_eur_low": 300,
+                            "estimated_cost_eur_high": 1500,
+                            "confidence": "Vysoka",
+                        }
+                    ],
+                }
+            ),
+            _json({"photos_provided": True, "photo_limitations": [], "visual_verdict": "Looks visually ok"}),
+        )
+
+        self.assertIn("high_confidence_expensive_known_risk", _rules(result))
+
 
 if __name__ == "__main__":
     unittest.main()

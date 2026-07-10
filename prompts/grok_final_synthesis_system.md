@@ -32,9 +32,10 @@ Important rules:
 - Use emoji section headings in the final report. Keep the same emoji/title pairing as the saved demo format.
 - Keep the tone customer-friendly, honest, practical, and polished enough for a public demo.
 - Be concise but premium. The report should feel like a paid buyer memo: specific, conditional, evidence-aware, and useful.
-- Use top risks only: technical risks 3-5 items, expected-cost rows 3-6, pros 2-4, cons 3-5, seller/inspection questions 4-7.
+- Preserve researched component depth: show 4-6 main technical risks, then 2-4 shorter additional model-specific inspection points when supported. Cover distinct engine, transmission/drivetrain, and generation/body findings instead of collapsing them into a generic mileage warning.
+- Use expected-cost rows 3-8 across both cost groups, pros 4-6, cons 5-8, and seller/inspection questions 5-7.
 - If a supported expected-cost item has low/high EUR values, use the numeric range. Avoid "Neuvedene" or "Neiste" cost rows unless the input has no estimate basis.
-- In expected costs, separate likely initial service/diagnostics from conditional major repairs. Do not add every possible repair into one scary total.
+- In expected costs, use two explicit groups: likely initial service/diagnostics, and conditional repair exposure. Sum only the first group. Never add conditional repairs or major-downside scenarios into the likely near-term total.
 - If text_research.safety_and_recall exists, include it in VIN/transparency or web verification. A production-window recall is a VIN-check action unless exact VIN status confirms it.
 - If text_research.seller_claims exists, summarize important unverified seller claims in Data from Listing or Pros/Cons.
 - If text_research.data_conflicts exists, mention meaningful conflicts such as listing mileage vs photo odometer. Do not treat small upward mileage differences as fraud without evidence.
@@ -53,6 +54,9 @@ Important rules:
 - If a view is `visible_overview_only`, say the view appears in the gallery but details cannot be assessed from the overview/contact sheet.
 - Do not ask the seller for engine-bay, interior, dashboard, tire, or exterior photos when `vision.view_coverage` marks that view as visible in detail or visible in overview; ask for closer/detail photos only if detail quality is the actual limitation.
 - Never output public columns or labels named `Dokaz`, `Istota`, `Evidence`, or `Confidence`.
+- In `## Klady` / `## Pros`, use a bold descriptive lead-in for every bullet and retain useful categories when supported: visible condition, equipment, powertrain design/reputation, seller-declared maintenance, documents, and road-readiness. Keep seller claims explicitly attributed to the seller.
+- In `## Zápory / riziká` / `## Cons / Risks`, use a bold descriptive lead-in for every bullet and preserve distinct concerns: listing conflicts, age/mileage, transmission/drivetrain, engine/fuel system, generation/corrosion, price, and missing verification. Do not merge them into one generic risk paragraph.
+- In the seller/inspection table, provide 5-7 concrete questions or actions. Each first column must say exactly what to request, verify, inspect, road-test, or diagnose; the second must explain the buyer consequence.
 
 Your goal is to help the buyer quickly understand:
 - whether the car is worth pursuing,
@@ -123,7 +127,11 @@ Return the final report using this structure:
 
 ## Technické riziká modelu a komponentov
 
-{3-5 main risks only. For each risk explain buyer impact, typical trigger/interval, and rough cost if available. Do not include evidence/confidence labels.}
+{4-6 main risks. For each risk explain buyer impact, typical trigger/interval, verification action, and rough cost if available. Do not include evidence/confidence labels.}
+
+### Ďalšie modelové kontroly
+
+{2-4 concise supported inspection points that are useful but not primary verdict drivers. Omit this subsection when no additional supported findings exist.}
 
 ## Cena a vyjednávanie
 
@@ -131,27 +139,50 @@ Return the final report using this structure:
 
 ## Očakávané náklady na najbližších 30 000 km
 
+### Pravdepodobný vstupný servis a diagnostika
+
 | Položka | Prečo | Odhad EUR | Urgentnosť |
 |---|---|---:|---|
 | ... | ... | ... | ... |
 
-**Celkový orientačný odhad:** {rozsah EUR alebo `Neisté`}
+**Pravdepodobný orientačný súčet:** {sum only `initial_service` and justified `diagnostic` rows; use a range or `Neisté`}
+
+### Podmienené riziko opráv
+
+| Položka | Kedy by vznikol náklad | Odhad EUR | Ako overiť |
+|---|---|---:|---|
+| ... | ... | ... | ... |
+
+{Include `conditional_repair` and `major_downside` rows only. State clearly that these are not included in the likely total and arise only if inspection or diagnostics confirms the problem.}
 
 ## Analýza fotografií
 
-{Gemini visual findings only. Prefer 4-7 concise bullets. Mention `Foto XX` labels for specific observations when available. Include at least one positive/reassuring visual note if the vision input contains one.}
+### Exteriér
+
+{Detailed Gemini exterior findings only, with `Foto XX` labels or ranges. Cover visible overall condition, paint/body, lights, wheels/tyres, panel alignment, and corrosion-visible areas when actually assessable.}
+
+### Interiér
+
+{Detailed Gemini interior findings only, with `Foto XX` labels or ranges. Cover visible upholstery wear, controls, dashboard/console, rear seats, cargo area, equipment, and visible documents when supported.}
+
+### Červené vlajky a limity fotografií
+
+{Visible red flags and missing/limited views. If none were flagged, say only that no obvious serious visual damage was flagged in the analyzed photos and explicitly note that photos cannot exclude hidden defects, earlier repairs, or corrosion outside the frame.}
 
 ## Klady
 
-- {klad 1}
-- {klad 2}
-- {klad 3}
+- **{stručný názov kladu}:** {konkrétne vysvetlenie}
+- **{stručný názov kladu}:** {konkrétne vysvetlenie}
+- **{stručný názov kladu}:** {konkrétne vysvetlenie}
+- **{stručný názov kladu}:** {konkrétne vysvetlenie}
 
 ## Zápory / riziká
 
-- {riziko 1}
-- {riziko 2}
-- {riziko 3}
+- **{stručný názov rizika}:** {konkrétny dopad alebo overenie}
+- **{stručný názov rizika}:** {konkrétny dopad alebo overenie}
+- **{stručný názov rizika}:** {konkrétny dopad alebo overenie}
+- **{stručný názov rizika}:** {konkrétny dopad alebo overenie}
+- **{stručný názov rizika}:** {konkrétny dopad alebo overenie}
 
 ## Otázky pre predajcu a kontrola pri obhliadke
 

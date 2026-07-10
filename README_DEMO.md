@@ -22,7 +22,9 @@ disabled in the public demo. Use manual mode for `mobile.de` listings.
 The analysis pipeline is:
 
 1. Scrape or import the listing into a temporary `Auta/<slug>/` job folder.
-2. Run Gemini grounded web research for listing/model context when available.
+2. Run stateless Gemini grounded web research for the identified generation,
+   engine, transmission/drivetrain, recalls, repair exposure, and close market
+   comparables when available.
 3. Run text/research analysis with Grok when `GROK_API_KEY` is configured,
    otherwise OpenRouter when `OPENROUTER_API_KEY` is configured, otherwise
    Gemini.
@@ -32,6 +34,13 @@ The analysis pipeline is:
    step 3.
 7. Save the public report and intermediate artifacts for the dashboard.
 
+The public analysis pipeline does not load or update a vehicle knowledge base.
+Model, engine, transmission, drivetrain, generation, recall, cost, and market
+context is researched for each job through Gemini Google Search grounding.
+Generated job files are temporary runtime artifacts and are not treated as a
+persistent cache; this keeps deployments compatible with ephemeral Render
+filesystems.
+
 ## Local Run
 
 ```powershell
@@ -39,7 +48,6 @@ cd "D:\VS Projekty\Scrapper - DEMO"
 python -m pip install -r requirements.txt
 
 $env:DEMO_MODE="true"
-$env:DEMO_SKIP_KB="true"
 $env:DEMO_PROMPT_FILE="analyze_prompt_v4_koyeb.txt"
 $env:FLASK_SECRET_KEY="change-me"
 
@@ -75,7 +83,6 @@ Recommended deployment environment:
 
 ```text
 DEMO_MODE=true
-DEMO_SKIP_KB=true
 DEMO_PROMPT_FILE=analyze_prompt_v4_koyeb.txt
 FLASK_SECRET_KEY=<strong-random-secret>
 GEMINI_PRIMARY_API_KEY=<server-side-key>
@@ -99,7 +106,6 @@ temp directory in `scrapper-demo/Auta`.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DEMO_MODE` | `true` | Restricts the app to public demo routes. |
-| `DEMO_SKIP_KB` | `true` | Omits private knowledge-base matches from demo prompts. |
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
 | `GEMINI_PRIMARY_API_KEY` | empty | Required Gemini key for web research, vision, and Gemini fallback. |
 | `GEMINI_BACKUP_API_KEY` | empty | Optional second Gemini key retried on key/quota failures. |

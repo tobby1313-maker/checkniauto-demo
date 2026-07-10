@@ -181,21 +181,39 @@ def _build_grounded_search_prompt(listing_context: str) -> str:
 
     return f"""Si web research modul pre analyzu ojazdeneho auta.
 
-Pouzi Google Search grounding. Vyhladavaj cielene a skromne, hlavne SK/CZ/EU zdroje.
+Pouzi Google Search grounding. Toto je jediny zdroj modelovych a komponentovych
+znalosti pre stateless verejne demo, preto pokry vsetky relevantne vrstvy vozidla,
+nie iba dve alebo tri najznamejsie chyby. Vyhladavaj cielene, hlavne v SK/CZ/EU.
 
-Uloha:
-1. Over typicke problemy modelu, generacie, motora, prevodovky, AWD/4x4 alebo hybrid/EV systemu.
-2. Zisti prakticke servisne dopady: co kontrolovat, kedy sa problem typicky objavuje a orientacny rozsah opravy v EUR, ak ho zdroj alebo bezna servisna logika podporuje.
-3. Najdi aktualne trhove informacie k podobnym autam v SK/CZ/EU, ak sa daju najst: rozpatie cien, pocet/typ porovnatelnych ponuk, a ci inzerovana cena posobi ferovo.
-4. Ak je v inzerate VIN, skus najst verejne zmienky o VIN. Ak nic nenajdes, napis to.
-5. Vrat kratky markdown v slovencine, s nazvom zdroja a pouzitelnou URL citaciou pri kazdom webovom tvrdeni.
+Postup researchu:
+1. Najprv identifikuj najpravdepodobnejsiu generaciu/platformu, kod alebo rodinu
+   motora, kod alebo rodinu prevodovky a typ pohonu. Ak vstup obsahuje rozpor,
+   uved kandidata a neistotu; nevynucuj presny kod bez opory v zdroji.
+2. Samostatne vyhladaj motor: spolahlivost, typicke poruchy, servisne intervaly,
+   kilometrove/vekove spustace a prakticke kontroly pred kupou.
+3. Samostatne vyhladaj prevodovku a AWD/4x4/hybrid/EV komponenty: kvapaliny,
+   zname prejavy, diagnostiku, typicke spustace a nakladne scenare.
+4. Samostatne vyhladaj generacne problemy karoserie a podvozka: korozia,
+   napravy, loziska, brzdy, elektronika, zatekanie a ine opakujuce sa body.
+5. Over zvolavacie a servisne kampane, prednostne cez oficialny web vyrobcu
+   alebo regulatorny zdroj. Produkcne obdobie znamena iba kontrolu cez VIN,
+   nie potvrdenu otvorenu akciu na konkretnom aute.
+6. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Rozlis bezny vstupny servis,
+   diagnostiku, podmienene opravy a drahy downside; podmienene opravy nikdy
+   neprezentuj ako ocakavany sucet.
+7. Najdi 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka generacia,
+   motor, pohon, prevodovka, podobny rok a najazd. Pri kazdej uved materialny
+   rozdiel; ak su porovnania slabe, povedz to.
+8. Ak je uvedeny VIN, uverejni iba konkretnu relevantnu verejnu zmienku. Absenciu
+   vysledku neprezentuj ako riziko ani ako nejasnu historiu vozidla.
 
 Pravidla:
 - Nevymyslaj zdroje ani odkazy.
 - Ak nenajdes spolahlive zdroje, napis "Nenasiel som spolahlivy webovy zdroj".
 - Neanalyzuj fotografie, tento pass je iba textovy web research.
 - Daj prednost praktickym zisteniam pre kupujuceho.
-- Vystup udrz pod 650 slov.
+- Vystup udrz pod 1100 slov, ale nevynechaj podporenu vrstvu motora, prevodovky,
+  pohonu ani generacie len kvoli strucnosti.
 - URL citacie: pouzi iba odkazy, ktore vyzeraju ako realne existujuce verejne stranky.
 - Nepouzivaj presmerovacie URL z Google/Vertex AI ako verejne zdroje. Ak mas iba taky odkaz, uveď nazov zdroja a napis: "URL citacia nie je overitelna."
 - Ak nevies dolozit cenu alebo naklad, napis, ze ide iba o orientacny odhad.
@@ -204,20 +222,36 @@ Format:
 
 ## Webove overenie cez Google Search
 
+### Identifikacia komponentov
+- generacia/platforma; motor/kod alebo rodina; prevodovka/kod alebo rodina; pohon; istota a zdroj
+
 ### Zdroje
 - [nazov](url) - co zdroj potvrdzuje
 
-### Zname problemy a servisne rizika
-- komponent/problem - dopad pre kupujuceho - typicky km/vek alebo spustac - odhad EUR ak je rozumne dostupny - URL citacia
+### Motor
+- problem alebo servisny bod - dopad - typicky km/vek/spustac - kontrola - odhad EUR - URL
+
+### Prevodovka a pohon
+- problem alebo servisny bod - dopad - typicky km/vek/spustac - kontrola - odhad EUR - URL
+
+### Generacia, karoseria a podvozok
+- problem alebo servisny bod - dopad - typicky km/vek/spustac - kontrola - odhad EUR - URL
+
+### Zvolavacie a servisne kampane
+- kampan alebo jasne uved, ze spolahlivy zdroj nebol najdeny - potrebna VIN kontrola - URL
 
 ### Orientacna cena / trh
-- rozpatie alebo porovnanie podobnych ponuk + URL citacia, alebo jasne napis, ze sa nepodarilo najst porovnanie
+- 3-5 najblizsich ponuk s cenou, najazdom, podstatnym rozdielom a URL; potom obmedzenia porovnania
+
+### Naklady: pravdepodobne vs. podmienene
+- pravdepodobny vstupny servis a diagnostika
+- podmienene opravy iba ak kontrola potvrdi problem; nesucitavaj ich do ocakavaneho totalu
 
 ### VIN / historia / transparentnost
-- zistenie + URL citacia, alebo jasne napis, ze sa nenasla verejna zmienka
+- iba konkretne verejne zistenie s URL; inak tuto podsekciu vynechaj
 
 ### Najdolezitejsie webove zistenia pre finalnu analyzu
-- 3 az 5 bodov: riziko, trh/cena, naklady, VIN transparentnost
+- 5 az 8 bodov napriec motorom, prevodovkou/pohonom, generaciou, trhom a nakladmi
 
 Kontext inzeratu:
 
