@@ -173,6 +173,72 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertIn("neplatný alebo konfliktný VIN", cleaned)
         self.assertIn("Neplatný alebo konfliktný VIN je reálne riziko", cleaned)
 
+    def test_removes_placeholder_only_rows_but_keeps_table_delimiters(self):
+        markdown = """## Očakávané náklady
+
+| Položka | Prečo | Odhad EUR | Urgentnosť |
+|---|---|---:|---|
+| --- | --- | - | --- |
+| Vstupný servis | Bežná údržba | 290 - 490 EUR | Vysoká |
+| VIN kontrola | - | 20 EUR | Nízka |
+
+### Podmienené opravy
+
+| Položka | Podmienka | Odhad EUR | Ako overiť |
+|---|---|---:|---|
+|---|---|---|---|
+| Palivové čerpadlo | Len pri potvrdenej chybe | 300 - 500 EUR | Diagnostika |
+"""
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertNotIn("| --- | --- | - | --- |", cleaned)
+        self.assertEqual(cleaned.count("| --- | --- | ---: | --- |"), 2)
+        self.assertIn("| VIN kontrola | - | 20 EUR | Nízka |", cleaned)
+        self.assertIn("| Palivové čerpadlo | Len pri potvrdenej chybe", cleaned)
+
+    def test_removes_standalone_sources_section_but_keeps_inline_links(self):
+        markdown = """## Webové overenie
+
+- Prevodovku treba skontrolovať ([Honda](https://www.honda.eu/)).
+
+## Zdroje
+
+- Auto-Data.net ([auto-data.net](https://www.auto-data.net/))
+- Car-recalls.eu ([recalls](https://car-recalls.eu/))
+
+## Záverečné odporúčanie
+
+Auto riešiť iba po kontrole.
+"""
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertNotIn("## Zdroje", cleaned)
+        self.assertNotIn("Auto-Data.net", cleaned)
+        self.assertNotIn("Car-recalls.eu", cleaned)
+        self.assertIn("[Honda](https://www.honda.eu/)", cleaned)
+        self.assertIn("## Záverečné odporúčanie", cleaned)
+
+    def test_removes_english_sources_section_before_end_marker(self):
+        markdown = """## Final Recommendation
+
+Proceed after inspection.
+
+## 📚 Sources
+
+- Example source
+
+<!-- END_ANALYSIS -->
+"""
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertNotIn("Sources", cleaned)
+        self.assertNotIn("Example source", cleaned)
+        self.assertIn("## Final Recommendation", cleaned)
+        self.assertIn("<!-- END_ANALYSIS -->", cleaned)
+
 
 if __name__ == "__main__":
     unittest.main()

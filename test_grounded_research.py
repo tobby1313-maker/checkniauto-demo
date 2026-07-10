@@ -19,6 +19,30 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("3-5 co najblizsich aktualnych porovnatelnych ponuk", prompt)
         self.assertIn("podmienene opravy nikdy", prompt)
 
+    def test_default_gemini_model_order_matches_demo_routing(self):
+        standard_chain = llm_client._ordered_unique_models(
+            llm_client.GEMINI_TEXT_RESEARCH_MODEL,
+            llm_client.GEMINI_FALLBACK_MODELS,
+        )
+        final_chain = llm_client._ordered_unique_models(
+            llm_client.GEMINI_FINAL_MODEL,
+            llm_client.GEMINI_FINAL_FALLBACK_MODELS,
+        )
+
+        self.assertEqual(
+            standard_chain,
+            ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"],
+        )
+        self.assertEqual(
+            final_chain,
+            ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite"],
+        )
+
+    def test_gemini_rate_limit_can_advance_model_chain(self):
+        self.assertTrue(llm_client._is_gemini_rate_limit_error(429, "Resource exhausted: quota"))
+        self.assertTrue(llm_client._is_gemini_rate_limit_error(429, "rate limit exceeded"))
+        self.assertFalse(llm_client._is_gemini_rate_limit_error(429, "permission denied"))
+
     def test_text_research_context_is_stateless_and_uses_web_results(self):
         context = web_server._build_text_research_context(
             "Mazda CX-5 listing",
@@ -58,7 +82,28 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("visible seller documents or service-book/facture photos", vision_prompt)
         self.assertIn("pros 4-6, cons 5-8", final_prompt)
         self.assertIn("### Červené vlajky a limity fotografií", final_prompt)
-        self.assertIn("5-7 concrete questions or actions", final_prompt)
+        self.assertIn("5-7 sentence-style items", final_prompt)
+
+    def test_final_prompt_formats_technical_risks_as_severity_blocks(self):
+        root = Path(__file__).resolve().parent
+        final_prompt = (root / "prompts" / "grok_final_synthesis_system.md").read_text(encoding="utf-8")
+
+        self.assertIn("compact risk blocks sorted from most critical to least critical", final_prompt)
+        self.assertIn("🔴 **{komponent alebo problém}**", final_prompt)
+        self.assertIn("**Dopad pre kupujúceho:**", final_prompt)
+        self.assertIn("Keep `### Ďalšie modelové kontroly` as simple note-style bullets", final_prompt)
+
+    def test_final_prompt_uses_numbered_seller_inspection_checklist(self):
+        root = Path(__file__).resolve().parent
+        final_prompt = (root / "prompts" / "grok_final_synthesis_system.md").read_text(encoding="utf-8")
+        section = final_prompt.rsplit("## Otázky pre predajcu a kontrola pri obhliadke", 1)[1]
+        section = section.split("## Záverečné odporúčanie", 1)[0]
+
+        self.assertIn("do not use a table", final_prompt)
+        self.assertIn("1. **VIN:**", section)
+        self.assertIn("2. **Servisná história:**", section)
+        self.assertNotIn("| Otázka / úkon |", section)
+        self.assertNotIn("|---|---|", section)
 
 
 if __name__ == "__main__":

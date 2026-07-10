@@ -40,7 +40,7 @@ Important rules:
 - If text_research.seller_claims exists, summarize important unverified seller claims in Data from Listing or Pros/Cons.
 - If text_research.data_conflicts exists, mention meaningful conflicts such as listing mileage vs photo odometer. Do not treat small upward mileage differences as fraud without evidence.
 - If text_research.market_comparables exists, include the strongest 3-5 comparables in Price and Negotiation, including material differences.
-- If text_research.sources_used exists, add a short Sources section before the end marker. Use source names only when URLs are not verified.
+- Never add a standalone `## Zdroje` or `## Sources` section. Keep useful verified links only inline beside the relevant claims in `## Webové overenie` / `## Web Verification`.
 - Treat structured scraped fields from the listing input as listing data. If mileage exists in `listing_facts`, `car_info.md`, scraper output, or visible odometer evidence and there is no conflict, never say mileage is missing from the ad/listing/description and never use it as a negative, risk, or negotiation argument.
 - If VIN is not shown in the listing text but `vision.visible_vin` contains a VIN found in photos, use that VIN in the report and note it was found in the photos.
 - If VIN is not shown in the listing, ask for VIN before viewing/reserving/buying; do not present missing VIN alone as a severe defect.
@@ -56,7 +56,7 @@ Important rules:
 - Never output public columns or labels named `Dokaz`, `Istota`, `Evidence`, or `Confidence`.
 - In `## Klady` / `## Pros`, use a bold descriptive lead-in for every bullet and retain useful categories when supported: visible condition, equipment, powertrain design/reputation, seller-declared maintenance, documents, and road-readiness. Keep seller claims explicitly attributed to the seller.
 - In `## Zápory / riziká` / `## Cons / Risks`, use a bold descriptive lead-in for every bullet and preserve distinct concerns: listing conflicts, age/mileage, transmission/drivetrain, engine/fuel system, generation/corrosion, price, and missing verification. Do not merge them into one generic risk paragraph.
-- In the seller/inspection table, provide 5-7 concrete questions or actions. Each first column must say exactly what to request, verify, inspect, road-test, or diagnose; the second must explain the buyer consequence.
+- In `## Otázky pre predajcu a kontrola pri obhliadke` / `## Seller Questions and Inspection Checklist`, do not use a table. Use a numbered checklist with 5-7 sentence-style items. Each item must start with a bold short topic label, for example `1. **VIN:** Požiadajte...`, and then explain exactly what to request, verify, inspect, road-test, or diagnose and why it matters to the buyer.
 
 Your goal is to help the buyer quickly understand:
 - whether the car is worth pursuing,
@@ -76,7 +76,15 @@ Writing style:
 - Make the quick summary decisive and concrete.
 - Use the attached premium-report style as the quality target: cover the decision first, then facts, transparency, web/model evidence, price, costs, photos, questions, and recommendation.
 - In web verification, summarize source-backed findings and limitations in 3-5 bullets.
-- In technical risks, explain each item as: component/problem, why it matters to the buyer, when it usually matters, and rough cost if available.
+- In technical risks, do not write a long numbered prose section. Use compact risk blocks sorted from most critical to least critical.
+- Each main technical risk block must start with a colored severity pictogram plus a bold component/problem title:
+  - 🔴 for high/critical buyer exposure, immediate safety/driveability/expensive downside, open recall, or likely expensive neglected service.
+  - 🟠 for medium-high risk, common issue, meaningful cost, or important service-history uncertainty.
+  - 🟡 for moderate/maintenance-sensitive items that matter but are not primary verdict drivers.
+  - 🟢 only for low-severity watch/check items when still useful.
+- Under each main technical risk title, use 3-4 short bullets with bold lead-ins exactly like: `Dopad pre kupujúceho`, `Kedy sa prejavuje`, `Overenie`, and `Odhadovaný náklad` when a cost estimate exists. Keep each bullet concrete and compact.
+- Sort the main technical risks by severity first, then by expected buyer cost/impact. Do not use all items as `1.` and do not create large blank gaps.
+- Keep `### Ďalšie modelové kontroly` as simple note-style bullets only, without colored severity pictograms or full risk blocks.
 - In price and negotiation, include market range/comparable count only when provided; otherwise clearly say current market comparison needs manual verification.
 - When VAT/net/gross price is present, explain what changes for a private buyer versus a VAT-eligible business.
 - In expected costs, prioritize realistic buyer expenses over generic maintenance filler.
@@ -127,11 +135,35 @@ Return the final report using this structure:
 
 ## Technické riziká modelu a komponentov
 
-{4-6 main risks. For each risk explain buyer impact, typical trigger/interval, verification action, and rough cost if available. Do not include evidence/confidence labels.}
+{4-6 main technical risks sorted from most critical to least critical. Use compact risk blocks; choose the pictogram by severity and do not include evidence/confidence labels. Repeat the block shape for every supported main risk; the three examples below are not a limit.}
+
+🔴 **{komponent alebo problém}**
+
+- **Dopad pre kupujúceho:** {prečo to kupujúceho reálne trápi}
+- **Kedy sa prejavuje:** {typický interval, vek, ročníky, spúšťač alebo servisná medzera}
+- **Overenie:** {konkrétna kontrola, otázka, diagnostika alebo skúšobná jazda}
+- **Odhadovaný náklad:** {rozsah EUR, zvolávacia akcia, alebo jasne označený odhad; vynechaj túto odrážku, ak nie je žiadny podklad}
+
+🟠 **{ďalší komponent alebo problém}**
+
+- **Dopad pre kupujúceho:** {...}
+- **Kedy sa prejavuje:** {...}
+- **Overenie:** {...}
+- **Odhadovaný náklad:** {...}
+
+🟡 **{ďalší komponent alebo problém}**
+
+- **Dopad pre kupujúceho:** {...}
+- **Kedy sa prejavuje:** {...}
+- **Overenie:** {...}
+- **Odhadovaný náklad:** {...}
 
 ### Ďalšie modelové kontroly
 
-{2-4 concise supported inspection points that are useful but not primary verdict drivers. Omit this subsection when no additional supported findings exist.}
+- **{kontrola}:** {krátka poznámka, prečo ju spraviť alebo čo sledovať}
+- **{kontrola}:** {krátka poznámka, prečo ju spraviť alebo čo sledovať}
+
+{Use only 2-4 concise supported inspection points that are useful but not primary verdict drivers. Omit this subsection when no additional supported findings exist.}
 
 ## Cena a vyjednávanie
 
@@ -186,19 +218,19 @@ Return the final report using this structure:
 
 ## Otázky pre predajcu a kontrola pri obhliadke
 
-| Otázka / úkon | Prečo |
-|---|---|
-| ... | ... |
+1. **VIN:** {Požiadajte o VIN / preverte VIN / vysvetlite, čo tým kupujúci overí.}
+2. **Servisná história:** {Vyžiadajte servisnú knižku, faktúry alebo konkrétny záznam údržby relevantný pre motor, prevodovku alebo pohon.}
+3. **Prevodovka a pohon:** {Čo overiť pri jazde, diagnostike alebo podľa faktúr.}
+4. **Karoséria a podvozok:** {Čo fyzicky skontrolovať pri obhliadke alebo na zdviháku.}
+5. **Diagnostika / skúšobná jazda:** {Konkrétna kontrola chýb, hluku, radenia, bŕzd, elektroniky alebo výbavy.}
+
+{Use 5-7 numbered sentence-style items. Keep each item one practical buyer action with a bold topic label; no table.}
 
 ## Záverečné odporúčanie
 
 **{backend allowed_final_verdict}**
 
 {2 až 4 vety. Nepoužívaj nové fakty, ktoré neboli uvedené vyššie.}
-
-## Zdroje
-
-{Only include source names and verified links from sources_used/web_research. Omit this section if no useful source data exists.}
 
 <!-- END_ANALYSIS -->
 ```

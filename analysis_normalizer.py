@@ -52,6 +52,7 @@ def normalize_analysis_markdown(text: str | None, car_info_text: str | None = No
     value = _strip_outer_markdown_fence(value)
     value = _sanitize_grounding_redirects(value)
     value = _remove_unavailable_url_notes(value)
+    value = _remove_standalone_sources_section(value)
     value = _normalize_tables(value)
     value = _apply_fact_guard(value, facts)
     value = _remove_false_negative_claims(value, facts)
@@ -111,6 +112,16 @@ def _remove_unavailable_url_notes(text: str) -> str:
     return text
 
 
+def _remove_standalone_sources_section(text: str) -> str:
+    """Remove a standalone Sources/Zdroje block while preserving inline citations."""
+    heading = r"(?:#{1,6}[ \t]+)?(?:ðŸ”­|ðŸ“š|🔭|📚)?[ \t]*(?:Zdroje|Sources)"
+    return re.sub(
+        rf"(?ims)^[ \t]*{heading}[ \t]*\n.*?(?=^[ \t]*#{{1,6}}[ \t]+|^[ \t]*<!--\s*END_ANALYSIS|\Z)",
+        "",
+        text,
+    )
+
+
 def _is_table_row(line: str) -> bool:
     return bool(re.match(r"^\s*\|.*\|\s*$", line or ""))
 
@@ -127,6 +138,18 @@ def _split_table_row(row: str) -> list[str]:
 def _is_table_delimiter(row: str) -> bool:
     cells = _split_table_row(row)
     return bool(cells) and all(re.match(r"^:?-{3,}:?$", cell.replace(" ", "")) for cell in cells)
+
+
+def _is_placeholder_table_row(row: str) -> bool:
+    """Return True for model-generated rows containing only dash/dot placeholders."""
+    cells = _split_table_row(row)
+    if not cells:
+        return False
+    return all(
+        not cell.strip()
+        or bool(re.fullmatch(r"(?:[-–—.]+|…)", cell.replace(" ", "")))
+        for cell in cells
+    )
 
 
 def _is_incomplete_table_row(row: str) -> bool:
@@ -153,24 +176,33 @@ def _normalize_tables(text: str) -> str:
     lines = text.split("\n")
     out: list[str] = []
     expected_cols = 0
+    table_has_delimiter = False
 
     for line in lines:
         stripped = line.strip()
         if not stripped:
             expected_cols = 0
+            table_has_delimiter = False
             out.append(line)
             continue
         if re.match(r"^#{1,6}\s+", stripped):
             expected_cols = 0
+            table_has_delimiter = False
             out.append(line)
             continue
 
         if _is_table_row(stripped):
             cells = _split_table_row(stripped)
-            # New table starts on delimiter row
+            # Keep the first Markdown header delimiter, but discard a repeated
+            # delimiter that the model emitted as an empty data row.
             if _is_table_delimiter(stripped):
+                if table_has_delimiter:
+                    continue
                 expected_cols = len(cells)
+                table_has_delimiter = True
                 out.append(_table_row(cells))
+                continue
+            if table_has_delimiter and _is_placeholder_table_row(stripped):
                 continue
             if not expected_cols:
                 expected_cols = len(cells)
@@ -193,6 +225,7 @@ def _normalize_tables(text: str) -> str:
             continue
 
         expected_cols = 0
+        table_has_delimiter = False
         out.append(line)
 
     return "\n".join(out)
@@ -310,6 +343,10 @@ def _clean_lines_with_patterns(text: str, patterns: tuple[str, ...]) -> str:
 
 
 def _clean_false_negative_line(line: str) -> str:
+    # Sentence-level punctuation cleanup must never rewrite Markdown table
+    # delimiters such as ``| --- | ---: |`` into invalid data rows.
+    if _is_table_row(line):
+        return line.rstrip()
     line = re.sub(r"\s+([,.;:])", r"\1", line)
     line = re.sub(r"([,(;-])\s*([).!?:;])", r"\2", line)
     line = re.sub(r"\s{2,}", " ", line)

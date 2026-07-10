@@ -47,21 +47,29 @@ _configure_console_encoding()
 # Google Gemini API URL (model placeholder will be substituted)
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_INTERACTIONS_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-GEMINI_FLASH_MODEL = os.environ.get("GEMINI_FLASH_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
+GEMINI_FLASH_MODEL = os.environ.get("GEMINI_FLASH_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+GEMINI_ADVANCED_FLASH_MODEL = os.environ.get("GEMINI_ADVANCED_FLASH_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
 GEMINI_FLASH_LITE_MODEL = os.environ.get("GEMINI_FLASH_LITE_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
 GEMINI_GROUNDING_MODEL = os.environ.get("GEMINI_GROUNDING_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
-GEMINI_TEXT_RESEARCH_MODEL = os.environ.get("GEMINI_TEXT_RESEARCH_MODEL", GEMINI_FLASH_LITE_MODEL).strip() or GEMINI_FLASH_LITE_MODEL
+GEMINI_TEXT_RESEARCH_MODEL = os.environ.get("GEMINI_TEXT_RESEARCH_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
 GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
-GEMINI_FINAL_MODEL = os.environ.get("GEMINI_FINAL_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
-GEMINI_MODEL = GEMINI_FLASH_MODEL  # Better reasoning, vision support, search grounding support
+GEMINI_FINAL_MODEL = os.environ.get("GEMINI_FINAL_MODEL", GEMINI_ADVANCED_FLASH_MODEL).strip() or GEMINI_ADVANCED_FLASH_MODEL
+GEMINI_MODEL = GEMINI_FLASH_MODEL
 GEMINI_API_URL = f"{GEMINI_API_BASE}/{GEMINI_MODEL}:streamGenerateContent"
 GEMINI_FALLBACK_MODELS = [
     GEMINI_FLASH_MODEL,
-    "gemini-2.5-flash",
+    GEMINI_ADVANCED_FLASH_MODEL,
+    GEMINI_FLASH_LITE_MODEL,
+]
+GEMINI_FINAL_FALLBACK_MODELS = [
+    GEMINI_FINAL_MODEL,
+    GEMINI_FLASH_MODEL,
+    GEMINI_FLASH_LITE_MODEL,
 ]
 GEMINI_GROUNDING_FALLBACK_MODELS = [
     GEMINI_FLASH_MODEL,
-    "gemini-2.5-flash",
+    GEMINI_ADVANCED_FLASH_MODEL,
+    GEMINI_FLASH_LITE_MODEL,
 ]
 GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -103,6 +111,24 @@ def _is_retryable_gemini_model_error(status_code: int, error_text: str = "") -> 
         lowered = (error_text or "").lower()
         return "model" in lowered or "not_found" in lowered or "no longer available" in lowered
     return False
+
+
+def _is_gemini_rate_limit_error(status_code: int, error_text: str = "") -> bool:
+    """Return True when Gemini reports a quota/rate limit that may be model-specific."""
+    if status_code != 429:
+        return False
+    lowered = (error_text or "").lower()
+    return "quota" in lowered or "rate limit" in lowered or "resource exhausted" in lowered
+
+
+def _ordered_unique_models(primary_model: str, fallback_models: list[str]) -> list[str]:
+    """Build a stable model chain without duplicate empty entries."""
+    candidates = []
+    for candidate in [primary_model, *(fallback_models or [])]:
+        candidate = str(candidate or "").strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
 
 def _resolve_annotation_redirects(research_text: str) -> str:
@@ -334,10 +360,7 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
         raise ApiKeyError("API kluc nie je nastaveny. Pridaj ho v Nastaveniach.")
 
     model_to_use = model if model else GEMINI_GROUNDING_MODEL
-    model_candidates = [model_to_use]
-    for fallback_model in GEMINI_GROUNDING_FALLBACK_MODELS:
-        if fallback_model not in model_candidates:
-            model_candidates.append(fallback_model)
+    model_candidates = _ordered_unique_models(model_to_use, GEMINI_GROUNDING_FALLBACK_MODELS)
 
     prompt = _build_grounded_search_prompt(listing_context)
     last_error_text = ""
@@ -500,7 +523,16 @@ def run_grounded_web_research(api_key: str, listing_context: str, model: str = N
     )
 
 
-def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data_list: list = None, model: str = None, listing_slug: str = None, allow_image_text_fallback: bool = True):
+def _call_gemini(
+    api_key: str,
+    system_prompt: str,
+    user_content: str,
+    image_data_list: list = None,
+    model: str = None,
+    listing_slug: str = None,
+    allow_image_text_fallback: bool = True,
+    fallback_models: list[str] = None,
+):
     """Call Google Gemini API with proper system_instruction support.
     
     Args:
@@ -510,14 +542,12 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
         image_data_list: Optional list of (filename, base64_data, mime_type) tuples for images
         model: Optional model name override (e.g., "gemini-3.5-flash")
         allow_image_text_fallback: Retry image quota failures as text-only output.
+        fallback_models: Optional ordered fallback chain after the primary model.
     """
     # Use provided model or fall back to default. If Gemini is overloaded,
     # try lighter models before surfacing the temporary provider failure.
     model_to_use = model if model else GEMINI_MODEL
-    model_candidates = [model_to_use]
-    for fallback_model in GEMINI_FALLBACK_MODELS:
-        if fallback_model not in model_candidates:
-            model_candidates.append(fallback_model)
+    model_candidates = _ordered_unique_models(model_to_use, fallback_models or GEMINI_FALLBACK_MODELS)
 
     # Build content parts - start with text
     content_parts = [{"text": user_content}]
@@ -559,6 +589,7 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
     try:
         response = None
         unavailable_errors = []
+        rate_limited_errors = []
         error_text = ""
         started_at = time.perf_counter()
         request_model = model_to_use
@@ -587,10 +618,16 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                 f"response preview: {error_text[:200] if error_text else '(streaming response)'}"
             )
 
-            if not _is_retryable_gemini_model_error(response.status_code, error_text):
+            if not (
+                _is_retryable_gemini_model_error(response.status_code, error_text)
+                or _is_gemini_rate_limit_error(response.status_code, error_text)
+            ):
                 break
 
-            unavailable_errors.append((candidate_model, error_text))
+            if _is_gemini_rate_limit_error(response.status_code, error_text):
+                rate_limited_errors.append((candidate_model, error_text))
+            else:
+                unavailable_errors.append((candidate_model, error_text))
             if candidate_model != model_candidates[-1]:
                 time.sleep(1)
 
@@ -617,6 +654,59 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                 "⚠️ Gemini je momentálne preťažený (HTTP 503: high demand). "
                 f"Skúsil som tieto modely: {tried_models}. "
                 "Skus znova o par minut alebo pouzi zalozny Gemini kluc."
+            )
+
+        if response is not None and _is_gemini_rate_limit_error(response.status_code, error_text):
+            if image_data_list and allow_image_text_fallback:
+                default_tracker.record_request(
+                    model=request_model,
+                    request_type="stream_generate_content",
+                    listing_slug=listing_slug,
+                    input_tokens=input_tokens,
+                    output_tokens=0,
+                    status="rate_limited_retrying_text_only",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000),
+                    error=error_text[:300],
+                )
+                safe_log("Gemini quota/rate limit hit with images after model fallback; retrying text-only.")
+                yield (
+                    "\n\n⚠️ **Gemini narazil na limit pri spracovaní fotografií. "
+                    "Pokračujem textovou analýzou bez fotiek.**\n\n"
+                )
+                text_only_content = (
+                    f"{user_content}\n\n"
+                    "Poznámka pre analýzu: Gemini API odmietlo požiadavku s fotografiami "
+                    "kvôli quota/rate limitu, preto vyhodnoť najmä textové údaje z inzerátu."
+                )
+                yield from _call_gemini(
+                    api_key,
+                    system_prompt,
+                    text_only_content,
+                    image_data_list=None,
+                    model=model_to_use,
+                    listing_slug=listing_slug,
+                    allow_image_text_fallback=allow_image_text_fallback,
+                    fallback_models=fallback_models,
+                )
+                return
+
+            tried_models = ", ".join(model for model, _ in rate_limited_errors)
+            detail = error_text[:300].replace("\n", " ").strip()
+            default_tracker.record_request(
+                model=request_model,
+                request_type="stream_generate_content",
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="rate_limited",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=detail,
+            )
+            raise RateLimitError(
+                "Gemini API limit prekroceny pre vsetky skusene modely. "
+                f"Skusene modely: {tried_models}. "
+                "Skus znova o par minut alebo pouzi zalozny Gemini kluc."
+                + (f"\n\nDetail Gemini: {detail}" if detail else "")
             )
 
         if response.status_code == 429:
@@ -651,6 +741,7 @@ def _call_gemini(api_key: str, system_prompt: str, user_content: str, image_data
                         model=model_to_use,
                         listing_slug=listing_slug,
                         allow_image_text_fallback=allow_image_text_fallback,
+                        fallback_models=fallback_models,
                     )
                     return
 

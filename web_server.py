@@ -3366,6 +3366,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         return
 
     from llm_client import (
+        GEMINI_FINAL_FALLBACK_MODELS,
         GEMINI_FINAL_MODEL,
         GEMINI_GROUNDING_MODEL,
         GEMINI_TEXT_RESEARCH_MODEL,
@@ -3626,6 +3627,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     image_data_list=None,
                     model=GEMINI_FINAL_MODEL,
                     listing_slug=slug,
+                    fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
                 ):
                     attempt_text += chunk
                     attempt_output_tokens += estimate_output_tokens(chunk)
@@ -3673,6 +3675,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                         image_data_list=None,
                         model=GEMINI_FINAL_MODEL,
                         listing_slug=slug,
+                        fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
                     ):
                         attempt_text += chunk
                         attempt_output_tokens += estimate_output_tokens(chunk)
@@ -3911,10 +3914,10 @@ def api_demo_analyze_manual():
 def api_analyze(slug):
     """
     Run AI analysis on a listing using the separated pipeline:
-      1. Text + research, Grok if available, otherwise Gemini
+      1. Text + research, Gemini by default; Grok/OpenRouter only if configured
       2. Gemini vision
       3. Backend deterministic scoring
-      4. Final synthesis, same text provider as step 1
+      4. Final synthesis, Gemini by default with the final-synthesis model chain
 
     Optional JSON body: {"grok_api_key": "...", "openrouter_api_key": "...", "gemini_api_key": "..."}
     Returns SSE stream of progress and final report.
