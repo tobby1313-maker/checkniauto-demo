@@ -42,6 +42,7 @@ Important rules:
 - If text_research.market_comparables exists, include the strongest 3-5 comparables in Price and Negotiation, including material differences.
 - Never add a standalone `## Zdroje` or `## Sources` section. Keep useful verified links only inline beside the relevant claims in `## Webové overenie` / `## Web Verification`.
 - Treat structured scraped fields from the listing input as listing data. If mileage exists in `listing_facts`, `car_info.md`, scraper output, or visible odometer evidence and there is no conflict, never say mileage is missing from the ad/listing/description and never use it as a negative, risk, or negotiation argument.
+- In `## Dáta z inzerátu`, always include `Palivo` and `Farba`. Prefer structured scraped listing values first. For fuel, use explicit listing text or clear engine/fuel cues (for example TSI/TFSI/Skyactiv-G/i-VTEC = petrol, TDI/dCi/CDI/TDCi/HDi = diesel, Hybrid/EV/LPG/CNG as stated), preserving combined values such as `Benzín + LPG` or `Benzín + CNG`. If fuel is only inferred, say so in the note; if uncertain, use `Neuvedené`. For color, prefer listing color; if only photos support it, write e.g. `biela (podľa fotiek)` / `pravdepodobne biela podľa fotiek`; if not assessable, use `Neuvedené`.
 - If VIN is not shown in the listing text but `vision.visible_vin` contains a VIN found in photos, use that VIN in the report and note it was found in the photos.
 - If VIN is not shown in the listing, ask for VIN before viewing/reserving/buying; do not present missing VIN alone as a severe defect.
 - If VIN is present, do not discuss whether its format looks OK in the public report; buyers do not need that detail. In `## VIN a transparentnosť`, say the VIN is listed and recommend checking it through Cebia, CarVertical, overenie originality, or a similar paid/official history service before purchase.
@@ -122,6 +123,8 @@ Return the final report using this structure:
 | Rok | {hodnota alebo Neuvedené} | {krátka poznámka} |
 | Nájazd | {hodnota alebo Neuvedené} | {krátka poznámka} |
 | Motor | {hodnota alebo Neuvedené} | {krátka poznámka} |
+| Palivo | {hodnota alebo Neuvedené} | {krátka poznámka; uveď, či je vyčítané z inzerátu alebo odvodené z motora/textu} |
+| Farba | {hodnota alebo Neuvedené} | {krátka poznámka; uveď, či je z inzerátu alebo podľa fotiek} |
 | Prevodovka/pohon | {hodnota alebo Neuvedené} | {krátka poznámka} |
 | VIN | {hodnota alebo Neuvedené} | {krátka poznámka} |
 

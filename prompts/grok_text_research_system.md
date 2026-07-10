@@ -44,7 +44,7 @@ Important rules:
 - Do not diagnose timing chains, DPF, turbo, injectors, clutch, four-wheel drive, corrosion, accident history, or tyre condition from mileage alone.
 - If something is missing, set it to null, [], or mark it as "Neuvedene".
 - If something requires verification, say "Vyžaduje manualne online overenie."
-- Treat structured scraped fields in the listing input, such as `Mileage`, `VIN`, `Year`, `Price`, and specification tables from `car_info.md`, as listing data. Do not call mileage missing from the ad just because it is not repeated in the seller description text.
+- Treat structured scraped fields in the listing input, such as `Mileage`, `VIN`, `Year`, `Price`, `Fuel`, `Color`, and specification tables from `car_info.md`, as listing data. Preserve fuel and color values when present; if fuel is only implied by engine text, keep the value concise and note uncertainty elsewhere only when relevant. Do not call mileage missing from the ad just because it is not repeated in the seller description text.
 - Do not add mileage as missing, uncertain, inconsistent, or risky when mileage exists anywhere in structured listing data, scraper output, or visible odometer evidence and there is no conflict. Add mileage risk only when mileage is absent everywhere, conflicts across sources, or clearly contradicts photo wear.
 - If VIN is missing from the listing, treat it as a required pre-viewing verification step, not as evidence that the car is bad.
 - Do not add missing VIN as a risk flag unless the seller refuses to provide VIN, the provided VIN is invalid, or VIN-related data conflicts.
@@ -87,6 +87,7 @@ Return strict JSON matching this schema:
     "engine": "",
     "power": "",
     "fuel": "",
+    "color": "",
     "transmission": "",
     "drive": "",
     "vin": "",

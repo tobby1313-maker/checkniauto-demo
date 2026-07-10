@@ -54,6 +54,38 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("Source-backed engine finding", context)
         self.assertNotIn("Knowledge base matches", context)
 
+    def test_markdown_link_parser_keeps_parentheses_inside_urls(self):
+        links = web_server._markdown_links(
+            "[Engine Finders](https://enginefinder.co.uk/blog/example-(test)) "
+            "[Autobazar](https://www.autobazar.eu/detail/test/)"
+        )
+
+        self.assertEqual(
+            links,
+            [
+                ("Engine Finders", "https://enginefinder.co.uk/blog/example-(test)"),
+                ("Autobazar", "https://www.autobazar.eu/detail/test/"),
+            ],
+        )
+
+    def test_listing_context_promotes_mileage_to_canonical_fields(self):
+        context = web_server._listing_context_object(
+            "# VW Tiguan\n\n"
+            "## Specifications\n"
+            "- **Year:** 2019\n"
+            "- **Mileage:** 148 200 km\n"
+            "- **Engine:** 2.0 TDI\n"
+            "- **Fuel:** Diesel\n"
+            "- **Color:** Biela\n"
+        )
+
+        self.assertEqual(context["mileage"], "148 200 km")
+        self.assertEqual(context["mileage_km"], 148200)
+        self.assertEqual(context["year"], "2019")
+        self.assertEqual(context["engine"], "2.0 TDI")
+        self.assertEqual(context["fuel"], "Diesel")
+        self.assertEqual(context["color"], "Biela")
+
     def test_final_compaction_preserves_expanded_research_limits(self):
         payload = {
             "knowledge_base_findings": [{"component": "must be omitted"}],
@@ -83,6 +115,10 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("pros 4-6, cons 5-8", final_prompt)
         self.assertIn("### Červené vlajky a limity fotografií", final_prompt)
         self.assertIn("5-7 sentence-style items", final_prompt)
+        self.assertIn("| Palivo |", final_prompt)
+        self.assertIn("| Farba |", final_prompt)
+        self.assertIn("Benzín + LPG", final_prompt)
+        self.assertIn("podľa fotiek", final_prompt)
 
     def test_final_prompt_formats_technical_risks_as_severity_blocks(self):
         root = Path(__file__).resolve().parent

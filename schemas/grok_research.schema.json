@@ -47,6 +47,7 @@
         "engine": { "type": "string" },
         "power": { "type": "string" },
         "fuel": { "type": "string" },
+        "color": { "type": "string" },
         "transmission": { "type": "string" },
         "drive": { "type": "string" },
         "vin": { "type": "string" },

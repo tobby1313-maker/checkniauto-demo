@@ -1855,19 +1855,92 @@
         function inlineMarkdown(value) {
             let html = escapeHtml(value);
             const links = [];
-            html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (match, label, url) => {
+
+            const markdownLinkToken = (label, url) => {
                 const token = `%%CHECKNI_LINK_${links.length}%%`;
                 links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
                 return token;
-            });
+            };
+
+            html = replaceMarkdownLinks(html, markdownLinkToken);
             html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
             html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
             html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-            html = html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+            html = html.replace(/(https?:\/\/[^\s<]+)/g, (match) => {
+                const parts = splitTrailingUrlPunctuation(match);
+                return `<a href="${parts.url}" target="_blank" rel="noopener noreferrer">${parts.url}</a>${parts.trailing}`;
+            });
             links.forEach((link, index) => {
                 html = html.replace(`%%CHECKNI_LINK_${index}%%`, link);
             });
             return html;
+        }
+
+        function replaceMarkdownLinks(html, replacer) {
+            const text = String(html || "");
+            let output = "";
+            let index = 0;
+
+            while (index < text.length) {
+                const labelStart = text.indexOf("[", index);
+                if (labelStart < 0) {
+                    output += text.slice(index);
+                    break;
+                }
+
+                const labelEnd = text.indexOf("](", labelStart + 1);
+                if (labelEnd < 0) {
+                    output += text.slice(index);
+                    break;
+                }
+
+                const urlStart = labelEnd + 2;
+                const urlPrefix = text.slice(urlStart, urlStart + 8);
+                if (!urlPrefix.startsWith("http://") && !urlPrefix.startsWith("https://")) {
+                    output += text.slice(index, labelEnd + 2);
+                    index = labelEnd + 2;
+                    continue;
+                }
+
+                let depth = 0;
+                let urlEnd = urlStart;
+                while (urlEnd < text.length) {
+                    const char = text[urlEnd];
+                    if (/\s/.test(char)) break;
+                    if (char === "(") depth += 1;
+                    if (char === ")") {
+                        if (depth === 0) break;
+                        depth -= 1;
+                    }
+                    urlEnd += 1;
+                }
+
+                if (urlEnd >= text.length || text[urlEnd] !== ")") {
+                    output += text.slice(index, urlStart);
+                    index = urlStart;
+                    continue;
+                }
+
+                output += text.slice(index, labelStart);
+                output += replacer(text.slice(labelStart + 1, labelEnd), text.slice(urlStart, urlEnd));
+                index = urlEnd + 1;
+            }
+
+            return output;
+        }
+
+        function splitTrailingUrlPunctuation(value) {
+            let url = String(value || "");
+            let trailing = "";
+            while (/[.,;:!?]$/.test(url)) {
+                trailing = url.slice(-1) + trailing;
+                url = url.slice(0, -1);
+            }
+            while (url.endsWith(")") && (url.match(/\)/g) || []).length > (url.match(/\(/g) || []).length) {
+                trailing = ")" + trailing;
+                url = url.slice(0, -1);
+            }
+            return { url, trailing };
         }
 
         function renderMarkdown(markdown) {

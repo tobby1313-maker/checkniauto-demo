@@ -145,12 +145,50 @@ class DemoDashboardApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["slug"], "detail-check")
+        self.assertEqual(payload["parsed"]["specs"]["Mileage"], "150 000 km")
         self.assertEqual(
             [image["filename"] for image in payload["images"]],
             ["01_front.jpg", "02_dash.jpg", "03_rear.jpg"],
         )
         self.assertIn("Saved analysis", payload["analysis_content"])
         self.assertEqual(payload["source_url"], "https://example.com/detail-check")
+
+    def test_demo_artifacts_include_raw_scraped_inputs_first(self):
+        listing_dir = self._create_listing("artifact-check", has_analysis=True, images=["01_front.jpg"])
+        _write_text(listing_dir / "raw_data.json", json.dumps({"mileage": "150 000 km"}))
+
+        response = self.client.get("/api/demo/listings/artifact-check/artifacts")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        filenames = [artifact["filename"] for artifact in payload["artifacts"]]
+        labels = {artifact["filename"]: artifact["label"] for artifact in payload["artifacts"]}
+        self.assertEqual(filenames[:2], ["raw_data.json", "car_info.md"])
+        self.assertEqual(labels["raw_data.json"], "Scraped raw JSON")
+        self.assertEqual(labels["car_info.md"], "Scraped listing markdown")
+
+    def test_markdown_artifact_preview_renders_clickable_links_and_keeps_raw_mode(self):
+        listing_dir = self._create_listing("artifact-preview", has_analysis=True, images=["01_front.jpg"])
+        _write_text(
+            listing_dir / "web_research.md",
+            "## Zdroje\n\n"
+            "- [Engine Finders](https://enginefinder.co.uk/blog/example-(test)) - rozvody.\n"
+            "- Plain https://www.autobazar.eu/detail/test/.\n",
+        )
+
+        preview = self.client.get("/api/demo/listings/artifact-preview/artifacts/web_research.md")
+        raw = self.client.get("/api/demo/listings/artifact-preview/artifacts/web_research.md?raw=1")
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertIn("text/html", preview.content_type)
+        self.assertIn(
+            'href="https://enginefinder.co.uk/blog/example-(test)"',
+            preview.get_data(as_text=True),
+        )
+        self.assertIn('href="https://www.autobazar.eu/detail/test/"', preview.get_data(as_text=True))
+        self.assertEqual(raw.status_code, 200)
+        self.assertIn("text/plain", raw.content_type)
+        self.assertIn("[Engine Finders](https://enginefinder.co.uk/blog/example-(test))", raw.get_data(as_text=True))
 
     def test_demo_image_route_rejects_traversal_and_serves_listing_image(self):
         self._create_listing("image-check", has_analysis=True, images=["01_front.jpg"])

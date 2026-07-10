@@ -17,6 +17,7 @@ import threading
 import time
 import urllib.parse
 import base64
+import html
 import tempfile
 import shutil
 import unicodedata
@@ -333,10 +334,11 @@ def parse_car_info_md(md_text):
                 equipment_items = result["equipment"][current_subsection]
 
         # List items in specifications (- **Key:** Value)
-        elif current_section == "specifications" and line.startswith("- **") and "**:" in line:
-            match = re.match(r'- \*\*(.+?)\*\*:\s*(.*)', line)
+        elif current_section == "specifications" and line.startswith("- **") and "**" in line:
+            match = re.match(r'- \*\*(.+?)\*\*:?\s*(.*)', line)
             if match:
-                result["specs"][match.group(1)] = match.group(2).strip()
+                key = match.group(1).rstrip(":").strip()
+                result["specs"][key] = match.group(2).strip()
 
         # Table rows in specifications
         elif current_section == "specifications" and line.startswith("|") and "|" in line[1:]:
@@ -419,14 +421,32 @@ def _listing_analysis_result_path(slug_dir):
     return os.path.join(slug_dir, "analysis_result.md")
 
 
-ANALYSIS_ARTIFACTS = {
+ANALYSIS_ARTIFACTS = (
+    "raw_data.json",
+    "car_info.md",
+    "analysis_request.md",
+    "vin_decoded.json",
+    "web_research.md",
     "grok_research.json",
     "gemini_vision.json",
     "risk_score.json",
-    "web_research.md",
     "validation_warnings.json",
     "analysis_result_raw.md",
     "analysis_result.md",
+)
+
+ARTIFACT_LABELS = {
+    "raw_data.json": "Scraped raw JSON",
+    "car_info.md": "Scraped listing markdown",
+    "analysis_request.md": "Legacy prompt input",
+    "vin_decoded.json": "VIN decoded",
+    "web_research.md": "Grounded web research",
+    "grok_research.json": "Text/research JSON",
+    "gemini_vision.json": "Vision JSON",
+    "risk_score.json": "Backend risk score",
+    "validation_warnings.json": "Validation warnings",
+    "analysis_result_raw.md": "Raw final model output",
+    "analysis_result.md": "Public report",
 }
 
 
@@ -555,12 +575,13 @@ def _send_listing_image_file(slug, filename):
 def _list_listing_artifacts(slug, route_prefix="/api/listings"):
     slug_dir = _listing_dir_or_raise(slug)
     artifacts = []
-    for filename in sorted(ANALYSIS_ARTIFACTS):
+    for filename in ANALYSIS_ARTIFACTS:
         path = os.path.join(slug_dir, filename)
         if os.path.isfile(path):
             artifacts.append(
                 {
                     "filename": filename,
+                    "label": ARTIFACT_LABELS.get(filename, filename),
                     "url": _listing_artifact_url(route_prefix, slug, filename),
                     "size": os.path.getsize(path),
                     "modified_at": datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds"),
@@ -582,6 +603,12 @@ def _send_listing_artifact_file(slug, filename):
 
     with open(artifact_path, "r", encoding="utf-8") as f:
         content = f.read()
+    if filename.lower().endswith(".md") and request.args.get("raw", "").lower() not in {"1", "true", "yes"}:
+        return Response(
+            _render_markdown_artifact_preview(filename, content),
+            mimetype="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
+        )
     return Response(
         content,
         mimetype="text/plain; charset=utf-8",
@@ -2492,9 +2519,6 @@ UNVERIFIED_URL_HOSTS = (
     "example.net",
 )
 
-MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
-
-
 def _is_verified_public_url(url):
     text = str(url or "").strip()
     if not text:
@@ -2509,8 +2533,179 @@ def _is_verified_public_url(url):
     return not any(host == blocked or host.endswith(f".{blocked}") for blocked in UNVERIFIED_URL_HOSTS)
 
 
+def _iter_markdown_links(text):
+    value = str(text or "")
+    index = 0
+    while True:
+        label_start = value.find("[", index)
+        if label_start < 0:
+            break
+        label_end = value.find("](", label_start + 1)
+        if label_end < 0:
+            break
+        url_start = label_end + 2
+        if not value.startswith(("http://", "https://"), url_start):
+            index = label_end + 2
+            continue
+
+        depth = 0
+        url_end = url_start
+        while url_end < len(value):
+            char = value[url_end]
+            if char.isspace():
+                break
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            url_end += 1
+
+        if url_end >= len(value) or value[url_end] != ")":
+            index = url_start
+            continue
+
+        label = value[label_start + 1 : label_end]
+        url = value[url_start:url_end]
+        if label and url:
+            yield label, url, label_start, url_end + 1
+        index = url_end + 1
+
+
 def _markdown_links(text):
-    return MARKDOWN_LINK_RE.findall(str(text or ""))
+    return [(label, url) for label, url, _start, _end in _iter_markdown_links(text)]
+
+
+def _split_trailing_url_punctuation(value):
+    url = str(value or "")
+    trailing = ""
+    while url and url[-1] in ".,;:!?":
+        trailing = url[-1] + trailing
+        url = url[:-1]
+    while url.endswith(")") and url.count(")") > url.count("("):
+        trailing = ")" + trailing
+        url = url[:-1]
+    return url, trailing
+
+
+def _linkify_plain_urls_html(text):
+    value = str(text or "")
+    output = []
+    index = 0
+    for match in re.finditer(r"https?://[^\s<]+", value):
+        output.append(html.escape(value[index : match.start()]))
+        url, trailing = _split_trailing_url_punctuation(match.group(0))
+        if _is_verified_public_url(url):
+            safe_url = html.escape(url, quote=True)
+            output.append(f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{html.escape(url)}</a>')
+        else:
+            output.append(html.escape(url))
+        output.append(html.escape(trailing))
+        index = match.end()
+    output.append(html.escape(value[index:]))
+    return "".join(output)
+
+
+def _inline_markdown_html(text):
+    value = str(text or "")
+    output = []
+    index = 0
+    for label, url, start, end in _iter_markdown_links(value):
+        output.append(_linkify_plain_urls_html(value[index:start]))
+        if _is_verified_public_url(url):
+            safe_url = html.escape(url, quote=True)
+            output.append(
+                f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{html.escape(label)}</a>'
+            )
+        else:
+            output.append(html.escape(label))
+        index = end
+    output.append(_linkify_plain_urls_html(value[index:]))
+    rendered = "".join(output)
+    rendered = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", rendered)
+    rendered = re.sub(r"`([^`]+)`", r"<code>\1</code>", rendered)
+    return rendered
+
+
+def _render_markdown_artifact_body(markdown_text):
+    blocks = []
+    list_open = False
+    paragraph = []
+
+    def flush_paragraph():
+        nonlocal paragraph
+        if paragraph:
+            blocks.append(f"<p>{_inline_markdown_html(' '.join(paragraph))}</p>")
+            paragraph = []
+
+    def close_list():
+        nonlocal list_open
+        if list_open:
+            blocks.append("</ul>")
+            list_open = False
+
+    for raw_line in str(markdown_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            flush_paragraph()
+            close_list()
+            continue
+
+        heading = re.match(r"^(#{1,4})\s+(.+)$", stripped)
+        if heading:
+            flush_paragraph()
+            close_list()
+            level = len(heading.group(1))
+            blocks.append(f"<h{level}>{_inline_markdown_html(heading.group(2))}</h{level}>")
+            continue
+
+        bullet = re.match(r"^[-*]\s+(.+)$", stripped)
+        if bullet:
+            flush_paragraph()
+            if not list_open:
+                blocks.append("<ul>")
+                list_open = True
+            blocks.append(f"<li>{_inline_markdown_html(bullet.group(1))}</li>")
+            continue
+
+        close_list()
+        paragraph.append(stripped)
+
+    flush_paragraph()
+    close_list()
+    return "\n".join(blocks)
+
+
+def _render_markdown_artifact_preview(filename, content):
+    title = html.escape(filename)
+    body = _render_markdown_artifact_body(content)
+    return f"""<!doctype html>
+<html lang="sk">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title}</title>
+    <style>
+        body {{ margin: 0; background: #f8fafc; color: #111827; font-family: Arial, sans-serif; line-height: 1.6; }}
+        main {{ max-width: 980px; margin: 28px auto; padding: 28px 34px; background: #fff; border: 1px solid #dbe3ef; }}
+        h1, h2, h3, h4 {{ line-height: 1.25; }}
+        h1 {{ font-size: 26px; }}
+        h2 {{ margin-top: 28px; padding-bottom: 6px; border-bottom: 1px solid #fed7aa; }}
+        a {{ color: #c2410c; overflow-wrap: anywhere; }}
+        code {{ padding: 1px 4px; background: #f1f5f9; border-radius: 4px; }}
+        .toolbar {{ margin-bottom: 18px; color: #64748b; font-size: 13px; }}
+        .toolbar a {{ font-weight: 700; }}
+    </style>
+</head>
+<body>
+    <main>
+        <div class="toolbar">Markdown preview · <a href="?raw=1">raw text</a></div>
+        {body}
+    </main>
+</body>
+</html>"""
 
 
 def _sanitize_source_item(value):
@@ -2651,18 +2846,40 @@ def _equipment_summary(equipment):
     return summary
 
 
+def _mileage_km_value(value):
+    digits = re.sub(r"\D", "", str(value or ""))
+    if not digits:
+        return None
+    try:
+        return int(digits)
+    except ValueError:
+        return None
+
+
 def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCRIPTION_CHARS):
     parsed = parse_car_info_md(car_info_text)
+    specs = parsed.get("specs") or {}
+    mileage = specs.get("Mileage") or specs.get("Nájazd") or specs.get("Najazd") or ""
+    fuel = specs.get("Fuel") or specs.get("Palivo") or ""
+    color = specs.get("Color") or specs.get("Farba") or ""
     return {
         "title": parsed.get("title"),
         "price": parsed.get("price"),
         "currency": parsed.get("currency"),
         "vin": parsed.get("vin"),
+        "mileage": mileage,
+        "mileage_km": _mileage_km_value(mileage),
+        "year": specs.get("Year") or specs.get("Rok") or "",
+        "engine": specs.get("Engine") or specs.get("Motor") or "",
+        "fuel": fuel,
+        "color": color,
+        "transmission": specs.get("Transmission") or specs.get("Prevodovka") or "",
+        "drive": specs.get("Drivetrain") or specs.get("Pohon") or "",
         "source_url": parsed.get("source_url"),
         "scraped_at": parsed.get("scraped_at"),
         "photos_count": parsed.get("photos_count"),
         "location": parsed.get("location"),
-        "specs": _limit_mapping(parsed.get("specs"), max_items=28, max_chars=180),
+        "specs": _limit_mapping(specs, max_items=28, max_chars=180),
         "seller": _limit_mapping(parsed.get("seller"), max_items=10, max_chars=180),
         "equipment_summary": _equipment_summary(parsed.get("equipment")),
         "description_excerpt": _clip_text(parsed.get("description"), description_chars),

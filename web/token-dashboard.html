@@ -426,7 +426,10 @@
                 const title = listing.title || slug;
                 const artifacts = artifactsBySlug[slug] || [];
                 const links = artifacts.length
-                    ? artifacts.map((artifact) => '<a href="' + artifact.url + '" target="_blank" rel="noopener">' + escapeHtml(artifact.filename) + '</a>').join('')
+                    ? artifacts.map((artifact) => {
+                        const label = artifact.label || artifact.filename;
+                        return '<a href="' + artifact.url + '" target="_blank" rel="noopener" title="' + escapeHtml(artifact.filename) + '">' + escapeHtml(label) + '</a>';
+                    }).join('')
                     : '<span class="muted">No intermediate files yet</span>';
                 return `
                     <tr>
