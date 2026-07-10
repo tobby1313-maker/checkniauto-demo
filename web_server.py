@@ -3308,7 +3308,14 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
         yield f"data: {json.dumps({'error': 'car_info.md not found.'})}\n\n"
         return
 
-    from llm_client import GEMINI_FLASH_LITE_MODEL, GEMINI_FLASH_MODEL, _call_gemini, run_grounded_web_research
+    from llm_client import (
+        GEMINI_FINAL_MODEL,
+        GEMINI_GROUNDING_MODEL,
+        GEMINI_TEXT_RESEARCH_MODEL,
+        GEMINI_VISION_MODEL,
+        _call_gemini,
+        run_grounded_web_research,
+    )
     gemini_key_entries = _gemini_key_entries(gemini_keys)
     if not gemini_key_entries:
         yield f"data: {json.dumps({'error': 'Gemini API keys are not configured on the server.'})}\n\n"
@@ -3330,7 +3337,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                 run_grounded_web_research(
                     key,
                     grounding_listing_context,
-                    model=GEMINI_FLASH_LITE_MODEL,
+                    model=GEMINI_GROUNDING_MODEL,
                     listing_slug=slug,
                 )
             ],
@@ -3379,7 +3386,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                 grok_text_system_prompt,
                 grok_text_content,
                 image_data_list=None,
-                model=GEMINI_FLASH_LITE_MODEL,
+                model=GEMINI_TEXT_RESEARCH_MODEL,
                 listing_slug=slug,
             ),
         )
@@ -3403,7 +3410,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     grok_text_system_prompt,
                     grok_text_content,
                     image_data_list=None,
-                    model=GEMINI_FLASH_LITE_MODEL,
+                    model=GEMINI_TEXT_RESEARCH_MODEL,
                     listing_slug=slug,
                 ),
             )
@@ -3450,7 +3457,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     vision_system_prompt,
                     vision_content,
                     image_data_list=image_data_list,
-                    model=GEMINI_FLASH_MODEL,
+                    model=GEMINI_VISION_MODEL,
                     listing_slug=slug,
                     allow_image_text_fallback=False,
                 ),
@@ -3560,7 +3567,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                     final_system_prompt,
                     final_content,
                     image_data_list=None,
-                    model=GEMINI_FLASH_MODEL,
+                    model=GEMINI_FINAL_MODEL,
                     listing_slug=slug,
                 ):
                     attempt_text += chunk
@@ -3607,7 +3614,7 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
                         final_system_prompt,
                         final_content,
                         image_data_list=None,
-                        model=GEMINI_FLASH_MODEL,
+                        model=GEMINI_FINAL_MODEL,
                         listing_slug=slug,
                     ):
                         attempt_text += chunk

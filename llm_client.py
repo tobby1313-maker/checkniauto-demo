@@ -47,16 +47,17 @@ _configure_console_encoding()
 # Google Gemini API URL (model placeholder will be substituted)
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_INTERACTIONS_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-GEMINI_FLASH_MODEL = "gemini-3.5-flash"
-GEMINI_FLASH_LITE_MODEL = "gemini-3.1-flash-lite"
-GEMINI_GROUNDING_MODEL = GEMINI_FLASH_LITE_MODEL
+GEMINI_FLASH_MODEL = os.environ.get("GEMINI_FLASH_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
+GEMINI_FLASH_LITE_MODEL = os.environ.get("GEMINI_FLASH_LITE_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
+GEMINI_GROUNDING_MODEL = os.environ.get("GEMINI_GROUNDING_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
+GEMINI_TEXT_RESEARCH_MODEL = os.environ.get("GEMINI_TEXT_RESEARCH_MODEL", GEMINI_FLASH_LITE_MODEL).strip() or GEMINI_FLASH_LITE_MODEL
+GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
+GEMINI_FINAL_MODEL = os.environ.get("GEMINI_FINAL_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
 GEMINI_MODEL = GEMINI_FLASH_MODEL  # Better reasoning, vision support, search grounding support
 GEMINI_API_URL = f"{GEMINI_API_BASE}/{GEMINI_MODEL}:streamGenerateContent"
 GEMINI_FALLBACK_MODELS = [
-    GEMINI_FLASH_LITE_MODEL,
     GEMINI_FLASH_MODEL,
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
 ]
 GEMINI_GROUNDING_FALLBACK_MODELS = [
     GEMINI_FLASH_MODEL,

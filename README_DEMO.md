@@ -80,6 +80,12 @@ DEMO_PROMPT_FILE=analyze_prompt_v4_koyeb.txt
 FLASK_SECRET_KEY=<strong-random-secret>
 GEMINI_PRIMARY_API_KEY=<server-side-key>
 GEMINI_BACKUP_API_KEY=<optional-backup-key>
+# Optional model routing overrides. Defaults use Gemini Flash except
+# structured text/listing research fallback, which uses Flash Lite.
+GEMINI_GROUNDING_MODEL=gemini-3.5-flash
+GEMINI_TEXT_RESEARCH_MODEL=gemini-3.1-flash-lite
+GEMINI_VISION_MODEL=gemini-3.5-flash
+GEMINI_FINAL_MODEL=gemini-3.5-flash
 GROK_API_KEY=<optional-text-provider-key>
 OPENROUTER_API_KEY=<optional-text-provider-key>
 SCRAPPER_DATA_DIR=<optional-writable-data-dir>
@@ -97,6 +103,12 @@ temp directory in `scrapper-demo/Auta`.
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
 | `GEMINI_PRIMARY_API_KEY` | empty | Required Gemini key for web research, vision, and Gemini fallback. |
 | `GEMINI_BACKUP_API_KEY` | empty | Optional second Gemini key retried on key/quota failures. |
+| `GEMINI_FLASH_MODEL` | `gemini-3.5-flash` | Base Gemini Flash model used by phase defaults. |
+| `GEMINI_FLASH_LITE_MODEL` | `gemini-3.1-flash-lite` | Base Gemini Flash Lite model used by low-cost extraction defaults. |
+| `GEMINI_GROUNDING_MODEL` | `gemini-3.5-flash` | Gemini model for grounded web research. |
+| `GEMINI_TEXT_RESEARCH_MODEL` | `gemini-3.1-flash-lite` | Gemini fallback for structured text/listing research extraction. |
+| `GEMINI_VISION_MODEL` | `gemini-3.5-flash` | Gemini model for photo/vision extraction. |
+| `GEMINI_FINAL_MODEL` | `gemini-3.5-flash` | Gemini fallback for final buyer-facing synthesis. |
 | `GROK_API_KEY` | empty | Optional Grok key for text/research and final synthesis. |
 | `OPENROUTER_API_KEY` | empty | Optional OpenRouter key for text/research and final synthesis when Grok is not configured. One key can call multiple OpenRouter models; the request model id selects the model. |
 | `OPENROUTER_MODEL` | `qwen/qwen3-next-80b-a3b-instruct:free` | Optional primary OpenRouter model id. |
@@ -276,10 +288,13 @@ analysis_images/
 ## Models And Fallbacks
 
 - Gemini is required.
-- Gemini Flash Lite is used for grounded web research and compact text/research
-  fallback.
-- Gemini Flash is used for vision and final synthesis when Gemini is the text
-  provider.
+- Gemini Flash is used by default for grounded web research, vision analysis,
+  and final synthesis when Gemini is the text provider.
+- Gemini Flash Lite is used by default only for the compact structured
+  text/listing research fallback.
+- Each Gemini phase can be overridden independently with
+  `GEMINI_GROUNDING_MODEL`, `GEMINI_TEXT_RESEARCH_MODEL`,
+  `GEMINI_VISION_MODEL`, and `GEMINI_FINAL_MODEL`.
 - Grok is optional. If `GROK_API_KEY` is set, Grok handles text/research and
   final synthesis while Gemini still handles web research and vision.
 - OpenRouter is optional. If `OPENROUTER_API_KEY` is set and Grok is not set,
