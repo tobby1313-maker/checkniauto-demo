@@ -1,0 +1,11 @@
+{
+  "source": "fixture",
+  "url": "https://example.com/representative-vehicle",
+  "title": "Representative Vehicle 2.0 TSI",
+  "price": 18900,
+  "currency": "EUR",
+  "year": 2020,
+  "mileage": "84 200 km",
+  "vin": "WVWZZZ1KZ6W000001",
+  "photos_count": 4
+}

@@ -25,6 +25,8 @@ truststore.inject_into_ssl()
 import requests
 from bs4 import BeautifulSoup
 
+from scrapper_demo.storage import ListingJobRepository
+
 IMAGE_REQUEST_TIMEOUT = int(os.environ.get("DEMO_IMAGE_REQUEST_TIMEOUT", "12"))
 
 HEADERS = {
@@ -491,8 +493,9 @@ def main():
     slug = derive_slug(listing_url)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     auta_root = os.environ.get("SCRAPPER_AUTA_DIR") or os.path.join(script_dir, "Auta")
-    output_dir = os.path.join(auta_root, slug)
-    images_dir = os.path.join(output_dir, "images")
+    repository = ListingJobRepository(auta_root)
+    output_dir = str(repository.job_dir(slug))
+    images_dir = str(repository.images_dir(slug))
 
     print(f"Scraping: {listing_url}")
     print(f"Output:   {output_dir}")
@@ -549,7 +552,7 @@ def main():
 
     # Step 5: Save everything
     print("[5/5] Saving...", flush=True)
-    os.makedirs(output_dir, exist_ok=True)
+    repository.job_dir(slug, create=True)
 
     # Download images first
     downloaded = 0
@@ -559,15 +562,11 @@ def main():
 
     # Save car info
     md_content = format_car_info_md(car_info, downloaded)
-    md_path = os.path.join(output_dir, "car_info.md")
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(md_content)
+    md_path = repository.write_text(slug, "car_info.md", md_content)
     print(f"  Saved car info: {md_path}")
 
     # Also save raw JSON for reference
-    json_path = os.path.join(output_dir, "raw_data.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(car_data, f, indent=2, ensure_ascii=False)
+    json_path = repository.write_json(slug, "raw_data.json", car_data)
     print(f"  Saved raw JSON: {json_path}")
 
     print(f"\nDone! Output in: {output_dir}")

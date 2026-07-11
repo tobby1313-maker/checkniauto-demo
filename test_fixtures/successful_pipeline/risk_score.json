@@ -1,0 +1,14 @@
+{
+  "risk_score": 2,
+  "allowed_final_verdict": "🟠 ZVÁŽIŤ",
+  "applied_rules": [
+    {
+      "rule": "inspection_required",
+      "points": 2,
+      "reason": "Purchase remains conditional on an independent inspection."
+    }
+  ],
+  "override_rules_applied": [],
+  "missing_data_flags": ["UNDERBODY_PHOTO"],
+  "buyer_priority_checks": ["Verify VIN history", "Perform pre-purchase inspection"]
+}

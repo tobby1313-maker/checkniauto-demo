@@ -1,7 +1,7 @@
 """
 Unified Car Listing Scraper
 Detects the website from the URL and runs the appropriate scraper.
-Supports: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz, mobile.de
+Supports: autobazar.eu, autobazar.sk, bazos.sk, bazos.cz
 After scraping, generates analysis_request.md ready to paste into AI chat.
 
 Usage:
@@ -11,7 +11,6 @@ Examples:
     python main.py "https://www.autobazar.eu/detail/audi-a4-avant-40-20-tdi-advanced-s-tronic/AmljfprwFka/"
     python main.py "https://www.autobazar.sk/28272841/toyota-corolla-combi-ts-1-8-hybrid-e-cvt-povodny-lak-sr/"
     python main.py "https://auto.bazos.sk/inzerat/192873151/audi-a7-30-bitdi-facelift.php"
-    python main.py "https://suchen.mobile.de/fahrzeuge/details.html?id=451942591"
     python main.py   (asks for URL interactively)
 """
 
@@ -24,16 +23,11 @@ import time
 import difflib
 
 from vin_utils import validate_vin, extract_vin_from_text
+from scrapper_demo.logging import safe_log
+from scrapper_demo.storage import ListingJobRepository, atomic_write_json, atomic_write_text
 
 
-def safe_print(text):
-    """Print text safely, replacing characters that can't be encoded."""
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        # Replace problematic characters with ASCII equivalents
-        safe_text = text.encode('ascii', 'replace').decode('ascii')
-        print(safe_text)
+safe_print = safe_log
 
 
 def detect_site(url):
@@ -44,8 +38,6 @@ def detect_site(url):
         return "autobazar.sk"
     elif "bazos.sk" in url or "bazos.cz" in url:
         return "bazos"
-    elif "mobile.de" in url:
-        return "mobile.de"
     else:
         return None
 
@@ -57,7 +49,6 @@ def get_scraper_path(site):
         "autobazar.eu": os.path.join(script_dir, "Autobazar_eu.py"),
         "autobazar.sk": os.path.join(script_dir, "Autobazar_sk.py"),
         "bazos": os.path.join(script_dir, "Bazos.py"),
-        "mobile.de": os.path.join(script_dir, "Mobile_de.py"),
     }
     return scrapers.get(site)
 
@@ -76,16 +67,6 @@ def derive_slug(url):
     elif "bazos.sk" in url or "bazos.cz" in url:
         # bazos uses last path segment without .php
         return parts[-1].replace('.php', '') if len(parts) >= 2 else "car-listing"
-    elif "mobile.de" in url:
-        # mobile.de detail URLs carry the stable listing ID as a query parameter.
-        query = urllib.parse.parse_qs(parsed.query)
-        listing_id = query.get("id", [""])[0].strip()
-        if listing_id:
-            return f"mobile-de-{listing_id}"
-        fallback = parts[-1] if parts else "listing"
-        fallback = fallback.replace(".html", "")
-        fallback = "".join(ch.lower() if ch.isalnum() else "-" for ch in fallback).strip("-")
-        return f"mobile-de-{fallback or 'listing'}"
     else:
         return "car-listing"
 
@@ -279,8 +260,7 @@ Analyzuj tento inzerát podľa systémového promptu vyššie. Použi všetky 5 
 """
 
     output_path = os.path.join(output_dir, "analysis_request.md")
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(output)
+    atomic_write_text(output_path, output)
 
     return output_path
 
@@ -321,8 +301,7 @@ def _run_vin_decoding(output_dir):
     # Decode
     decoded = validate_vin(vin_text)
     decoded_path = os.path.join(output_dir, "vin_decoded.json")
-    with open(decoded_path, "w", encoding="utf-8") as f:
-        json.dump(decoded, f, indent=2, ensure_ascii=False)
+    atomic_write_json(decoded_path, decoded)
 
     status = "[OK]" if decoded.get("valid") else "[WARN]"
     safe_print(f"  VIN: {status} {decoded.get('manufacturer', '?')} - saved to vin_decoded.json")
@@ -349,8 +328,7 @@ def ensure_scraped_timestamp(output_dir):
             break
 
     lines.insert(insert_at, f"**Scraped:** {timestamp}")
-    with open(car_info_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+    atomic_write_text(car_info_path, "\n".join(lines) + "\n")
 
 
 def main():
@@ -358,7 +336,7 @@ def main():
         url = sys.argv[1].strip()
         scraper_args = sys.argv[2:]
     else:
-        url = input("Vlož link na inzerát (autobazar.eu, autobazar.sk, bazos.sk alebo mobile.de): ").strip()
+        url = input("Vlož link na inzerát (autobazar.eu, autobazar.sk alebo bazos.sk/cz): ").strip()
         scraper_args = []
         if not url:
             print("ERROR: Nebol zadaný žiadny link.")
@@ -367,7 +345,7 @@ def main():
     # Detect site
     site = detect_site(url)
     if not site:
-        print(f"ERROR: Nepodporovaná stránka. URL musí obsahovať 'autobazar.eu', 'autobazar.sk', 'bazos.sk' alebo 'mobile.de'")
+        print("ERROR: Nepodporovaná stránka. URL musí obsahovať autobazar.eu, autobazar.sk, bazos.sk alebo bazos.cz")
         print(f"  Zadané: {url}")
         sys.exit(1)
 
@@ -380,7 +358,6 @@ def main():
         "autobazar.eu": "autobazar.eu",
         "autobazar.sk": "autobazar.sk",
         "bazos": "bazos.sk / bazos.cz",
-        "mobile.de": "mobile.de",
     }
     print(f"Detekovaná stránka: {site_names.get(site, site)}")
     print(f"Používam scraper:   {os.path.basename(scraper_path)}")
@@ -393,7 +370,7 @@ def main():
     # Generate analysis request file (only if scraping succeeded)
     slug = derive_slug(url)
     auta_root = os.environ.get("SCRAPPER_AUTA_DIR") or os.path.join(script_dir, "Auta")
-    output_dir = os.path.join(auta_root, slug)
+    output_dir = str(ListingJobRepository(auta_root).job_dir(slug))
 
     # VIN Decoding: run after scrape succeeds regardless
     if os.path.exists(os.path.join(output_dir, "car_info.md")):

@@ -1,0 +1,57 @@
+{
+  "source_role": "text_research",
+  "evidence_summary": {
+    "data_completeness_score": 82,
+    "overall_confidence": "MEDIUM",
+    "strongest_evidence": ["Listing specifications", "Service documentation claim"],
+    "weakest_evidence": ["No independent inspection"]
+  },
+  "listing_facts": {
+    "title": "Representative Vehicle 2.0 TSI",
+    "price": "18 900 EUR",
+    "year": "2020",
+    "mileage": "84 200 km",
+    "advertised_mileage_km": 84200,
+    "vin": "WVWZZZ1KZ6W000001",
+    "transmission": "Automatic",
+    "fuel": "Petrol",
+    "equipment": []
+  },
+  "seller_claims": [],
+  "missing_or_uncertain_data": [],
+  "data_conflicts": [],
+  "consistency_checks": [],
+  "vin_check": {
+    "vin_present": true,
+    "format_check": "ok",
+    "decoded_information": "Format accepted by fixture",
+    "online_history": "requires_manual_verification",
+    "notes": "History is not inferred from the listing."
+  },
+  "safety_and_recall": {
+    "status": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+    "summary": "Verify campaigns by VIN.",
+    "required_action": "Ask an authorized service center.",
+    "evidence_category": "NEEDS_VERIFICATION",
+    "source_ids": []
+  },
+  "knowledge_base_findings": [],
+  "web_research_findings": [],
+  "technical_risks": [],
+  "market_assessment": {
+    "available": false,
+    "advertised_price_eur": 18900,
+    "observed_market_low_eur": null,
+    "observed_market_high_eur": null,
+    "comparable_count": 0,
+    "summary": "Insufficient close comparables in the fixture.",
+    "limitations": "Fixture does not perform live market research.",
+    "negotiation_anchor_eur": null,
+    "negotiation_reason": "Inspection results required.",
+    "price_view": "requires_manual_verification"
+  },
+  "market_comparables": [],
+  "expected_costs": [],
+  "text_research_risk_flags": [],
+  "sources_used": []
+}

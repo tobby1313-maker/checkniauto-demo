@@ -16,8 +16,8 @@ The demo supports two input flows:
 - Manual analysis for any other marketplace by pasting listing text, entering a
   price, and uploading up to 12 photos.
 
-Automatic `mobile.de` scraping exists in the broader scraper code, but it is
-disabled in the public demo. Use manual mode for `mobile.de` listings.
+Automatic `mobile.de` scraping is not implemented in this repository. Use
+manual mode for `mobile.de` listings.
 
 The analysis pipeline is:
 
@@ -40,6 +40,29 @@ Generated job files are temporary runtime artifacts and are not treated as a
 persistent cache; this keeps deployments compatible with ephemeral Render
 filesystems.
 
+## Backend Structure
+
+```text
+web_server.py                         compatibility import/startup entry point
+scrapper_demo/
+  app.py                              Flask application factory
+  config.py                           validated environment configuration
+  contracts.py                        shared typed boundary contracts
+  legacy_server.py                    compatibility composition and local handlers
+  logging.py                          Unicode-safe console logging
+  progress.py                         process-local progress/rate/job state
+  providers/                          Gemini, Grok, OpenRouter, retry, and errors
+  routes/                             public/demo and private Flask blueprints
+  services/analysis_pipeline.py       provider-neutral analysis orchestration
+  services/image_service.py           image selection and collage preparation
+  storage/listing_jobs.py             safe listing-job and artifact repository
+  validation.py                       JSON/report validation
+```
+
+Factory-created demo apps register only the public blueprint. Private-mode apps
+also register the private listing, analysis, and KB routes. Provider transports
+and filesystem implementation details remain outside the route modules.
+
 ## Local Run
 
 ```powershell
@@ -59,6 +82,30 @@ $env:OPENROUTER_API_KEY="..."
 
 python web_server.py
 ```
+
+Runtime dependencies in `requirements.txt` use exact direct-version pins so
+deployment upgrades are intentional and reviewable. Development-only tooling is
+kept in `requirements-dev.txt`; install that file when running `mypy` locally.
+
+### Application Factory
+
+Tests and embedded deployments can create isolated applications without sharing
+progress, rate-limit, or concurrency state:
+
+```python
+from scrapper_demo import create_app
+
+app = create_app(
+    {
+        "DEMO_MODE": True,
+        "SCRAPPER_AUTA_DIR": "/writable/jobs",
+        "DEMO_RATE_LIMIT_PER_IP": "0",
+    }
+)
+```
+
+Use `DEMO_MODE=False` only for trusted local/private operation because it
+registers the private blueprint.
 
 Open `http://localhost:5000`.
 
@@ -108,6 +155,8 @@ temp directory in `scrapper-demo/Auta`.
 | --- | --- | --- |
 | `DEMO_MODE` | `true` | Restricts the app to public demo routes. |
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
+| `DEMO_SKIP_KB` | `true` | Prevents public demo analysis from reading or writing the private knowledge base. |
+| `FLASK_SECRET_KEY` | `dev-demo-secret-change-me` | Flask secret; replace in every deployed environment. |
 | `GEMINI_PRIMARY_API_KEY` | empty | Required Gemini key for web research, vision, and Gemini fallback. |
 | `GEMINI_BACKUP_API_KEY` | empty | Optional second Gemini key retried on key/quota failures. |
 | `GEMINI_FLASH_MODEL` | `gemini-2.5-flash` | Base Gemini Flash model used by non-final phase defaults. |
@@ -259,10 +308,11 @@ Returns the latest mirrored SSE progress for the token dashboard.
 
 ## Local Non-Demo Routes
 
-The code still includes private/local routes such as `/api/scrape`,
+Private-mode blueprint registration retains local routes such as `/api/scrape`,
 `/api/listings`, `/api/analyze/<slug>`, `/api/kb`, and save-KB helpers. These
-are blocked by the demo route gate when `DEMO_MODE=true` and should not be
-treated as public demo API.
+are not registered by factory-created demo apps and remain protected by the
+demo route gate in the compatibility app. They are retained for tested local
+compatibility and should not be treated as public demo API.
 
 ## Generated Job Files
 
@@ -321,18 +371,42 @@ analysis_images/
 
 - API keys stay server-side.
 - Public demo mode hides private KB/listing management APIs.
-- Demo jobs are rate-limited per IP and concurrency-limited globally.
+- Demo jobs are rate-limited per IP and concurrency-limited within the server
+  process.
+- Progress, rate counters, and concurrency slots are held in synchronized
+  process-local memory. The supported deployment therefore uses one Gunicorn
+  worker. Multi-worker or multi-instance deployment requires a shared state
+  backend.
 - Old job folders are cleaned up based on `DEMO_JOB_TTL_MINUTES`.
 - Manual uploads are constrained by image count, extension, and total request
   size.
 - Final risk verdict is constrained by deterministic backend scoring, not only
   by model prose.
 
+## Compatibility Boundaries
+
+- `web_server.py` remains the required local and Gunicorn import target.
+- `scrapper_demo/legacy_server.py` retains tested local/private handlers and
+  helper names used by existing integrations.
+- `llm_client.py` remains a provider compatibility facade for existing imports.
+- Existing artifact names such as `grok_research.json` remain unchanged even
+  when Gemini or OpenRouter supplies the text/research phase.
+- These boundaries should be removed only together with their callers and
+  characterization tests; they are not undocumented migration leftovers.
+
 ## Tests
 
-Run the current demo tests from this folder:
+Run the complete unit, contract, integration, and mocked smoke suite from this
+folder. Tests do not require real provider keys:
 
 ```powershell
 cd "D:\VS Projekty\Scrapper - DEMO"
-python -m unittest test_demo_dashboard_api.py test_analysis_normalizer.py
+python -m unittest
+```
+
+Optional gradual type checking:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m mypy
 ```

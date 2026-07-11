@@ -1,0 +1,10 @@
+{
+  "created_at": "2026-07-10T12:05:00",
+  "warnings": [
+    {
+      "artifact": "analysis_result.md",
+      "type": "missing_section",
+      "message": "The compact fixture omits non-contract report sections."
+    }
+  ]
+}

@@ -11,6 +11,8 @@ import re
 from datetime import datetime
 from typing import Any
 
+from scrapper_demo.contracts import RiskOverride, RiskRule, RiskScoreResult
+
 
 VERDICTS = [
     "🟢 DOBRÁ KÚPA",
@@ -57,13 +59,13 @@ def calculate_risk_score(
     text_research: Any,
     vision: Any,
     listing_text: str | None = None,
-) -> dict[str, Any]:
+) -> RiskScoreResult:
     research = parse_model_json(text_research)
     vision_data = parse_model_json(vision)
     listing_text = listing_text or ""
 
-    applied_rules: list[dict[str, Any]] = []
-    overrides: list[dict[str, str]] = []
+    applied_rules: list[RiskRule] = []
+    overrides: list[RiskOverride] = []
     missing_flags: set[str] = set()
     priority_checks: list[str] = []
 
@@ -246,16 +248,16 @@ def calculate_risk_score(
     }
 
 
-def _add_rule(rules: list[dict[str, Any]], rule: str, points: int, reason: str) -> None:
+def _add_rule(rules: list[RiskRule], rule: str, points: int, reason: str) -> None:
     rules.append({"rule": rule, "points": points, "reason": reason})
 
 
-def _add_override(overrides: list[dict[str, str]], rule: str, effect: str) -> None:
+def _add_override(overrides: list[RiskOverride], rule: str, effect: str) -> None:
     if not any(item.get("rule") == rule for item in overrides):
         overrides.append({"rule": rule, "effect": effect})
 
 
-def _sum_points(rules: list[dict[str, Any]]) -> int:
+def _sum_points(rules: list[RiskRule]) -> int:
     return sum(int(item.get("points") or 0) for item in rules)
 
 

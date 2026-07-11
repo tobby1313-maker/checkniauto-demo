@@ -1,0 +1,16 @@
+{
+  "source_role": "vision",
+  "photos_provided": true,
+  "photo_limitations": ["Underbody is not visible."],
+  "exterior_observations": [],
+  "interior_observations": [],
+  "dashboard_or_warning_lights": [],
+  "visible_red_flags": [],
+  "mileage_wear_consistency": {
+    "assessment": "cannot_assess",
+    "explanation": "The fixture does not include original image binaries.",
+    "confidence": "Nizka"
+  },
+  "visual_verdict": "No serious visible issue represented in the fixture.",
+  "must_not_infer": ["Mechanical condition", "Accident history"]
+}
