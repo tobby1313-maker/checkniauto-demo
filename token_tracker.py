@@ -29,8 +29,8 @@ AUTA_DIR = os.environ.get("SCRAPPER_AUTA_DIR") or os.path.join(DATA_DIR, "Auta")
 TOKEN_USAGE_PATH = os.environ.get("SCRAPPER_TOKEN_USAGE_PATH") or os.path.join(AUTA_DIR, "token_usage.json")
 MAX_RECENT_REQUESTS = 500
 IMAGE_INPUT_TOKENS_PER_ATTACHMENT = int(os.environ.get("SCRAPPER_IMAGE_INPUT_TOKENS_PER_ATTACHMENT", "1290") or 1290)
-INPUT_COST_PER_1M = float(os.environ.get("SCRAPPER_TOKEN_INPUT_COST_PER_1M", "2.50") or 0)
-OUTPUT_COST_PER_1M = float(os.environ.get("SCRAPPER_TOKEN_OUTPUT_COST_PER_1M", "15.00") or 0)
+INPUT_COST_PER_1M = float(os.environ.get("SCRAPPER_TOKEN_INPUT_COST_PER_1M", "1.5") or 1.5)
+OUTPUT_COST_PER_1M = float(os.environ.get("SCRAPPER_TOKEN_OUTPUT_COST_PER_1M", "9.00") or 9.00)
 TOKEN_COST_CURRENCY = os.environ.get("SCRAPPER_TOKEN_COST_CURRENCY", "EUR")
 
 _process_lock = threading.RLock()
