@@ -2,7 +2,7 @@
 
 ## Quick summary
 
-- **Verdict:** 🟠 ZVÁŽIŤ
+- **Verdict:** 🟠 RIEŠIŤ LEN S VÝHRADAMI
 - The listing is worth considering only after VIN verification and an independent inspection.
 
 ## Priority checks

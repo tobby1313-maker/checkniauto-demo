@@ -8,15 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from scrapper_demo.verdicts import STATUS_RANK, label_for_status
+
 
 POLICY_PATH = Path(__file__).with_name("risk_policy_v2.json")
-STATUS_RANK = {
-    "WORTH_INSPECTING": 0,
-    "INSPECT_WITH_RESERVATIONS": 1,
-    "RESOLVE_BEFORE_PROCEEDING": 2,
-    "HIGH_RISK": 3,
-    "DO_NOT_PROCEED": 4,
-}
 
 
 def load_policy(path: str | Path | None = None) -> dict[str, Any]:
@@ -116,6 +111,7 @@ def calculate_risk_score_v2(
     listing_text: str | None = None,
     *,
     policy: dict[str, Any] | None = None,
+    output_language: str = "sk",
 ) -> dict[str, Any]:
     policy = policy or load_policy()
     research = _parse(text_research)
@@ -273,7 +269,7 @@ def calculate_risk_score_v2(
         "policy_version": policy["policy_version"],
         "calibration_status": policy["calibration_status"],
         "decision_status": highest,
-        "allowed_final_verdict": band["verdict"],
+        "allowed_final_verdict": label_for_status(highest, output_language),
         "screening_score": score,
         "evidence_quality": evidence_quality,
         "vehicle_specific_findings": findings,
@@ -292,13 +288,17 @@ def calculate_risk_score_v2(
     }
 
 
-def safe_yellow_fallback(reason: str = "v2 scorer failure") -> dict[str, Any]:
+def safe_yellow_fallback(
+    reason: str = "v2 scorer failure", *, output_language: str = "sk"
+) -> dict[str, Any]:
     return {
         "schema_version": 2,
         "policy_version": 2,
         "calibration_status": "UNCALIBRATED",
         "decision_status": "INSPECT_WITH_RESERVATIONS",
-        "allowed_final_verdict": "🟡 PRIJATEĽNÁ KÚPA",
+        "allowed_final_verdict": label_for_status(
+            "INSPECT_WITH_RESERVATIONS", output_language
+        ),
         "screening_score": 75,
         "evidence_quality": "LOW",
         "vehicle_specific_findings": [],

@@ -65,14 +65,16 @@ class ProviderAdapterTest(unittest.TestCase):
         success = FakeResponse(
             200,
             lines=[
-                b'data: {"candidates":[{"content":{"parts":[{"text":"Gemini output"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":3}}',
+                b'data: {"candidates":[{"content":{"parts":[{"text":"Gemini output"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":3,"thoughtsTokenCount":5,"totalTokenCount":19}}',
                 b"data: [DONE]",
             ],
         )
         requested_urls = []
+        payloads = []
 
-        def fake_post(url, **_kwargs):
+        def fake_post(url, **kwargs):
             requested_urls.append(url)
+            payloads.append(kwargs["json"])
             return unavailable if len(requested_urls) == 1 else success
 
         with (
@@ -88,6 +90,7 @@ class ProviderAdapterTest(unittest.TestCase):
                     "user",
                     model="model/primary",
                     fallback_models=["model/backup"],
+                    phase="text_research",
                 )
             )
 
@@ -96,6 +99,26 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertIn("/model/backup:streamGenerateContent", requested_urls[1])
         self.assertEqual(record_request.call_args.kwargs["actual_input_tokens"], 11)
         self.assertEqual(record_request.call_args.kwargs["actual_output_tokens"], 3)
+        self.assertEqual(record_request.call_args.kwargs["actual_thinking_tokens"], 5)
+        self.assertEqual(record_request.call_args.kwargs["actual_total_tokens"], 19)
+        self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 8000)
+        self.assertEqual(payloads[0]["generationConfig"]["temperature"], 0.2)
+
+    def test_generation_profile_sets_phase_specific_limits_and_legacy_rollback(self):
+        with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
+            self.assertEqual(
+                gemini._generation_settings("text_research"),
+                {"max_output_tokens": 8000, "temperature": 0.2},
+            )
+            self.assertEqual(
+                gemini._generation_settings("vision"),
+                {"max_output_tokens": 3500, "temperature": 0.2},
+            )
+        with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
+            self.assertEqual(
+                gemini._generation_settings("final_synthesis"),
+                {"max_output_tokens": 65536, "temperature": 0.7},
+            )
 
     def test_grok_auth_error_is_not_reported_as_generic_api_error(self):
         response = FakeResponse(401, text="invalid key")

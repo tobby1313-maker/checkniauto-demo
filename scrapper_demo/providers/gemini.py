@@ -48,10 +48,38 @@ GEMINI_GROUNDING_FALLBACK_MODELS = [
     GEMINI_ADVANCED_FLASH_MODEL,
     GEMINI_FLASH_LITE_MODEL,
 ]
+LEGACY_GENERATION_SETTINGS = {
+    "max_output_tokens": 65536,
+    "temperature": 0.7,
+}
+QUALITY_GENERATION_SETTINGS = {
+    "text_research": {"max_output_tokens": 8000, "temperature": 0.2},
+    "vision": {"max_output_tokens": 3500, "temperature": 0.2},
+    "final_synthesis": {"max_output_tokens": 7000, "temperature": 0.5},
+}
 GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 GROUNDING_RESOLVE_TIMEOUT = 6     # seconds per redirect resolution (HEAD request)
 GROUNDING_RESOLVE_MAX_REDIRECTS = 5
+
+
+def _generation_settings(
+    phase: str | None,
+    *,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
+) -> dict[str, float | int]:
+    """Return phase settings while retaining a runtime rollback profile."""
+    profile = os.environ.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+    if profile == "legacy" or not phase:
+        settings = dict(LEGACY_GENERATION_SETTINGS)
+    else:
+        settings = dict(QUALITY_GENERATION_SETTINGS.get(phase, LEGACY_GENERATION_SETTINGS))
+    if max_output_tokens is not None:
+        settings["max_output_tokens"] = max(256, int(max_output_tokens))
+    if temperature is not None:
+        settings["temperature"] = max(0.0, min(2.0, float(temperature)))
+    return settings
 
 
 def _is_retryable_gemini_model_error(status_code: int, error_text: str = "") -> bool:
@@ -141,6 +169,9 @@ def analyze_with_llm(
     model: str | None = None,
     listing_slug: str | None = None,
     allow_image_text_fallback: bool = True,
+    phase: str | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
 ) -> Iterator[str]:
     """
     Send a request to Google Gemini and yield response chunks.
@@ -156,6 +187,9 @@ def analyze_with_llm(
         model=model,
         listing_slug=listing_slug,
         allow_image_text_fallback=allow_image_text_fallback,
+        phase=phase,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
     )
 
 
@@ -355,6 +389,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
+                phase="grounding",
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -367,6 +402,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
+                phase="grounding",
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -394,6 +430,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
+                phase="grounding",
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -413,6 +450,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
+                phase="grounding",
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -429,6 +467,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
+                phase="grounding",
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -460,6 +499,7 @@ def run_grounded_web_research(
         default_tracker.record_request(
             model=candidate_model,
             request_type="grounded_search",
+            phase="grounding",
             listing_slug=listing_slug,
             input_tokens=input_tokens,
             output_tokens=estimate_output_tokens(output_text),
@@ -496,6 +536,9 @@ def _call_gemini(
     listing_slug: str | None = None,
     allow_image_text_fallback: bool = True,
     fallback_models: list[str] | None = None,
+    phase: str | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
 ) -> Iterator[str]:
     """Call Google Gemini API with proper system_instruction support.
     
@@ -526,6 +569,11 @@ def _call_gemini(
                 }
             })
 
+    generation_settings = _generation_settings(
+        phase,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+    )
     payload = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]
@@ -543,10 +591,10 @@ def _call_gemini(
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
         ],
         "generationConfig": {
-            "temperature": 0.7,
+            "temperature": generation_settings["temperature"],
             "topP": 0.95,
             "topK": 40,
-            "maxOutputTokens": 65536,
+            "maxOutputTokens": generation_settings["max_output_tokens"],
         }
     }
 
@@ -601,6 +649,7 @@ def _call_gemini(
             default_tracker.record_request(
                 model=request_model,
                 request_type="stream_generate_content",
+                phase=phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -625,6 +674,7 @@ def _call_gemini(
                 default_tracker.record_request(
                     model=request_model,
                     request_type="stream_generate_content",
+                    phase=phase,
                     listing_slug=listing_slug,
                     input_tokens=input_tokens,
                     output_tokens=0,
@@ -651,6 +701,9 @@ def _call_gemini(
                     listing_slug=listing_slug,
                     allow_image_text_fallback=allow_image_text_fallback,
                     fallback_models=fallback_models,
+                    phase=phase,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
                 )
                 return
 
@@ -659,6 +712,7 @@ def _call_gemini(
             default_tracker.record_request(
                 model=request_model,
                 request_type="stream_generate_content",
+                phase=phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -680,6 +734,7 @@ def _call_gemini(
                     default_tracker.record_request(
                         model=request_model,
                         request_type="stream_generate_content",
+                        phase=phase,
                         listing_slug=listing_slug,
                         input_tokens=input_tokens,
                         output_tokens=0,
@@ -706,6 +761,9 @@ def _call_gemini(
                         listing_slug=listing_slug,
                         allow_image_text_fallback=allow_image_text_fallback,
                         fallback_models=fallback_models,
+                        phase=phase,
+                        max_output_tokens=max_output_tokens,
+                        temperature=temperature,
                     )
                     return
 
@@ -713,6 +771,7 @@ def _call_gemini(
                 default_tracker.record_request(
                     model=request_model,
                     request_type="stream_generate_content",
+                    phase=phase,
                     listing_slug=listing_slug,
                     input_tokens=input_tokens,
                     output_tokens=0,
@@ -731,6 +790,7 @@ def _call_gemini(
                 default_tracker.record_request(
                     model=request_model,
                     request_type="stream_generate_content",
+                    phase=phase,
                     listing_slug=listing_slug,
                     input_tokens=input_tokens,
                     output_tokens=0,
@@ -751,6 +811,7 @@ def _call_gemini(
             default_tracker.record_request(
                 model=request_model,
                 request_type="stream_generate_content",
+                phase=phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -768,6 +829,7 @@ def _call_gemini(
             default_tracker.record_request(
                 model=request_model,
                 request_type="stream_generate_content",
+                phase=phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -786,6 +848,8 @@ def _call_gemini(
         full_text = ""
         actual_prompt_tokens = None
         actual_output_tokens = None
+        actual_thinking_tokens = None
+        actual_total_tokens = None
         for line in response.iter_lines():
             if isinstance(line, bytes):
                 line = line.decode('utf-8')
@@ -809,6 +873,16 @@ def _call_gemini(
                         usage_metadata.get("candidatesTokenCount")
                         or usage_metadata.get("candidates_token_count")
                         or actual_output_tokens
+                    )
+                    actual_thinking_tokens = (
+                        usage_metadata.get("thoughtsTokenCount")
+                        or usage_metadata.get("thoughts_token_count")
+                        or actual_thinking_tokens
+                    )
+                    actual_total_tokens = (
+                        usage_metadata.get("totalTokenCount")
+                        or usage_metadata.get("total_token_count")
+                        or actual_total_tokens
                     )
                 
                 # Check for errors in the response
@@ -847,11 +921,14 @@ def _call_gemini(
         default_tracker.record_request(
             model=request_model,
             request_type="stream_generate_content",
+            phase=phase,
             listing_slug=listing_slug,
             input_tokens=input_tokens,
             output_tokens=estimate_output_tokens(full_text),
             actual_input_tokens=actual_prompt_tokens,
             actual_output_tokens=actual_output_tokens,
+            actual_thinking_tokens=actual_thinking_tokens,
+            actual_total_tokens=actual_total_tokens,
             status="success",
             duration_ms=round((time.perf_counter() - started_at) * 1000),
         )
@@ -860,6 +937,7 @@ def _call_gemini(
         default_tracker.record_request(
             model=locals().get("request_model", model if model else GEMINI_MODEL),
             request_type="stream_generate_content",
+            phase=phase,
             listing_slug=listing_slug,
             input_tokens=locals().get("input_tokens", estimate_request_tokens(system_prompt, user_content, image_data_list)),
             output_tokens=0,
@@ -874,6 +952,7 @@ def _call_gemini(
         default_tracker.record_request(
             model=locals().get("request_model", model if model else GEMINI_MODEL),
             request_type="stream_generate_content",
+            phase=phase,
             listing_slug=listing_slug,
             input_tokens=locals().get("input_tokens", estimate_request_tokens(system_prompt, user_content, image_data_list)),
             output_tokens=0,

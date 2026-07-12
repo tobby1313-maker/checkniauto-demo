@@ -99,11 +99,33 @@ class GroundedResearchTest(unittest.TestCase):
         compact = web_server._compact_text_research_for_final(json.dumps(payload))
 
         self.assertEqual(compact["knowledge_base_findings"], [])
-        self.assertEqual(len(compact["web_research_findings"]), 12)
+        self.assertEqual(len(compact["web_research_findings"]), 8)
         self.assertEqual(len(compact["technical_risks"]), 8)
         self.assertEqual(len(compact["expected_costs"]), 10)
-        self.assertEqual(len(compact["text_research_risk_flags"]), 10)
-        self.assertEqual(len(compact["sources_used"]), 20)
+        self.assertEqual(len(compact["text_research_risk_flags"]), 8)
+        self.assertEqual(compact["sources_used"], [])
+
+    def test_final_context_has_global_budget_and_keeps_quality_fields(self):
+        payload = {
+            "listing_facts": {"title": "Kia Sportage", "vin": "U5YPC811BDL362988"},
+            "web_research_findings": [{"claim": "web finding " + ("x" * 500)} for _ in range(12)],
+            "technical_risks": [{"component": "risk", "issue": "x" * 500} for _ in range(8)],
+            "expected_costs": [{"item": "cost", "why": "x" * 500} for _ in range(10)],
+            "sources_used": [{"source_name": "source", "used_for": "x" * 500} for _ in range(20)],
+        }
+        context = web_server._build_final_synthesis_context(
+            "sk",
+            "# Kia Sportage\n\n## Specifications\n- **VIN:** U5YPC811BDL362988",
+            json.dumps(payload),
+            json.dumps({"photos_provided": False, "visual_verdict": "clear"}),
+            json.dumps({"allowed_final_verdict": "ZVAZIT"}),
+            "- grounded source line " + ("y" * 5000),
+        )
+        user_payload = context.split("\n\n", 1)[1]
+        parsed = json.loads(user_payload)
+        self.assertLessEqual(len(user_payload), web_server.FINAL_CONTEXT_MAX_CHARS)
+        self.assertEqual(parsed["text_research"]["sources_used"], [])
+        self.assertEqual(parsed["listing"]["vin"], "U5YPC811BDL362988")
 
     def test_vision_and_synthesis_prompts_require_detailed_buyer_sections(self):
         root = Path(__file__).resolve().parent

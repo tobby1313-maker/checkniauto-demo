@@ -1,6 +1,6 @@
 {
   "risk_score": 2,
-  "allowed_final_verdict": "🟠 ZVÁŽIŤ",
+  "allowed_final_verdict": "🟠 RIEŠIŤ LEN S VÝHRADAMI",
   "applied_rules": [
     {
       "rule": "inspection_required",

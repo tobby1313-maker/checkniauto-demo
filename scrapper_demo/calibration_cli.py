@@ -10,17 +10,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from risk_scorer import calculate_hotfixed_risk_score
-from risk_scorer_v2 import STATUS_RANK, calculate_risk_score_v2
+from risk_scorer_v2 import calculate_risk_score_v2
 from scrapper_demo.calibration import safe_extract_bundle, validate_extracted_case
+from scrapper_demo.verdicts import STATUS_RANK, status_for_label
 
 
-VERDICT_TO_STATUS = {
-    "🟢 DOBRÁ KÚPA": "WORTH_INSPECTING",
-    "🟡 PRIJATEĽNÁ KÚPA": "INSPECT_WITH_RESERVATIONS",
-    "🟠 ZVÁŽIŤ": "RESOLVE_BEFORE_PROCEEDING",
-    "🔴 RIZIKOVÁ KÚPA": "HIGH_RISK",
-    "⛔ EXTRÉMNE RIZIKO": "DO_NOT_PROCEED",
-}
 CONFIDENCE_VALUES = {"LOW", "MEDIUM", "HIGH"}
 SPLIT_VALUES = {"tuning", "holdout"}
 
@@ -50,8 +44,10 @@ def validate_label(case_dir: Path) -> list[str]:
         return [str(exc)]
     if label.get("case_id") != manifest.get("case_id"):
         errors.append("case_id does not match manifest")
-    if label.get("expected_verdict") not in VERDICT_TO_STATUS:
-        errors.append("expected_verdict is not one of the five supported verdicts")
+    expected_status = label.get("expected_status")
+    legacy_status = status_for_label(str(label.get("expected_verdict") or ""))
+    if expected_status not in STATUS_RANK and legacy_status is None:
+        errors.append("expected_status must be one of the five stable screening statuses")
     if not isinstance(label.get("proceed_to_inspection"), bool):
         errors.append("proceed_to_inspection must be true or false")
     if str(label.get("reviewer_confidence") or "").upper() not in CONFIDENCE_VALUES:
@@ -87,7 +83,9 @@ def evaluate_dataset(dataset: Path, *, split: str | None = None) -> dict[str, An
         research, vision, listing = _case_inputs(case_dir)
         v2 = calculate_risk_score_v2(research, vision, listing)
         v1 = calculate_hotfixed_risk_score(research, vision, listing)
-        expected = VERDICT_TO_STATUS[label["expected_verdict"]]
+        expected = str(label.get("expected_status") or "")
+        if expected not in STATUS_RANK:
+            expected = status_for_label(str(label.get("expected_verdict") or "")) or ""
         predicted = v2["decision_status"]
         expected_rank = STATUS_RANK[expected]
         predicted_rank = STATUS_RANK[predicted]

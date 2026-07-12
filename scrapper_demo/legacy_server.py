@@ -181,6 +181,7 @@ FINAL_LISTING_DESCRIPTION_CHARS = 900
 MODEL_LISTING_DESCRIPTION_CHARS = 1400
 FINAL_TEXT_FIELD_CHARS = 640
 FINAL_WEB_RESEARCH_CHARS = 2800
+FINAL_CONTEXT_MAX_CHARS = 32000
 
 app = create_app(
     SERVER_CONFIG.as_flask_mapping(),
@@ -2422,7 +2423,7 @@ def _compact_text_research_for_final(text_research_json_text):
         "knowledge_base_findings": [],
         "web_research_findings": [
             _sanitize_source_item(item)
-            for item in _limited_list(data.get("web_research_findings"), 12, prefer_concerns=True)
+            for item in _limited_list(data.get("web_research_findings"), 8, prefer_concerns=True)
         ],
         "technical_risks": [
             _sanitize_source_item(item)
@@ -2434,14 +2435,56 @@ def _compact_text_research_for_final(text_research_json_text):
             for item in _limited_list(data.get("market_comparables"), 5, prefer_concerns=True)
         ],
         "expected_costs": _limited_list(data.get("expected_costs"), 10, prefer_concerns=True),
-        "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 10, prefer_concerns=True),
-        "sources_used": [
-            _sanitize_source_item(item)
-            for item in _limited_list(data.get("sources_used"), 20, prefer_concerns=True)
-        ],
+        "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 8, prefer_concerns=True),
+        # The final report does not print citations or a source registry. Keep
+        # the complete registry in grok_research.json for audit/calibration,
+        # but do not spend final-synthesis context on it.
+        "sources_used": [],
         "parse_error": data.get("_parse_error", False),
         "raw_preview": data.get("_raw_preview"),
     }
+
+
+def _final_payload_size(payload):
+    return len(_compact_json_for_prompt(payload))
+
+
+def _trim_final_context_payload(payload, max_chars=FINAL_CONTEXT_MAX_CHARS):
+    """Shrink optional evidence lists while retaining a valid JSON payload."""
+    list_paths = [
+        ("text_research", "web_research_findings", 4),
+        ("text_research", "technical_risks", 4),
+        ("text_research", "expected_costs", 4),
+        ("text_research", "seller_claims", 3),
+        ("text_research", "missing_or_uncertain_data", 3),
+        ("text_research", "consistency_checks", 3),
+        ("vision", "exterior_observations", 4),
+        ("vision", "interior_observations", 3),
+        ("vision", "supported_observations", 3),
+    ]
+    while _final_payload_size(payload) > max_chars:
+        candidates = []
+        for section, key, minimum in list_paths:
+            values = payload.get(section, {}).get(key)
+            if isinstance(values, list) and len(values) > minimum:
+                candidates.append((len(_compact_json_for_prompt(values)), section, key))
+        if not candidates:
+            break
+        _size, section, key = max(candidates)
+        payload[section][key].pop()
+
+    # If the structured lists are already at their quality floor, shorten only
+    # low-priority explanatory prose; never cut listing facts or verdict data.
+    if _final_payload_size(payload) > max_chars:
+        for section, key in (
+            ("text_research", "evidence_summary"),
+            ("text_research", "market_assessment"),
+            ("vision", "visual_verdict"),
+        ):
+            value = payload.get(section, {}).get(key)
+            if isinstance(value, str):
+                payload[section][key] = _clip_text(value, 280)
+    return payload
 
 
 def _compact_vision_for_final(vision_result_json):
@@ -2496,6 +2539,8 @@ def _build_final_synthesis_context(
     web_research_text,
     image_meta=None,
 ):
+    text_research_data = _safe_model_json(text_research_json_text)
+    has_structured_web_findings = bool(text_research_data.get("web_research_findings"))
     compact_payload = {
         "output_language": _demo_output_language(output_language),
         "listing": _listing_context_object(car_info_text),
@@ -2503,8 +2548,16 @@ def _build_final_synthesis_context(
         "vision": _compact_vision_for_final(vision_result_json),
         "image_payload": _compact_value(image_meta or {}),
         "backend_risk_score": _compact_risk_score_for_final(risk_score_json),
-        "web_research": _web_research_context(web_research_text),
+        # Structured web findings already carry the useful conclusions. The
+        # raw grounded excerpt is retained only when parsing failed or yielded
+        # no findings, avoiding duplicate source prose in final synthesis.
+        "web_research": (
+            {"verified_source_lines": [], "unverified_source_notes": [], "evidence_excerpt": ""}
+            if has_structured_web_findings
+            else _web_research_context(web_research_text, max_chars=1400)
+        ),
     }
+    compact_payload = _trim_final_context_payload(compact_payload)
     return (
         "Use only this compact structured context. "
         "Do not infer missing details from omitted raw text. "
@@ -2680,7 +2733,9 @@ def _pipeline_save_kb_blocks(blocks):
     return _save_kb_blocks(blocks)
 
 
-def _pipeline_calculate_risk_score(text_research, vision, listing_text=None):
+def _pipeline_calculate_risk_score(
+    text_research, vision, listing_text=None, *, output_language="sk"
+):
     from risk_scorer import calculate_hotfixed_risk_score
 
     configured = (
@@ -2690,16 +2745,26 @@ def _pipeline_calculate_risk_score(text_research, vision, listing_text=None):
     )
     active = configured is True or str(configured).strip().lower() in {"1", "true", "yes", "on"}
     if not active:
-        return calculate_hotfixed_risk_score(text_research, vision, listing_text)
+        return calculate_hotfixed_risk_score(
+            text_research,
+            vision,
+            listing_text,
+            output_language=output_language,
+        )
     try:
         from risk_scorer_v2 import calculate_risk_score_v2
 
-        return calculate_risk_score_v2(text_research, vision, listing_text)
+        return calculate_risk_score_v2(
+            text_research,
+            vision,
+            listing_text,
+            output_language=output_language,
+        )
     except Exception as exc:
         safe_log(f"Risk scorer v2 failed; using safe yellow fallback: {exc}")
         from risk_scorer_v2 import safe_yellow_fallback
 
-        return safe_yellow_fallback(str(exc))
+        return safe_yellow_fallback(str(exc), output_language=output_language)
 
 
 def _analysis_pipeline_dependencies():

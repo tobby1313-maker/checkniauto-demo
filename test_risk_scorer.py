@@ -321,6 +321,15 @@ class RiskScorerTest(unittest.TestCase):
         self.assertEqual(result["decision_status"], "WORTH_INSPECTING")
         self.assertEqual(len(result["model_level_inspection_points"]), 1)
 
+    def test_v2_localizes_customer_verdict_without_changing_status(self):
+        research = _json({"listing_facts": {"vin": "JSA123", "service_history": "full"}, "vin_check": {"vin_present": True, "format_check": "ok"}})
+        vision = _json({"photos_provided": True, "photo_limitations": []})
+        slovak = calculate_risk_score_v2(research, vision, output_language="sk")
+        english = calculate_risk_score_v2(research, vision, output_language="en")
+        self.assertEqual(slovak["decision_status"], english["decision_status"])
+        self.assertEqual(slovak["allowed_final_verdict"], "🟢 STOJÍ ZA OBHLIADKU")
+        self.assertEqual(english["allowed_final_verdict"], "🟢 WORTH CHECKING OUT")
+
 
 if __name__ == "__main__":
     unittest.main()

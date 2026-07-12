@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import web_server
-from scrapper_demo.calibration import create_calibration_bundle, safe_extract_bundle
+from scrapper_demo.calibration import _manifest_metadata, create_calibration_bundle, safe_extract_bundle
 from scrapper_demo.calibration_cli import evaluate_dataset, validate_label
 
 
@@ -85,7 +85,26 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("images/01.jpg", names)
             self.assertIn("analysis_images/overview.jpg", names)
             self.assertNotIn("risk_score.json", names)
-            self.assertNotIn("analysis_result.md", names)
+        self.assertNotIn("analysis_result.md", names)
+
+    def test_manifest_metadata_parses_fenced_research_and_car_info_fallbacks(self):
+        job = self._job("metadata-case")
+        (job / "raw_data.json").write_text(json.dumps({"yearValue": ""}), encoding="utf-8")
+        (job / "car_info.md").write_text(
+            "# Kia\n\n**Source:** https://example.test/kia\n"
+            "\n- **Year:** 2013\n- **Mileage:** 118 510 km\n",
+            encoding="utf-8",
+        )
+        (job / "grok_research.json").write_text(
+            "```json\n" + json.dumps({"listing_facts": {"year": "2013", "mileage": "118510 km"}}) + "\n```",
+            encoding="utf-8",
+        )
+
+        metadata = _manifest_metadata(job, "metadata-case")
+
+        self.assertEqual(metadata["source_url"], "https://example.test/kia")
+        self.assertEqual(metadata["vehicle_year"], "2013")
+        self.assertEqual(metadata["vehicle_mileage"], "118510 km")
 
     def test_export_temporary_archive_is_removed_when_response_closes(self):
         self._job("cleanup-case")
@@ -109,7 +128,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
         label_path = case / "expert_label.json"
         label = json.loads(label_path.read_text(encoding="utf-8"))
         label.update({
-            "expected_verdict": "🟢 DOBRÁ KÚPA",
+            "expected_status": "WORTH_INSPECTING",
             "proceed_to_inspection": True,
             "reviewer_confidence": "HIGH",
             "reviewer_role": "mechanic",
@@ -120,6 +139,25 @@ class CalibrationWorkflowTest(unittest.TestCase):
         result = evaluate_dataset(dataset, split="holdout")
         self.assertEqual(result["case_count"], 1)
         self.assertEqual(result["metrics"]["exact_agreement"], 1.0)
+
+    def test_legacy_visible_verdict_label_remains_importable(self):
+        job = self._job("legacy-label-case")
+        bundle = create_calibration_bundle(job, "legacy-label-case")
+        dataset = Path(self.temp.name) / "legacy-dataset"
+        case = safe_extract_bundle(bundle, dataset)
+        bundle.unlink(missing_ok=True)
+        label_path = case / "expert_label.json"
+        label = json.loads(label_path.read_text(encoding="utf-8"))
+        label.pop("expected_status", None)
+        label.update({
+            "expected_verdict": "🟠 ZVÁŽIŤ",
+            "proceed_to_inspection": True,
+            "reviewer_confidence": "MEDIUM",
+            "reviewer_role": "legacy reviewer",
+            "dataset_split": "tuning",
+        })
+        label_path.write_text(json.dumps(label, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(validate_label(case), [])
 
     def test_pipeline_config_activates_v2_and_failure_falls_back_to_yellow(self):
         research = json.dumps({"listing_facts": {"vin": "TESTVIN", "service_history": "full"}, "vin_check": {"vin_present": True, "format_check": "ok"}})
@@ -132,7 +170,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
                 self.assertEqual(active["schema_version"], 2)
                 with patch("risk_scorer_v2.calculate_risk_score_v2", side_effect=RuntimeError("boom")):
                     fallback = web_server._pipeline_calculate_risk_score(research, vision, "")
-                self.assertEqual(fallback["allowed_final_verdict"], "🟡 PRIJATEĽNÁ KÚPA")
+                self.assertEqual(fallback["allowed_final_verdict"], "🟡 NAJPRV PREVERIŤ")
                 self.assertEqual(fallback["evidence_quality"], "LOW")
             finally:
                 web_server.app.config["RISK_SCORER_V2_ACTIVE"] = previous

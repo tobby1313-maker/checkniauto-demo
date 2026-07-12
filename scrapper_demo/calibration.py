@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import tempfile
 import zipfile
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ CALIBRATION_FILES = (
 LABEL_TEMPLATE: dict[str, Any] = {
     "label_schema_version": 1,
     "case_id": "",
-    "expected_verdict": "",
+    "expected_status": "",
     "proceed_to_inspection": None,
     "reviewer_confidence": "",
     "reviewer_role": "",
@@ -56,15 +57,47 @@ def _sha256(path: Path) -> str:
 
 def _json_file(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        text = path.read_text(encoding="utf-8")
+    except OSError:
         return {}
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        # Model JSON artifacts may be wrapped in a markdown json fence.
+        stripped = text.strip()
+        if stripped.startswith("```json") and stripped.endswith("```"):
+            try:
+                value = json.loads(stripped[7:-3].strip())
+            except json.JSONDecodeError:
+                return {}
+        else:
+            return {}
     return value if isinstance(value, dict) else {}
+
+
+def _car_info_metadata(path: Path) -> dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    metadata: dict[str, Any] = {}
+    for key, pattern in (
+        ("source_url", r"(?m)^\*\*Source:\*\*\s*(https?://\S+)"),
+        ("vehicle_year", r"(?m)^-\s*\*\*Year:\*\*\s*(\d{4})"),
+        ("vehicle_mileage", r"(?m)^-\s*\*\*Mileage:\*\*\s*([\d\s]+)\s*km"),
+    ):
+        match = re.search(pattern, text)
+        if match:
+            value = match.group(1).strip()
+            metadata[key] = int(value.replace(" ", "")) if key == "vehicle_mileage" else value
+    return metadata
 
 
 def _manifest_metadata(job_dir: Path, slug: str) -> dict[str, Any]:
     raw = _json_file(job_dir / "raw_data.json")
     research = _json_file(job_dir / "grok_research.json")
+    car_info = _car_info_metadata(job_dir / "car_info.md")
     facts = research.get("listing_facts")
     if not isinstance(facts, dict):
         facts = {}
@@ -72,9 +105,9 @@ def _manifest_metadata(job_dir: Path, slug: str) -> dict[str, Any]:
         "bundle_schema_version": 1,
         "case_id": slug,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "source_url": raw.get("source_url") or raw.get("url") or "",
-        "vehicle_year": facts.get("year") or raw.get("year"),
-        "vehicle_mileage": facts.get("mileage") or raw.get("mileage"),
+        "source_url": raw.get("source_url") or raw.get("url") or car_info.get("source_url") or "",
+        "vehicle_year": facts.get("year") or raw.get("year") or raw.get("yearValue") or car_info.get("vehicle_year"),
+        "vehicle_mileage": facts.get("mileage") or raw.get("mileage") or car_info.get("vehicle_mileage"),
         "pipeline_version": "demo-v2-calibration-1",
         "vision_schema_version": 2,
         "risk_policy_version": 2,

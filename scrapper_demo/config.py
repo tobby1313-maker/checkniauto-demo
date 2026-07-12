@@ -52,6 +52,7 @@ class DemoServerConfig:
     demo_max_manual_images: int
     demo_max_scraped_images: int
     demo_skip_kb: bool
+    demo_analysis_profile: str
     demo_max_upload_mb: int
     flask_secret_key: str
     admin_dashboard_token: str
@@ -96,6 +97,12 @@ class DemoServerConfig:
                 values, "DEMO_MAX_SCRAPED_IMAGES", 0, minimum=0
             ),
             demo_skip_kb=_as_bool(values.get("DEMO_SKIP_KB"), True),
+            demo_analysis_profile=(
+                values.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+                if values.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+                in {"legacy", "quality_optimized"}
+                else "quality_optimized"
+            ),
             demo_max_upload_mb=_as_int(
                 values, "DEMO_MAX_UPLOAD_MB", 24, minimum=1
             ),
@@ -128,6 +135,7 @@ class DemoServerConfig:
             "DEMO_MAX_MANUAL_IMAGES": self.demo_max_manual_images,
             "DEMO_MAX_SCRAPED_IMAGES": self.demo_max_scraped_images,
             "DEMO_SKIP_KB": self.demo_skip_kb,
+            "DEMO_ANALYSIS_PROFILE": self.demo_analysis_profile,
             "DEMO_MAX_UPLOAD_MB": self.demo_max_upload_mb,
             "SCRAPPER_DATA_DIR": self.data_dir,
             "SCRAPPER_AUTA_DIR": self.auta_dir,

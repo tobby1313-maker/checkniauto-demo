@@ -418,17 +418,14 @@ Cena je orientacna.
         self.assertEqual(payload["text_research"]["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
         self.assertEqual(payload["text_research"]["safety_and_recall"]["status"], "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK")
         self.assertEqual(payload["text_research"]["market_comparables"][0]["relevance"], "HIGH")
-        self.assertEqual(payload["text_research"]["sources_used"][0]["source_id"], "src-recall")
+        self.assertEqual(payload["text_research"]["sources_used"], [])
         self.assertEqual(payload["vision"]["odometer"]["reading_km"], 158420)
         self.assertEqual(payload["vision"]["missing_views"], ["engine bay"])
         self.assertTrue(payload["text_research"]["web_research_findings"][0]["verified_url"])
         self.assertFalse(payload["text_research"]["web_research_findings"][1]["verified_url"])
         self.assertEqual(payload["text_research"]["web_research_findings"][1]["source_url"], "")
-        self.assertEqual(
-            payload["web_research"]["verified_source_lines"],
-            ["- [Autobazar.EU](https://www.autobazar.eu/mazda/cx-5/) - market listings"],
-        )
-        self.assertNotIn("vertexaisearch", payload["web_research"]["evidence_excerpt"])
+        self.assertEqual(payload["web_research"]["verified_source_lines"], [])
+        self.assertEqual(payload["web_research"]["evidence_excerpt"], "")
 
     def test_fixture_style_report_regression_for_costs_links_market_and_verdict(self):
         report = """

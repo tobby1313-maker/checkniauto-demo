@@ -203,6 +203,7 @@ def multi_model_analysis_events(
                 image_data_list=None,
                 model=GEMINI_TEXT_RESEARCH_MODEL,
                 listing_slug=slug,
+                phase="text_research",
             ),
         )
     else:
@@ -227,6 +228,7 @@ def multi_model_analysis_events(
                     image_data_list=None,
                     model=GEMINI_TEXT_RESEARCH_MODEL,
                     listing_slug=slug,
+                    phase="text_research",
                 ),
             )
     repository.write_text(slug, "grok_research.json", text_research_json_text)
@@ -274,6 +276,7 @@ def multi_model_analysis_events(
                     model=GEMINI_VISION_MODEL,
                     listing_slug=slug,
                     allow_image_text_fallback=False,
+                    phase="vision",
                 ),
             )
         except Exception as exc:
@@ -327,6 +330,7 @@ def multi_model_analysis_events(
         text_research_json_text,
         vision_result_json,
         listing_text=car_info_text,
+        output_language=dependencies.output_language(output_language),
     )
     risk_score_json = json.dumps(risk_score, indent=2, ensure_ascii=False)
     repository.write_text(slug, "risk_score.json", risk_score_json)
@@ -377,6 +381,7 @@ def multi_model_analysis_events(
                     model=GEMINI_FINAL_MODEL,
                     listing_slug=slug,
                     fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
+                    phase="final_synthesis",
                 ):
                     attempt_text += chunk
                     attempt_output_tokens += dependencies.estimate_output_tokens(chunk)
@@ -425,6 +430,7 @@ def multi_model_analysis_events(
                         model=GEMINI_FINAL_MODEL,
                         listing_slug=slug,
                         fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
+                        phase="final_synthesis",
                     ):
                         attempt_text += chunk
                         attempt_output_tokens += dependencies.estimate_output_tokens(chunk)

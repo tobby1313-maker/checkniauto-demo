@@ -156,20 +156,26 @@ class TokenTracker:
         duration_ms: int,
         listing_slug: str | None = None,
         request_type: str = "generate_content",
+        phase: str | None = None,
         error: str | None = None,
         actual_input_tokens: int | None = None,
         actual_output_tokens: int | None = None,
+        actual_thinking_tokens: int | None = None,
+        actual_total_tokens: int | None = None,
     ) -> dict:
         entry = {
             "id": uuid.uuid4().hex,
             "timestamp": _utc_now_iso(),
             "model": model,
             "request_type": request_type,
+            "phase": phase,
             "listing_slug": listing_slug,
             "input_tokens": int(input_tokens or 0),
             "output_tokens": int(output_tokens or 0),
             "actual_input_tokens": actual_input_tokens,
             "actual_output_tokens": actual_output_tokens,
+            "actual_thinking_tokens": actual_thinking_tokens,
+            "actual_total_tokens": actual_total_tokens,
             "status": status,
             "duration_ms": int(duration_ms or 0),
             "error": str(error)[:500] if error else None,
@@ -201,26 +207,29 @@ class TokenTracker:
             "requests": 0,
             "input_tokens": 0,
             "output_tokens": 0,
+            "thinking_tokens": 0,
             "total_tokens": 0,
             "estimated_cost": 0.0,
             "successful_requests": 0,
             "failed_requests": 0,
         }
         today_totals = totals.copy()
-        by_listing = defaultdict(lambda: {"requests": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
-        by_model = defaultdict(lambda: {"requests": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+        by_listing = defaultdict(lambda: {"requests": 0, "input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0, "total_tokens": 0})
+        by_model = defaultdict(lambda: {"requests": 0, "input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0, "total_tokens": 0})
 
         for entry in requests:
             input_tokens = int(entry.get("actual_input_tokens") or entry.get("input_tokens") or 0)
             output_tokens = int(entry.get("actual_output_tokens") or entry.get("output_tokens") or 0)
-            total_tokens = input_tokens + output_tokens
+            thinking_tokens = int(entry.get("actual_thinking_tokens") or 0)
+            total_tokens = int(entry.get("actual_total_tokens") or (input_tokens + output_tokens + thinking_tokens))
             status = entry.get("status") or "unknown"
 
             totals["requests"] += 1
             totals["input_tokens"] += input_tokens
             totals["output_tokens"] += output_tokens
+            totals["thinking_tokens"] += thinking_tokens
             totals["total_tokens"] += total_tokens
-            totals["estimated_cost"] += _estimate_cost(input_tokens, output_tokens)
+            totals["estimated_cost"] += _estimate_cost(input_tokens, output_tokens + thinking_tokens)
             if status == "success":
                 totals["successful_requests"] += 1
             else:
@@ -230,8 +239,9 @@ class TokenTracker:
                 today_totals["requests"] += 1
                 today_totals["input_tokens"] += input_tokens
                 today_totals["output_tokens"] += output_tokens
+                today_totals["thinking_tokens"] += thinking_tokens
                 today_totals["total_tokens"] += total_tokens
-                today_totals["estimated_cost"] += _estimate_cost(input_tokens, output_tokens)
+                today_totals["estimated_cost"] += _estimate_cost(input_tokens, output_tokens + thinking_tokens)
                 if status == "success":
                     today_totals["successful_requests"] += 1
                 else:
@@ -241,15 +251,17 @@ class TokenTracker:
             by_listing[listing]["requests"] += 1
             by_listing[listing]["input_tokens"] += input_tokens
             by_listing[listing]["output_tokens"] += output_tokens
+            by_listing[listing]["thinking_tokens"] += thinking_tokens
             by_listing[listing]["total_tokens"] += total_tokens
-            by_listing[listing]["estimated_cost"] = by_listing[listing].get("estimated_cost", 0.0) + _estimate_cost(input_tokens, output_tokens)
+            by_listing[listing]["estimated_cost"] = by_listing[listing].get("estimated_cost", 0.0) + _estimate_cost(input_tokens, output_tokens + thinking_tokens)
 
             model = entry.get("model") or "unknown"
             by_model[model]["requests"] += 1
             by_model[model]["input_tokens"] += input_tokens
             by_model[model]["output_tokens"] += output_tokens
+            by_model[model]["thinking_tokens"] += thinking_tokens
             by_model[model]["total_tokens"] += total_tokens
-            by_model[model]["estimated_cost"] = by_model[model].get("estimated_cost", 0.0) + _estimate_cost(input_tokens, output_tokens)
+            by_model[model]["estimated_cost"] = by_model[model].get("estimated_cost", 0.0) + _estimate_cost(input_tokens, output_tokens + thinking_tokens)
 
         for bucket in (totals, today_totals):
             bucket["estimated_cost"] = round(bucket["estimated_cost"], 6)
@@ -261,8 +273,12 @@ class TokenTracker:
         for entry in self.get_recent_requests(recent_limit):
             input_tokens = int(entry.get("actual_input_tokens") or entry.get("input_tokens") or 0)
             output_tokens = int(entry.get("actual_output_tokens") or entry.get("output_tokens") or 0)
+            thinking_tokens = int(entry.get("actual_thinking_tokens") or 0)
+            total_tokens = int(entry.get("actual_total_tokens") or (input_tokens + output_tokens + thinking_tokens))
             recent_entry = dict(entry)
-            recent_entry["estimated_cost"] = _estimate_cost(input_tokens, output_tokens)
+            recent_entry["thinking_tokens"] = thinking_tokens
+            recent_entry["total_tokens"] = total_tokens
+            recent_entry["estimated_cost"] = _estimate_cost(input_tokens, output_tokens + thinking_tokens)
             recent_requests.append(recent_entry)
 
         return {

@@ -14,17 +14,7 @@ from typing import Any
 
 from scrapper_demo.contracts import RiskOverride, RiskRule, RiskScoreResult
 from scrapper_demo.logging import safe_log
-
-
-VERDICTS = [
-    "🟢 DOBRÁ KÚPA",
-    "🟡 PRIJATEĽNÁ KÚPA",
-    "🟠 ZVÁŽIŤ",
-    "🔴 RIZIKOVÁ KÚPA",
-    "⛔ EXTRÉMNE RIZIKO",
-]
-
-VERDICT_RANK = {verdict: index for index, verdict in enumerate(VERDICTS)}
+from scrapper_demo.verdicts import STATUS_RANK, label_for_status
 
 
 def parse_model_json(value: Any) -> dict[str, Any]:
@@ -61,6 +51,8 @@ def calculate_hotfixed_risk_score(
     text_research: Any,
     vision: Any,
     listing_text: str | None = None,
+    *,
+    output_language: str = "sk",
 ) -> RiskScoreResult:
     research = parse_model_json(text_research)
     vision_data = parse_model_json(vision)
@@ -187,23 +179,23 @@ def calculate_hotfixed_risk_score(
             missing_flags.add("seller")
 
     score = max(0, _sum_points(applied_rules))
-    verdict = _verdict_for_score(score)
+    verdict_status = _verdict_for_score(score)
 
     if vin_invalid and service_missing:
-        verdict = _cap_verdict(verdict, "🟠 ZVÁŽIŤ")
-        _add_override(overrides, "invalid VIN + service history missing", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
+        verdict_status = _cap_verdict(verdict_status, "RESOLVE_BEFORE_PROCEEDING")
+        _add_override(overrides, "invalid VIN + service history missing", "Identity concern must be resolved before proceeding.")
     if vin_invalid and weak_photos:
-        verdict = _cap_verdict(verdict, "🟠 ZVÁŽIŤ")
-        _add_override(overrides, "invalid VIN + weak photos", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
+        verdict_status = _cap_verdict(verdict_status, "RESOLVE_BEFORE_PROCEEDING")
+        _add_override(overrides, "invalid VIN + weak photos", "Identity concern must be resolved before proceeding.")
     if serious_damage:
-        verdict = _cap_verdict(verdict, "🟠 ZVÁŽIŤ")
-        _add_override(overrides, "serious visible red flags", "Final verdict cannot be better than 🟠 ZVÁŽIŤ.")
+        verdict_status = _cap_verdict(verdict_status, "RESOLVE_BEFORE_PROCEEDING")
+        _add_override(overrides, "serious visible red flags", "Serious visible concerns must be resolved before proceeding.")
     if concern_checks:
-        verdict = _cap_verdict(verdict, "🔴 RIZIKOVÁ KÚPA")
-        _add_override(overrides, "major listing contradiction", "Final verdict cannot be better than 🔴 RIZIKOVÁ KÚPA.")
+        verdict_status = _cap_verdict(verdict_status, "HIGH_RISK")
+        _add_override(overrides, "major listing contradiction", "Major listing contradiction makes the listing unsuitable under current conditions.")
     if not photos_provided:
-        verdict = _cap_verdict(verdict, "🟡 PRIJATEĽNÁ KÚPA")
-        _add_override(overrides, "no photos", "Final verdict cannot be 🟢 DOBRÁ KÚPA.")
+        verdict_status = _cap_verdict(verdict_status, "INSPECT_WITH_RESERVATIONS")
+        _add_override(overrides, "no photos", "Missing visual evidence requires verification before travelling.")
 
     if research.get("_parse_error"):
         missing_flags.add("text_research_json")
@@ -217,7 +209,8 @@ def calculate_hotfixed_risk_score(
 
     return {
         "risk_score": score,
-        "allowed_final_verdict": verdict,
+        "decision_status": verdict_status,
+        "allowed_final_verdict": label_for_status(verdict_status, output_language),
         "applied_rules": applied_rules,
         "override_rules_applied": overrides,
         "missing_data_flags": sorted(missing_flags),
@@ -229,22 +222,33 @@ def calculate_risk_score(
     text_research: Any,
     vision: Any,
     listing_text: str | None = None,
+    *,
+    output_language: str = "sk",
 ) -> RiskScoreResult:
     """Use the hotfixed scorer until the explicitly enabled v2 policy is calibrated."""
     enabled = os.environ.get("RISK_SCORER_V2_ACTIVE", "").strip().lower() in {
         "1", "true", "yes", "on"
     }
     if not enabled:
-        return calculate_hotfixed_risk_score(text_research, vision, listing_text)
+        return calculate_hotfixed_risk_score(
+            text_research, vision, listing_text, output_language=output_language
+        )
     try:
         from risk_scorer_v2 import calculate_risk_score_v2
 
-        return calculate_risk_score_v2(text_research, vision, listing_text)  # type: ignore[return-value]
+        return calculate_risk_score_v2(
+            text_research,
+            vision,
+            listing_text,
+            output_language=output_language,
+        )  # type: ignore[return-value]
     except Exception as exc:
         safe_log(f"Risk scorer v2 failed; using safe yellow fallback: {exc}")
         from risk_scorer_v2 import safe_yellow_fallback
 
-        return safe_yellow_fallback(str(exc))  # type: ignore[return-value]
+        return safe_yellow_fallback(
+            str(exc), output_language=output_language
+        )  # type: ignore[return-value]
 
 
 def _add_rule(rules: list[RiskRule], rule: str, points: int, reason: str) -> None:
@@ -262,18 +266,18 @@ def _sum_points(rules: list[RiskRule]) -> int:
 
 def _verdict_for_score(score: int) -> str:
     if score <= 1:
-        return "🟢 DOBRÁ KÚPA"
+        return "WORTH_INSPECTING"
     if score <= 3:
-        return "🟡 PRIJATEĽNÁ KÚPA"
+        return "INSPECT_WITH_RESERVATIONS"
     if score <= 6:
-        return "🟠 ZVÁŽIŤ"
+        return "RESOLVE_BEFORE_PROCEEDING"
     if score <= 9:
-        return "🔴 RIZIKOVÁ KÚPA"
-    return "⛔ EXTRÉMNE RIZIKO"
+        return "HIGH_RISK"
+    return "DO_NOT_PROCEED"
 
 
 def _cap_verdict(current: str, cap: str) -> str:
-    return cap if VERDICT_RANK[current] < VERDICT_RANK[cap] else current
+    return cap if STATUS_RANK[current] < STATUS_RANK[cap] else current
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

@@ -395,11 +395,11 @@ Použi presne jednu z týchto úrovní:
 
 | Úroveň | Symbol | Názov           | Popis                                                |
 | ------ | ------ | --------------- | ---------------------------------------------------- |
-| 1      | 🟢     | DOBRÁ KÚPA      | Dobré parametre, primeraná cena, nízke riziko        |
-| 2      | 🟡     | PRIJATEĽNÁ KÚPA | Celkovo OK, ale treba niečo overiť alebo vyjednať    |
-| 3      | 🟠     | ZVÁŽIŤ          | Viac otáznikov, kúpiť len po obhliadke a kontrole    |
-| 4      | 🔴     | RIZIKOVÁ KÚPA   | Viacero rizík alebo možné drahé opravy               |
-| 5      | ⛔      | EXTRÉMNE RIZIKO | Vážne podozrenia, nejasný pôvod, veľmi vysoké riziko |
+| 1      | 🟢     | STOJÍ ZA OBHLIADKU       | Bez konkrétneho dôvodu na vyradenie; štandardná kontrola stále platí |
+| 2      | 🟡     | NAJPRV PREVERIŤ           | Pred cestou treba overiť konkrétny údaj alebo nezrovnalosť |
+| 3      | 🟠     | RIEŠIŤ LEN S VÝHRADAMI   | Materiálny problém alebo viac nezávislých otáznikov |
+| 4      | 🔴     | SKÔR NERIEŠIŤ            | Dobre podložené riziká za súčasných podmienok prevažujú |
+| 5      | ⛔      | RUKY PREČ                 | Potvrdený alebo viacnásobne podložený zásadný hard stop |
 
 Hodnotenie musí vychádzať z kombinácie:
 
@@ -431,11 +431,11 @@ Interne si spočítaj rizikové body. Nevypisuj ich.
 
 Mapovanie bodov:
 
-* 0 až 1: 🟢 DOBRÁ KÚPA
-* 2 až 3: 🟡 PRIJATEĽNÁ KÚPA
-* 4 až 6: 🟠 ZVÁŽIŤ
-* 7 až 9: 🔴 RIZIKOVÁ KÚPA
-* 10 a viac: ⛔ EXTRÉMNE RIZIKO
+* 0 až 1: 🟢 STOJÍ ZA OBHLIADKU
+* 2 až 3: 🟡 NAJPRV PREVERIŤ
+* 4 až 6: 🟠 RIEŠIŤ LEN S VÝHRADAMI
+* 7 až 9: 🔴 SKÔR NERIEŠIŤ
+* 10 a viac: ⛔ RUKY PREČ
 
 Ak je výsledok na hranici medzi dvoma úrovňami, vyber konzervatívnejšiu úroveň, najmä ak chýba VIN, servisná história, fotky alebo trhové porovnanie.
 

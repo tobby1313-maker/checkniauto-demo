@@ -283,10 +283,12 @@
                         <tr>
                             <th>Time</th>
                             <th>Listing</th>
+                            <th>Phase</th>
                             <th>Type</th>
                             <th>Model</th>
                             <th>Input</th>
                             <th>Output</th>
+                            <th>Thinking</th>
                             <th>Cost</th>
                             <th>Duration</th>
                             <th>Status</th>
@@ -408,7 +410,7 @@
         }
 
         function renderRows(target, rows, emptyText) {
-            target.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="9" class="muted">' + emptyText + '</td></tr>';
+                target.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="11" class="muted">' + emptyText + '</td></tr>';
         }
 
         function renderAggregateRows(target, data, emptyText) {
@@ -479,7 +481,7 @@
             byId('todayRequests').textContent = num(today.requests);
             byId('todayFailures').textContent = num(today.failed_requests) + ' failed';
             byId('todayTokens').textContent = num(today.total_tokens);
-            byId('todaySplit').textContent = num(today.input_tokens) + ' in / ' + num(today.output_tokens) + ' out';
+            byId('todaySplit').textContent = num(today.input_tokens) + ' in / ' + num(today.output_tokens) + ' out / ' + num(today.thinking_tokens) + ' thinking';
             byId('totalRequests').textContent = num(totals.requests);
             byId('totalFailures').textContent = num(totals.failed_requests) + ' failed';
             byId('totalCost').textContent = money(totals.estimated_cost, data.cost_currency);
@@ -488,15 +490,18 @@
             const recentRows = (data.recent_requests || []).map((entry) => {
                 const inputTokens = entry.actual_input_tokens || entry.input_tokens || 0;
                 const outputTokens = entry.actual_output_tokens || entry.output_tokens || 0;
+                const thinkingTokens = entry.actual_thinking_tokens || entry.thinking_tokens || 0;
                 const statusClass = entry.status === 'success' ? 'status success' : 'status';
                 return `
                     <tr>
                         <td>${escapeHtml(timeLabel(entry.timestamp))}</td>
                         <td>${escapeHtml(entry.listing_slug || 'unattributed')}</td>
+                        <td>${escapeHtml(entry.phase || '')}</td>
                         <td>${escapeHtml(entry.request_type || '')}</td>
                         <td>${escapeHtml(entry.model || '')}</td>
                         <td>${num(inputTokens)}</td>
                         <td>${num(outputTokens)}</td>
+                        <td>${num(thinkingTokens)}</td>
                         <td>${money(entry.estimated_cost, data.cost_currency)}</td>
                         <td>${num(entry.duration_ms)} ms</td>
                         <td class="${statusClass}">${escapeHtml(entry.status || 'unknown')}</td>

@@ -28,7 +28,7 @@ The analysis pipeline is:
 3. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
    optional provider branches if their keys are explicitly configured.
 4. Run Gemini vision analysis on representative uploaded or scraped photos.
-5. Calculate a deterministic backend risk score in `risk_scorer.py`.
+5. Calculate a deterministic backend listing-screening status in `risk_scorer.py`.
 6. Generate the final buyer-facing report. Gemini defaults to a stronger Flash
    model for this phase.
 7. Save the public report and intermediate artifacts for the dashboard.
@@ -130,6 +130,7 @@ Recommended deployment environment:
 
 ```text
 DEMO_MODE=true
+DEMO_ANALYSIS_PROFILE=quality_optimized
 DEMO_PROMPT_FILE=analyze_prompt_v4_koyeb.txt
 FLASK_SECRET_KEY=<strong-random-secret>
 ADMIN_DASHBOARD_TOKEN=<strong-random-admin-token>
@@ -158,6 +159,7 @@ temp directory in `scrapper-demo/Auta`.
 | `DEMO_MODE` | `true` | Restricts the app to public demo routes. |
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
 | `DEMO_SKIP_KB` | `true` | Prevents public demo analysis from reading or writing the private knowledge base. |
+| `DEMO_ANALYSIS_PROFILE` | `quality_optimized` | Generation profile. `quality_optimized` bounds structured intermediate outputs and final context; `legacy` restores the previous generation limits for rollback. |
 | `FLASK_SECRET_KEY` | `dev-demo-secret-change-me` | Flask secret; replace in every deployed environment. |
 | `ADMIN_DASHBOARD_TOKEN` | empty | Required secret for the token dashboard, telemetry, diagnostic artifacts, raw results, and calibration exports. Protected routes return unavailable until configured. |
 | `RISK_SCORER_V2_ACTIVE` | `false` | Activates the offline-calibrated gate scorer. Leave disabled until holdout acceptance criteria pass. |
@@ -183,8 +185,8 @@ temp directory in `scrapper-demo/Auta`.
 | `SCRAPPER_DATA_DIR` | system temp dir | Base data folder for demo jobs and token usage. |
 | `SCRAPPER_AUTA_DIR` | `<data-dir>/Auta` | Explicit listing/job storage folder. |
 | `SCRAPPER_TOKEN_USAGE_PATH` | `<Auta>/token_usage.json` | Token usage JSON storage path. |
-| `SCRAPPER_TOKEN_INPUT_COST_PER_1M` | `0` | Optional token cost estimate input rate. |
-| `SCRAPPER_TOKEN_OUTPUT_COST_PER_1M` | `0` | Optional token cost estimate output rate. |
+| `SCRAPPER_TOKEN_INPUT_COST_PER_1M` | `1.5` | Optional token cost estimate input rate. |
+| `SCRAPPER_TOKEN_OUTPUT_COST_PER_1M` | `9.00` | Optional token cost estimate output rate. |
 | `SCRAPPER_TOKEN_COST_CURRENCY` | `EUR` | Currency label for token cost estimates. |
 
 ## Public Demo UI
@@ -337,6 +339,21 @@ The reviewer edits only `expert_label.json`. Rule changes belong in the shared,
 versioned `risk_policy_v2.json` and must be based on repeated tuning-set errors,
 not individual makes, models, or listing slugs.
 
+Calibration labels use the language-independent `expected_status`, not the
+rendered Slovak or English verdict text. The customer-facing labels are:
+
+| Status | Slovak | English |
+| --- | --- | --- |
+| `WORTH_INSPECTING` | 🟢 STOJÍ ZA OBHLIADKU | 🟢 WORTH CHECKING OUT |
+| `INSPECT_WITH_RESERVATIONS` | 🟡 NAJPRV PREVERIŤ | 🟡 VERIFY FIRST |
+| `RESOLVE_BEFORE_PROCEEDING` | 🟠 RIEŠIŤ LEN S VÝHRADAMI | 🟠 PROCEED WITH RESERVATIONS |
+| `HIGH_RISK` | 🔴 SKÔR NERIEŠIŤ | 🔴 PROBABLY SKIP |
+| `DO_NOT_PROCEED` | ⛔ RUKY PREČ | ⛔ WALK AWAY |
+
+These labels describe whether the listing is worth pursuing toward verification
+and inspection. They are not a guarantee of the vehicle's hidden condition or
+future ownership outcome.
+
 ## Local Non-Demo Routes
 
 Private-mode blueprint registration retains local routes such as `/api/scrape`,
@@ -413,8 +430,8 @@ analysis_images/
 - Old job folders are cleaned up based on `DEMO_JOB_TTL_MINUTES`.
 - Manual uploads are constrained by image count, extension, and total request
   size.
-- Final risk verdict is constrained by deterministic backend scoring, not only
-  by model prose.
+- The final listing-screening verdict is constrained by deterministic backend
+  gates, not only by model prose.
 
 ## Compatibility Boundaries
 
