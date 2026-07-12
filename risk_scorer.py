@@ -7,11 +7,13 @@ It intentionally uses simple, inspectable rules rather than model reasoning.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from typing import Any
 
 from scrapper_demo.contracts import RiskOverride, RiskRule, RiskScoreResult
+from scrapper_demo.logging import safe_log
 
 
 VERDICTS = [
@@ -55,7 +57,7 @@ def parse_model_json(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def calculate_risk_score(
+def calculate_hotfixed_risk_score(
     text_research: Any,
     vision: Any,
     listing_text: str | None = None,
@@ -120,13 +122,7 @@ def calculate_risk_score(
     service_missing = _is_missing(service_history)
     if service_missing:
         missing_flags.add("service_history")
-    if service_missing and high_age_or_mileage:
-        _add_rule(
-            applied_rules,
-            "unclear_service_history_for_old_or_high_mileage_car",
-            1,
-            "Pri starsom aute alebo vyssom najazde chyba jasna servisna historia.",
-        )
+    if service_missing:
         priority_checks.append("Vyziadat servisnu historiu, faktury a intervaly vymen.")
 
     photos_provided = _truthy(vision_data.get("photos_provided"))
@@ -165,10 +161,8 @@ def calculate_risk_score(
     ]
     expensive_findings = [item for item in researched_findings if _mentions_expensive_risk(item)]
     high_conf_expensive = [item for item in expensive_findings if _is_high_confidence(item.get("confidence"))]
-    if high_conf_expensive:
-        _add_rule(applied_rules, "high_confidence_expensive_known_risk", 2, "Research obsahuje relevantne drahe zname riziko s vysokou istotou.")
-    elif expensive_findings:
-        _add_rule(applied_rules, "relevant_expensive_known_risk", 1, "Research obsahuje relevantne potencialne drahe riziko.")
+    if high_conf_expensive or expensive_findings:
+        priority_checks.append("Pri obhliadke cielene preverit zname modelove rizika a servisne intervaly.")
 
     price_view = _clean(market.get("price_view")).lower()
     suspicious_price = price_view in {
@@ -178,18 +172,11 @@ def calculate_risk_score(
         "requires_manual_verification",
     }
     if suspicious_price:
-        risk_so_far = _sum_points(applied_rules)
-        points = 2 if risk_so_far > 0 and price_view == "rather_cheap" else 1
-        _add_rule(
-            applied_rules,
-            "price_suspicious_and_other_risks_exist" if points == 2 else "price_suspiciously_low_or_high",
-            points,
-            "Cenove porovnanie je nejasne alebo vyzaduje manualne overenie.",
-        )
         missing_flags.add("market_comparison")
+        priority_checks.append("Cenu overit manualne na porovnatelnych vozidlach; neovereny odhad sam o sebe nehodnoti stav auta.")
 
     if high_age_or_mileage:
-        _add_rule(applied_rules, "high_age_or_mileage_expected_service", 1, "Vek alebo najazd auta zvysuje pravdepodobnost blizsich servisnych nakladov.")
+        priority_checks.append("Pri veku alebo najazde preverit bezny servis a opotrebovatelne diely.")
 
     origin_missing = _is_missing(facts.get("origin_or_country"))
     seller_missing = _is_missing(facts.get("seller"))
@@ -198,13 +185,6 @@ def calculate_risk_score(
             missing_flags.add("origin")
         if seller_missing:
             missing_flags.add("seller")
-        _add_rule(applied_rules, "unclear_origin_or_seller_missing_key_info", 1, "Povod alebo typ predajcu nie je jasne uvedeny.")
-
-    if _has_good_documentation(vin_problem, service_missing, weak_photos, serious_damage, origin_missing):
-        _add_rule(applied_rules, "good_documentation_clear_origin_vin_good_photos", -1, "VIN, servis, povod a fotografie vyzeraju dostatocne transparentne.")
-
-    if _has_excellent_profile(vin_problem, service_missing, weak_photos, serious_damage, minor_damage, mileage):
-        _add_rule(applied_rules, "excellent_documentation_and_low_risk_profile", -2, "Profil auta vyzera nizkorizikovo a dobre zdokumentovane.")
 
     score = max(0, _sum_points(applied_rules))
     verdict = _verdict_for_score(score)
@@ -221,9 +201,6 @@ def calculate_risk_score(
     if concern_checks:
         verdict = _cap_verdict(verdict, "🔴 RIZIKOVÁ KÚPA")
         _add_override(overrides, "major listing contradiction", "Final verdict cannot be better than 🔴 RIZIKOVÁ KÚPA.")
-    if price_view == "rather_cheap" and vin_invalid:
-        verdict = _cap_verdict(verdict, "🔴 RIZIKOVÁ KÚPA")
-        _add_override(overrides, "suspiciously low price + invalid VIN", "Final verdict cannot be better than 🔴 RIZIKOVÁ KÚPA.")
     if not photos_provided:
         verdict = _cap_verdict(verdict, "🟡 PRIJATEĽNÁ KÚPA")
         _add_override(overrides, "no photos", "Final verdict cannot be 🟢 DOBRÁ KÚPA.")
@@ -246,6 +223,28 @@ def calculate_risk_score(
         "missing_data_flags": sorted(missing_flags),
         "buyer_priority_checks": _dedupe(priority_checks),
     }
+
+
+def calculate_risk_score(
+    text_research: Any,
+    vision: Any,
+    listing_text: str | None = None,
+) -> RiskScoreResult:
+    """Use the hotfixed scorer until the explicitly enabled v2 policy is calibrated."""
+    enabled = os.environ.get("RISK_SCORER_V2_ACTIVE", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    if not enabled:
+        return calculate_hotfixed_risk_score(text_research, vision, listing_text)
+    try:
+        from risk_scorer_v2 import calculate_risk_score_v2
+
+        return calculate_risk_score_v2(text_research, vision, listing_text)  # type: ignore[return-value]
+    except Exception as exc:
+        safe_log(f"Risk scorer v2 failed; using safe yellow fallback: {exc}")
+        from risk_scorer_v2 import safe_yellow_fallback
+
+        return safe_yellow_fallback(str(exc))  # type: ignore[return-value]
 
 
 def _add_rule(rules: list[RiskRule], rule: str, points: int, reason: str) -> None:
@@ -343,7 +342,12 @@ def _has_visual_severity(vision: dict[str, Any], severities: set[str]) -> bool:
     )
     for section in sections:
         for item in _as_list(vision.get(section)):
-            severity = _clean(_as_dict(item).get("severity")).lower()
+            observation = _as_dict(item)
+            # Legacy observations did not distinguish reassuring notes from
+            # concerns. They are deliberately not scored.
+            if _clean(observation.get("assessment")).lower() != "concern":
+                continue
+            severity = _clean(observation.get("severity")).lower()
             if severity in severities:
                 return True
     return False

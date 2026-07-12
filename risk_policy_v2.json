@@ -1,0 +1,21 @@
+{
+  "policy_version": 2,
+  "calibration_status": "UNCALIBRATED",
+  "bands": {
+    "WORTH_INSPECTING": {"ceiling": 100, "floor": 90, "verdict": "🟢 DOBRÁ KÚPA"},
+    "INSPECT_WITH_RESERVATIONS": {"ceiling": 89, "floor": 75, "verdict": "🟡 PRIJATEĽNÁ KÚPA"},
+    "RESOLVE_BEFORE_PROCEEDING": {"ceiling": 74, "floor": 55, "verdict": "🟠 ZVÁŽIŤ"},
+    "HIGH_RISK": {"ceiling": 54, "floor": 30, "verdict": "🔴 RIZIKOVÁ KÚPA"},
+    "DO_NOT_PROCEED": {"ceiling": 29, "floor": 1, "verdict": "⛔ EXTRÉMNE RIZIKO"}
+  },
+  "age_cosmetic_modifiers": {
+    "0_3": {"minor": 2, "medium": 4},
+    "4_9": {"minor": 1, "medium": 3},
+    "10_plus": {"minor": 0, "medium": 2},
+    "unknown": {"minor": 1, "medium": 3}
+  },
+  "cosmetic_modifier_cap": 5,
+  "additional_trigger_deduction": 3,
+  "additional_trigger_cap": 9,
+  "evidence_quality_deduction": {"HIGH": 0, "MEDIUM": 2, "LOW": 5}
+}

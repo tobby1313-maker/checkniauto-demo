@@ -76,8 +76,11 @@
         "properties": {
           "photo_label": { "type": "string" },
           "observation": { "type": "string" },
-          "severity": { "type": "string", "enum": ["minor", "medium", "serious", "unknown"] },
-          "confidence": { "type": "string", "enum": ["Vysoká", "Stredná", "Nízka"] },
+          "assessment": { "type": "string", "enum": ["reassuring", "neutral", "concern", "uncertain"] },
+          "severity": { "type": "string", "enum": ["none", "minor", "medium", "serious", "unknown"] },
+          "buyer_impact": { "type": "string", "enum": ["cosmetic", "maintenance", "mechanical", "safety", "identity_legal", "value"] },
+          "age_context": { "type": "string", "enum": ["expected", "worse_than_expected", "better_than_expected", "unknown"] },
+          "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
           "buyer_relevance": { "type": "string" }
         }
       }
@@ -89,8 +92,11 @@
         "properties": {
           "photo_label": { "type": "string" },
           "observation": { "type": "string" },
-          "severity": { "type": "string", "enum": ["minor", "medium", "serious", "unknown"] },
-          "confidence": { "type": "string", "enum": ["Vysoká", "Stredná", "Nízka"] },
+          "assessment": { "type": "string", "enum": ["reassuring", "neutral", "concern", "uncertain"] },
+          "severity": { "type": "string", "enum": ["none", "minor", "medium", "serious", "unknown"] },
+          "buyer_impact": { "type": "string", "enum": ["cosmetic", "maintenance", "mechanical", "safety", "identity_legal", "value"] },
+          "age_context": { "type": "string", "enum": ["expected", "worse_than_expected", "better_than_expected", "unknown"] },
+          "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
           "buyer_relevance": { "type": "string" }
         }
       }
@@ -102,7 +108,11 @@
         "properties": {
           "photo_label": { "type": "string" },
           "observation": { "type": "string" },
-          "confidence": { "type": "string", "enum": ["Vysoká", "Stredná", "Nízka"] },
+          "assessment": { "type": "string", "enum": ["reassuring", "neutral", "concern", "uncertain"] },
+          "severity": { "type": "string", "enum": ["none", "minor", "medium", "serious", "unknown"] },
+          "buyer_impact": { "type": "string", "enum": ["cosmetic", "maintenance", "mechanical", "safety", "identity_legal", "value"] },
+          "age_context": { "type": "string", "enum": ["expected", "worse_than_expected", "better_than_expected", "unknown"] },
+          "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
           "requires_verification": { "type": "boolean" }
         }
       }
@@ -114,8 +124,12 @@
         "properties": {
           "photo_label": { "type": "string" },
           "red_flag": { "type": "string" },
+          "assessment": { "type": "string", "enum": ["reassuring", "neutral", "concern", "uncertain"] },
+          "severity": { "type": "string", "enum": ["none", "minor", "medium", "serious", "unknown"] },
+          "buyer_impact": { "type": "string", "enum": ["cosmetic", "maintenance", "mechanical", "safety", "identity_legal", "value"] },
+          "age_context": { "type": "string", "enum": ["expected", "worse_than_expected", "better_than_expected", "unknown"] },
           "why_it_matters": { "type": "string" },
-          "confidence": { "type": "string", "enum": ["Vysoká", "Stredná", "Nízka"] }
+          "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
         }
       }
     },

@@ -1,0 +1,142 @@
+import json
+import os
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+from unittest.mock import patch
+
+import web_server
+from scrapper_demo.calibration import create_calibration_bundle, safe_extract_bundle
+from scrapper_demo.calibration_cli import evaluate_dataset, validate_label
+
+
+class CalibrationWorkflowTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.original_auta = web_server.AUTA_DIR
+        self.original_token = web_server.app.config.get("ADMIN_DASHBOARD_TOKEN", "")
+        self.original_secret = web_server.app.config.get("SECRET_KEY")
+        web_server.AUTA_DIR = str(Path(self.temp.name) / "Auta")
+        Path(web_server.AUTA_DIR).mkdir()
+        web_server.app.config["ADMIN_DASHBOARD_TOKEN"] = "secret-token"
+        web_server.app.config["SECRET_KEY"] = "test-secret-key"
+        web_server.app.testing = True
+        self.client = web_server.app.test_client()
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        web_server.AUTA_DIR = self.original_auta
+        web_server.app.config["ADMIN_DASHBOARD_TOKEN"] = self.original_token
+        web_server.app.config["SECRET_KEY"] = self.original_secret
+
+    def _job(self, slug="case-one"):
+        job = Path(web_server.AUTA_DIR) / slug
+        (job / "images").mkdir(parents=True)
+        (job / ".analysis_images").mkdir()
+        (job / "images" / "01.jpg").write_bytes(b"original")
+        (job / ".analysis_images" / "overview.jpg").write_bytes(b"overview")
+        (job / "car_info.md").write_text("# Car\n\n**Source:** https://example.test/car\n", encoding="utf-8")
+        (job / "raw_data.json").write_text(json.dumps({"source_url": "https://example.test/car"}), encoding="utf-8")
+        (job / "grok_research.json").write_text(json.dumps({"listing_facts": {"year": "2015", "vin": "TESTVIN", "service_history": "full"}, "vin_check": {"vin_present": True, "format_check": "ok"}}), encoding="utf-8")
+        (job / "gemini_vision.json").write_text(json.dumps({"photos_provided": True, "photo_limitations": []}), encoding="utf-8")
+        (job / "analysis_result.md").write_text("# Hidden verdict", encoding="utf-8")
+        (job / "risk_score.json").write_text(json.dumps({"allowed_final_verdict": "hidden"}), encoding="utf-8")
+        return job
+
+    def _login(self):
+        response = self.client.post("/admin/login", data={"token": "secret-token"})
+        self.assertEqual(response.status_code, 302)
+
+    def test_dashboard_and_diagnostics_require_admin_session(self):
+        dashboard = self.client.get("/token-dashboard.html")
+        telemetry = self.client.get("/api/token-usage")
+        self.assertEqual(dashboard.status_code, 302)
+        self.assertIn("/admin/login", dashboard.headers["Location"])
+        self.assertEqual(telemetry.status_code, 401)
+
+        self._login()
+        dashboard = self.client.get("/token-dashboard.html")
+        self.assertEqual(dashboard.status_code, 200)
+        dashboard.close()
+        self.assertEqual(self.client.get("/api/token-usage").status_code, 200)
+
+    def test_development_secret_cannot_enable_admin_api(self):
+        web_server.app.config["SECRET_KEY"] = "dev-demo-secret-change-me"
+        fresh_client = web_server.app.test_client()
+        login = fresh_client.post("/admin/login", data={"token": "secret-token"})
+        telemetry = fresh_client.get("/api/token-usage")
+        self.assertEqual(login.status_code, 200)
+        self.assertEqual(telemetry.status_code, 503)
+
+    def test_calibration_bundle_contains_evidence_and_excludes_verdicts(self):
+        self._job()
+        self._login()
+        response = self.client.get("/api/admin/calibration-bundles/case-one")
+        self.assertEqual(response.status_code, 200)
+        archive_path = Path(self.temp.name) / "download.zip"
+        archive_path.write_bytes(response.data)
+        response.close()
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            self.assertIn("manifest.json", names)
+            self.assertIn("expert_label.json", names)
+            self.assertIn("images/01.jpg", names)
+            self.assertIn("analysis_images/overview.jpg", names)
+            self.assertNotIn("risk_score.json", names)
+            self.assertNotIn("analysis_result.md", names)
+
+    def test_export_temporary_archive_is_removed_when_response_closes(self):
+        self._job("cleanup-case")
+        self._login()
+        archive = Path(self.temp.name) / "temporary-export.zip"
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("manifest.json", "{}")
+        with patch.object(web_server, "create_calibration_bundle", return_value=archive):
+            response = self.client.get("/api/admin/calibration-bundles/cleanup-case")
+            self.assertEqual(response.status_code, 200)
+            _ = response.data
+            response.close()
+        self.assertFalse(archive.exists())
+
+    def test_bundle_import_label_validation_and_offline_evaluation(self):
+        job = self._job("offline-case")
+        bundle = create_calibration_bundle(job, "offline-case")
+        dataset = Path(self.temp.name) / "dataset"
+        case = safe_extract_bundle(bundle, dataset)
+        bundle.unlink(missing_ok=True)
+        label_path = case / "expert_label.json"
+        label = json.loads(label_path.read_text(encoding="utf-8"))
+        label.update({
+            "expected_verdict": "🟢 DOBRÁ KÚPA",
+            "proceed_to_inspection": True,
+            "reviewer_confidence": "HIGH",
+            "reviewer_role": "mechanic",
+            "dataset_split": "holdout",
+        })
+        label_path.write_text(json.dumps(label, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(validate_label(case), [])
+        result = evaluate_dataset(dataset, split="holdout")
+        self.assertEqual(result["case_count"], 1)
+        self.assertEqual(result["metrics"]["exact_agreement"], 1.0)
+
+    def test_pipeline_config_activates_v2_and_failure_falls_back_to_yellow(self):
+        research = json.dumps({"listing_facts": {"vin": "TESTVIN", "service_history": "full"}, "vin_check": {"vin_present": True, "format_check": "ok"}})
+        vision = json.dumps({"photos_provided": True, "photo_limitations": []})
+        with web_server.app.test_request_context("/"):
+            previous = web_server.app.config.get("RISK_SCORER_V2_ACTIVE")
+            web_server.app.config["RISK_SCORER_V2_ACTIVE"] = True
+            try:
+                active = web_server._pipeline_calculate_risk_score(research, vision, "")
+                self.assertEqual(active["schema_version"], 2)
+                with patch("risk_scorer_v2.calculate_risk_score_v2", side_effect=RuntimeError("boom")):
+                    fallback = web_server._pipeline_calculate_risk_score(research, vision, "")
+                self.assertEqual(fallback["allowed_final_verdict"], "🟡 PRIJATEĽNÁ KÚPA")
+                self.assertEqual(fallback["evidence_quality"], "LOW")
+            finally:
+                web_server.app.config["RISK_SCORER_V2_ACTIVE"] = previous
+
+
+if __name__ == "__main__":
+    unittest.main()

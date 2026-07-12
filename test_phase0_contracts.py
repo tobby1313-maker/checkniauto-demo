@@ -39,6 +39,8 @@ class Phase0ContractTest(unittest.TestCase):
         self.original_ttl = web_server.DEMO_JOB_TTL_MINUTES
         self.original_runtime_state = web_server.app.extensions[RUNTIME_STATE_KEY]
         self.original_max_content_length = web_server.app.config.get("MAX_CONTENT_LENGTH")
+        self.original_admin_token = web_server.app.config.get("ADMIN_DASHBOARD_TOKEN", "")
+        self.original_secret_key = web_server.app.config.get("SECRET_KEY")
 
         web_server.AUTA_DIR = os.path.join(self.temp_dir.name, "Auta")
         os.makedirs(web_server.AUTA_DIR, exist_ok=True)
@@ -48,7 +50,10 @@ class Phase0ContractTest(unittest.TestCase):
         web_server.app.extensions[RUNTIME_STATE_KEY] = self.runtime_state
         web_server._set_current_progress(reset=True)
         web_server.app.testing = True
+        web_server.app.config["ADMIN_DASHBOARD_TOKEN"] = "test-admin-token"
+        web_server.app.config["SECRET_KEY"] = "test-secret-key"
         self.client = web_server.app.test_client()
+        self.client.post("/admin/login", data={"token": "test-admin-token"})
         self.addCleanup(self._restore_globals)
 
     def _restore_globals(self):
@@ -58,6 +63,8 @@ class Phase0ContractTest(unittest.TestCase):
         web_server.DEMO_JOB_TTL_MINUTES = self.original_ttl
         web_server.app.extensions[RUNTIME_STATE_KEY] = self.original_runtime_state
         web_server.app.config["MAX_CONTENT_LENGTH"] = self.original_max_content_length
+        web_server.app.config["ADMIN_DASHBOARD_TOKEN"] = self.original_admin_token
+        web_server.app.config["SECRET_KEY"] = self.original_secret_key
 
     def _install_success_fixture(self, slug="phase0-success"):
         destination = Path(web_server.AUTA_DIR) / slug

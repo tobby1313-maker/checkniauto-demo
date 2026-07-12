@@ -1,45 +1,31 @@
 {
-  "title": "Backend Risk Score Output",
+  "title": "Backend Risk Assessment Output",
   "type": "object",
   "required": [
-    "risk_score",
-    "allowed_final_verdict",
-    "applied_rules",
-    "override_rules_applied",
-    "missing_data_flags",
-    "buyer_priority_checks"
+    "allowed_final_verdict"
   ],
   "properties": {
-    "risk_score": { "type": "integer", "minimum": 0 },
+    "schema_version": { "type": "integer", "enum": [2] },
+    "policy_version": { "type": "integer" },
+    "calibration_status": { "type": "string", "enum": ["UNCALIBRATED", "CALIBRATED"] },
+    "decision_status": {
+      "type": "string",
+      "enum": ["WORTH_INSPECTING", "INSPECT_WITH_RESERVATIONS", "RESOLVE_BEFORE_PROCEEDING", "HIGH_RISK", "DO_NOT_PROCEED"]
+    },
     "allowed_final_verdict": { "type": "string" },
-    "applied_rules": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "rule": { "type": "string" },
-          "points": { "type": "integer" },
-          "reason": { "type": "string" }
-        }
-      }
-    },
-    "override_rules_applied": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "rule": { "type": "string" },
-          "effect": { "type": "string" }
-        }
-      }
-    },
-    "missing_data_flags": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "buyer_priority_checks": {
-      "type": "array",
-      "items": { "type": "string" }
-    }
+    "screening_score": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "evidence_quality": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+    "vehicle_specific_findings": { "type": "array", "items": { "type": "object" } },
+    "normal_wear_observations": { "type": "array", "items": { "type": "object" } },
+    "model_level_inspection_points": { "type": "array", "items": { "type": "object" } },
+    "missing_information": { "type": "array", "items": { "type": "object" } },
+    "buyer_actions": { "type": "array", "items": { "type": "string" } },
+    "gate_triggers": { "type": "array", "items": { "type": "object" } },
+    "score_breakdown": { "type": "object" },
+    "risk_score": { "type": "integer", "minimum": 0 },
+    "applied_rules": { "type": "array", "items": { "type": "object" } },
+    "override_rules_applied": { "type": "array", "items": { "type": "object" } },
+    "missing_data_flags": { "type": "array", "items": { "type": "string" } },
+    "buyer_priority_checks": { "type": "array", "items": { "type": "string" } }
   }
 }

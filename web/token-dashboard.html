@@ -240,6 +240,9 @@
             </div>
             <div class="actions">
                 <a href="/">Back to app</a>
+                <form method="post" action="/admin/logout" style="display:inline">
+                    <button type="submit">Sign out</button>
+                </form>
                 <button class="primary" id="refreshBtn" type="button">Refresh</button>
             </div>
         </div>
@@ -431,10 +434,11 @@
                         return '<a href="' + artifact.url + '" target="_blank" rel="noopener" title="' + escapeHtml(artifact.filename) + '">' + escapeHtml(label) + '</a>';
                     }).join('')
                     : '<span class="muted">No intermediate files yet</span>';
+                const calibrationUrl = '/api/admin/calibration-bundles/' + encodeURIComponent(slug);
                 return `
                     <tr>
                         <td>${escapeHtml(title)}<br><span class="muted">${escapeHtml(slug)}</span></td>
-                        <td><div class="artifact-links">${links}</div></td>
+                        <td><div class="artifact-links">${links}<a href="${calibrationUrl}" download>Download calibration bundle</a></div></td>
                     </tr>
                 `;
             });

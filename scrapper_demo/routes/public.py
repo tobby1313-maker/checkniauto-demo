@@ -13,6 +13,8 @@ from ._registration import RouteSpec, create_route_blueprint
 PUBLIC_ROUTES = (
     RouteSpec("/", "index"),
     RouteSpec("/token-dashboard.html", "token_dashboard"),
+    RouteSpec("/admin/login", "admin_login", ("GET", "POST")),
+    RouteSpec("/admin/logout", "admin_logout", ("POST",)),
     RouteSpec("/healthz", "healthz"),
     RouteSpec("/api/token-usage", "api_token_usage"),
     RouteSpec("/api/demo/current-progress", "api_demo_current_progress"),
@@ -24,6 +26,7 @@ PUBLIC_ROUTES = (
     RouteSpec("/api/demo/listings/<slug>/analysis-result/raw", "api_demo_listing_analysis_result_raw"),
     RouteSpec("/api/demo/analyze", "api_demo_analyze", ("POST",)),
     RouteSpec("/api/demo/analyze-manual", "api_demo_analyze_manual", ("POST",)),
+    RouteSpec("/api/admin/calibration-bundles/<slug>", "api_admin_calibration_bundle"),
 )
 
 

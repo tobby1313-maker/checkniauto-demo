@@ -63,9 +63,22 @@ class RiskOverride(TypedDict):
     effect: str
 
 
-class RiskScoreResult(TypedDict):
-    risk_score: int
+class RiskScoreResult(TypedDict, total=False):
+    schema_version: int
+    policy_version: int
+    calibration_status: str
+    decision_status: str
     allowed_final_verdict: str
+    screening_score: int
+    evidence_quality: str
+    vehicle_specific_findings: list[dict[str, Any]]
+    normal_wear_observations: list[dict[str, Any]]
+    model_level_inspection_points: list[dict[str, Any]]
+    missing_information: list[dict[str, Any]]
+    buyer_actions: list[str]
+    gate_triggers: list[dict[str, Any]]
+    score_breakdown: dict[str, Any]
+    risk_score: int
     applied_rules: list[RiskRule]
     override_rules_applied: list[RiskOverride]
     missing_data_flags: list[str]

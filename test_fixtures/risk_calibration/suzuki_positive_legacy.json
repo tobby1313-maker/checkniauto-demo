@@ -1,0 +1,37 @@
+{
+  "fixture_type": "sanitized_production_regression",
+  "description": "Positive Suzuki observations incorrectly used legacy severity minor.",
+  "text_research": {
+    "listing_facts": {
+      "year": "2011",
+      "vin": "SANITIZEDVIN00001",
+      "service_history": "full"
+    },
+    "vin_check": {
+      "vin_present": true,
+      "format_check": "ok"
+    }
+  },
+  "vision": {
+    "photos_provided": true,
+    "photo_limitations": [],
+    "exterior_observations": [
+      {
+        "photo_label": "Foto 01",
+        "observation": "Very good visual condition",
+        "severity": "minor"
+      }
+    ],
+    "interior_observations": [
+      {
+        "photo_label": "Foto 10",
+        "observation": "Exceptionally clean interior",
+        "severity": "minor"
+      }
+    ]
+  },
+  "expected": {
+    "decision_status": "WORTH_INSPECTING",
+    "vehicle_specific_findings": 0
+  }
+}

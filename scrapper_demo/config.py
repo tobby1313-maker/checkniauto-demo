@@ -54,6 +54,8 @@ class DemoServerConfig:
     demo_skip_kb: bool
     demo_max_upload_mb: int
     flask_secret_key: str
+    admin_dashboard_token: str
+    risk_scorer_v2_active: bool
     gemini_primary_api_key: str
     gemini_backup_api_key: str
     grok_api_key: str
@@ -100,6 +102,10 @@ class DemoServerConfig:
             flask_secret_key=values.get(
                 "FLASK_SECRET_KEY", "dev-demo-secret-change-me"
             ),
+            admin_dashboard_token=values.get("ADMIN_DASHBOARD_TOKEN", "").strip(),
+            risk_scorer_v2_active=_as_bool(
+                values.get("RISK_SCORER_V2_ACTIVE"), False
+            ),
             gemini_primary_api_key=values.get("GEMINI_PRIMARY_API_KEY", "").strip(),
             gemini_backup_api_key=values.get("GEMINI_BACKUP_API_KEY", "").strip(),
             grok_api_key=values.get("GROK_API_KEY", "").strip(),
@@ -127,6 +133,8 @@ class DemoServerConfig:
             "SCRAPPER_AUTA_DIR": self.auta_dir,
             "SCRAPPER_KB_DIR": self.knowledge_base_dir,
             "SCRAPPER_WEB_DIR": self.web_dir,
+            "ADMIN_DASHBOARD_TOKEN": self.admin_dashboard_token,
+            "RISK_SCORER_V2_ACTIVE": self.risk_scorer_v2_active,
             "GEMINI_PRIMARY_API_KEY": self.gemini_primary_api_key,
             "GEMINI_BACKUP_API_KEY": self.gemini_backup_api_key,
             "GROK_API_KEY": self.grok_api_key,

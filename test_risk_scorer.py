@@ -1,7 +1,9 @@
 import json
 import unittest
+from pathlib import Path
 
 from risk_scorer import calculate_risk_score
+from risk_scorer_v2 import calculate_risk_score_v2
 
 
 def _json(data):
@@ -44,7 +46,7 @@ class RiskScorerTest(unittest.TestCase):
         self.assertIn("VIN", result["missing_data_flags"])
         self.assertIn("photos", result["missing_data_flags"])
 
-    def test_serious_visual_red_flag_caps_verdict(self):
+    def test_legacy_visual_severity_without_polarity_is_not_scored(self):
         result = calculate_risk_score(
             _json(
                 {
@@ -71,8 +73,8 @@ class RiskScorerTest(unittest.TestCase):
             ),
         )
 
-        self.assertIn("visible_serious_damage_or_red_flags", _rules(result))
-        self.assertIn("serious visible red flags", _overrides(result))
+        self.assertNotIn("visible_serious_damage_or_red_flags", _rules(result))
+        self.assertNotIn("serious visible red flags", _overrides(result))
 
     def test_overview_only_photo_limitation_is_not_weak_photos(self):
         result = calculate_risk_score(
@@ -154,7 +156,7 @@ class RiskScorerTest(unittest.TestCase):
         )
 
         self.assertIn("vin_missing_request_before_viewing", _rules(result))
-        self.assertIn("price_suspiciously_low_or_high", _rules(result))
+        self.assertNotIn("price_suspiciously_low_or_high", _rules(result))
         self.assertNotIn("suspiciously low price + invalid VIN", _overrides(result))
         self.assertIn("market_comparison", result["missing_data_flags"])
 
@@ -178,8 +180,8 @@ class RiskScorerTest(unittest.TestCase):
         )
 
         self.assertIn("vin_invalid_or_conflicting", _rules(result))
-        self.assertIn("price_suspicious_and_other_risks_exist", _rules(result))
-        self.assertIn("suspiciously low price + invalid VIN", _overrides(result))
+        self.assertNotIn("price_suspicious_and_other_risks_exist", _rules(result))
+        self.assertNotIn("suspiciously low price + invalid VIN", _overrides(result))
 
     def test_spz_only_concern_is_verification_not_major_contradiction(self):
         result = calculate_risk_score(
@@ -226,11 +228,11 @@ class RiskScorerTest(unittest.TestCase):
             _json({"photos_provided": True, "photo_limitations": [], "visual_verdict": "Vyzerá vizuálne dobre"}),
         )
 
-        self.assertIn("good_documentation_clear_origin_vin_good_photos", _rules(result))
-        self.assertIn("excellent_documentation_and_low_risk_profile", _rules(result))
+        self.assertNotIn("good_documentation_clear_origin_vin_good_photos", _rules(result))
+        self.assertNotIn("excellent_documentation_and_low_risk_profile", _rules(result))
         self.assertEqual(result["risk_score"], 0)
 
-    def test_source_backed_expensive_technical_risk_affects_score_without_kb(self):
+    def test_generic_expensive_technical_risk_is_inspection_action_only(self):
         result = calculate_risk_score(
             _json(
                 {
@@ -261,7 +263,63 @@ class RiskScorerTest(unittest.TestCase):
             _json({"photos_provided": True, "photo_limitations": [], "visual_verdict": "Looks visually ok"}),
         )
 
-        self.assertIn("high_confidence_expensive_known_risk", _rules(result))
+        self.assertNotIn("high_confidence_expensive_known_risk", _rules(result))
+        self.assertTrue(any("modelove rizika" in item for item in result["buyer_priority_checks"]))
+
+    def test_v2_missing_vin_is_action_only(self):
+        result = calculate_risk_score_v2(
+            _json({
+                "listing_facts": {"year": "2018", "service_history": "full"},
+                "vin_check": {"vin_present": False, "format_check": "skipped"},
+                "technical_risks": [],
+            }),
+            _json({"photos_provided": True, "photo_limitations": []}),
+        )
+        self.assertEqual(result["decision_status"], "WORTH_INSPECTING")
+        self.assertEqual(result["evidence_quality"], "MEDIUM")
+        self.assertFalse(any(item.get("code") == "VIN_INVALID" for item in result["gate_triggers"]))
+        self.assertTrue(any("Cebia" in action for action in result["buyer_actions"]))
+
+    def test_v2_suzuki_positive_minor_legacy_observations_do_not_escalate(self):
+        fixture = json.loads(
+            (Path(__file__).parent / "test_fixtures" / "risk_calibration" / "suzuki_positive_legacy.json").read_text(encoding="utf-8")
+        )
+        result = calculate_risk_score_v2(
+            _json(fixture["text_research"]),
+            _json(fixture["vision"]),
+        )
+        self.assertEqual(result["decision_status"], fixture["expected"]["decision_status"])
+        self.assertEqual(len(result["vehicle_specific_findings"]), fixture["expected"]["vehicle_specific_findings"])
+
+    def test_v2_same_minor_cosmetic_wear_is_age_adjusted_but_stays_green(self):
+        def score(year):
+            return calculate_risk_score_v2(
+                _json({"listing_facts": {"year": str(year), "vin": "JSA123", "service_history": "full"}, "vin_check": {"vin_present": True, "format_check": "ok"}}),
+                _json({"photos_provided": True, "photo_limitations": [], "exterior_observations": [{"assessment": "concern", "severity": "minor", "buyer_impact": "cosmetic", "age_context": "expected", "confidence": "HIGH", "photo_label": "Foto 01", "observation": "Small scratch"}]}),
+            )
+        new_car = score(2025)
+        old_car = score(2010)
+        self.assertEqual(new_car["decision_status"], "WORTH_INSPECTING")
+        self.assertEqual(old_car["decision_status"], "WORTH_INSPECTING")
+        self.assertLess(new_car["screening_score"], old_car["screening_score"])
+
+    def test_v2_low_evidence_caps_green_at_yellow(self):
+        result = calculate_risk_score_v2("not json", _json({"photos_provided": False}), "")
+        self.assertEqual(result["decision_status"], "INSPECT_WITH_RESERVATIONS")
+        self.assertEqual(result["evidence_quality"], "LOW")
+        self.assertLessEqual(result["screening_score"], 89)
+
+    def test_v2_model_level_risks_do_not_escalate(self):
+        result = calculate_risk_score_v2(
+            _json({
+                "listing_facts": {"year": "2015", "vin": "JSA123", "service_history": "full"},
+                "vin_check": {"vin_present": True, "format_check": "ok"},
+                "technical_risks": [{"component": "turbo", "issue": "expensive", "risk_level": "HIGH", "evidence_category": "MODEL_LEVEL_RISK", "confidence": "HIGH"}] * 5,
+            }),
+            _json({"photos_provided": True, "photo_limitations": []}),
+        )
+        self.assertEqual(result["decision_status"], "WORTH_INSPECTING")
+        self.assertEqual(len(result["model_level_inspection_points"]), 1)
 
 
 if __name__ == "__main__":

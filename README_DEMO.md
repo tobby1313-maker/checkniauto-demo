@@ -72,6 +72,7 @@ python -m pip install -r requirements.txt
 $env:DEMO_MODE="true"
 $env:DEMO_PROMPT_FILE="analyze_prompt_v4_koyeb.txt"
 $env:FLASK_SECRET_KEY="change-me"
+$env:ADMIN_DASHBOARD_TOKEN="change-this-admin-token"
 
 $env:GEMINI_PRIMARY_API_KEY="..."
 $env:GEMINI_BACKUP_API_KEY="..."
@@ -131,6 +132,7 @@ Recommended deployment environment:
 DEMO_MODE=true
 DEMO_PROMPT_FILE=analyze_prompt_v4_koyeb.txt
 FLASK_SECRET_KEY=<strong-random-secret>
+ADMIN_DASHBOARD_TOKEN=<strong-random-admin-token>
 GEMINI_PRIMARY_API_KEY=<server-side-key>
 GEMINI_BACKUP_API_KEY=<optional-backup-key>
 # Optional model routing overrides. Leave these unset unless you intentionally
@@ -157,6 +159,8 @@ temp directory in `scrapper-demo/Auta`.
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
 | `DEMO_SKIP_KB` | `true` | Prevents public demo analysis from reading or writing the private knowledge base. |
 | `FLASK_SECRET_KEY` | `dev-demo-secret-change-me` | Flask secret; replace in every deployed environment. |
+| `ADMIN_DASHBOARD_TOKEN` | empty | Required secret for the token dashboard, telemetry, diagnostic artifacts, raw results, and calibration exports. Protected routes return unavailable until configured. |
+| `RISK_SCORER_V2_ACTIVE` | `false` | Activates the offline-calibrated gate scorer. Leave disabled until holdout acceptance criteria pass. |
 | `GEMINI_PRIMARY_API_KEY` | empty | Required Gemini key for web research, vision, and Gemini fallback. |
 | `GEMINI_BACKUP_API_KEY` | empty | Optional second Gemini key retried on key/quota failures. |
 | `GEMINI_FLASH_MODEL` | `gemini-2.5-flash` | Base Gemini Flash model used by non-final phase defaults. |
@@ -198,9 +202,15 @@ It provides:
 - Copy text and export-to-PDF actions.
 - Saved-analysis drawer backed by `/api/demo/listings`.
 
-The token dashboard is `web/token-dashboard.html`. It shows recent model calls,
+The token dashboard is `web/token-dashboard.html`. It requires the administrator
+token and shows recent model calls,
 tokens by listing, tokens by model, live demo progress, and links to intermediate
-analysis artifacts.
+analysis artifacts. Each completed car also has an authenticated calibration-bundle
+download. The ZIP is created on demand and contains scorer inputs and images, but
+not the generated score or final report.
+
+Administrator routes remain unavailable when `FLASK_SECRET_KEY` is empty or
+still uses the documented development default, even if an admin token is set.
 
 ## Public Demo API
 
@@ -271,7 +281,7 @@ traversal.
 
 ### `GET /api/demo/listings/<slug>/artifacts`
 
-Lists available intermediate analysis files for a completed job.
+Lists available intermediate analysis files for a completed job. Administrator login is required.
 
 Possible artifacts include:
 
@@ -285,16 +295,16 @@ Possible artifacts include:
 
 ### `GET /api/demo/listings/<slug>/artifacts/<filename>`
 
-Serves one allowed artifact as plain text.
+Serves one allowed artifact as plain text. Administrator login is required.
 
 ### `GET /api/demo/listings/<slug>/analysis-result/raw`
 
 Returns the unstripped raw final model output when `analysis_result_raw.md`
-exists.
+exists. Administrator login is required.
 
 ### `GET /api/token-usage`
 
-Returns token usage statistics from `token_tracker.py`.
+Returns token usage statistics from `token_tracker.py`. Administrator login is required.
 
 Optional query:
 
@@ -304,7 +314,28 @@ Optional query:
 
 ### `GET /api/demo/current-progress`
 
-Returns the latest mirrored SSE progress for the token dashboard.
+Returns the latest mirrored SSE progress for the token dashboard. Administrator login is required.
+
+### Administrator calibration export
+
+Sign in at `/admin/login`, open `/token-dashboard.html`, and use **Download
+calibration bundle** beside a completed car. Diagnostic artifact routes, raw
+results, telemetry, and exports share the same signed administrator session.
+
+Render does not retain a calibration dataset. Download selected bundles before
+`DEMO_JOB_TTL_MINUTES` cleanup, label them offline, and import them with:
+
+```powershell
+python -m scrapper_demo.calibration_cli import calibration-car.zip D:\private-calibration
+python -m scrapper_demo.calibration_cli validate-labels D:\private-calibration
+python -m scrapper_demo.calibration_cli evaluate D:\private-calibration --split tuning
+python -m scrapper_demo.calibration_cli report D:\private-calibration --split holdout `
+  --json-output evaluation.json --markdown-output evaluation.md
+```
+
+The reviewer edits only `expert_label.json`. Rule changes belong in the shared,
+versioned `risk_policy_v2.json` and must be based on repeated tuning-set errors,
+not individual makes, models, or listing slugs.
 
 ## Local Non-Demo Routes
 
@@ -370,6 +401,8 @@ analysis_images/
 ## Safety And Limits
 
 - API keys stay server-side.
+- Token telemetry, diagnostic artifacts, raw results, and calibration exports
+  require the administrator session.
 - Public demo mode hides private KB/listing management APIs.
 - Demo jobs are rate-limited per IP and concurrency-limited within the server
   process.

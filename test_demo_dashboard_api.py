@@ -21,11 +21,18 @@ class DemoDashboardApiTest(unittest.TestCase):
         web_server.AUTA_DIR = os.path.join(self.temp_dir.name, "Auta")
         os.makedirs(web_server.AUTA_DIR, exist_ok=True)
         web_server.app.testing = True
+        self.original_admin_token = web_server.app.config.get("ADMIN_DASHBOARD_TOKEN", "")
+        self.original_secret_key = web_server.app.config.get("SECRET_KEY")
+        web_server.app.config["ADMIN_DASHBOARD_TOKEN"] = "test-admin-token"
+        web_server.app.config["SECRET_KEY"] = "test-secret-key"
         self.client = web_server.app.test_client()
+        self.client.post("/admin/login", data={"token": "test-admin-token"})
         self.addCleanup(self._restore_auta_dir)
 
     def _restore_auta_dir(self):
         web_server.AUTA_DIR = self.original_auta_dir
+        web_server.app.config["ADMIN_DASHBOARD_TOKEN"] = self.original_admin_token
+        web_server.app.config["SECRET_KEY"] = self.original_secret_key
 
     def _create_listing(
         self,

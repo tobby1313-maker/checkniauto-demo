@@ -16,10 +16,21 @@ import subprocess
 import time
 import urllib.parse
 import html
+import hmac
 from datetime import datetime
 from pathlib import Path
 
-from flask import current_app, has_app_context, jsonify, send_from_directory, request, Response, stream_with_context
+from flask import (
+    Response,
+    current_app,
+    has_app_context,
+    jsonify,
+    redirect,
+    request,
+    send_from_directory,
+    session,
+    stream_with_context,
+)
 from werkzeug.utils import secure_filename
 
 from scrapper_demo.app import create_app
@@ -49,6 +60,7 @@ from scrapper_demo.providers.grok import (
 )
 from scrapper_demo.providers.openrouter import analyze as analyze_with_openrouter
 from scrapper_demo.services import image_service
+from scrapper_demo.calibration import create_calibration_bundle
 from scrapper_demo.logging import configure_console_encoding, safe_log
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
@@ -230,6 +242,8 @@ def _demo_route_gate():
         or path == "/healthz"
         or path == "/api/token-usage"
         or path.startswith("/api/demo/")
+        or path.startswith("/api/admin/")
+        or path.startswith("/admin/")
     )
     if path.startswith("/api/") and not allowed:
         return jsonify({"error": "This route is disabled in demo mode."}), 404
@@ -945,11 +959,71 @@ def index():
     return send_from_directory(_runtime_web_dir(), "index.html")
 
 
+def _admin_token():
+    if has_app_context():
+        return str(current_app.config.get("ADMIN_DASHBOARD_TOKEN", "") or "")
+    return str(SERVER_CONFIG.admin_dashboard_token or "")
+
+
+def _admin_authenticated():
+    secret = str(current_app.config.get("SECRET_KEY", "") or "") if has_app_context() else SERVER_CONFIG.flask_secret_key
+    secure_config = bool(_admin_token()) and bool(secret) and secret != "dev-demo-secret-change-me"
+    return secure_config and session.get("admin_dashboard_authenticated") is True
+
+
+def _admin_api_guard():
+    secret = str(current_app.config.get("SECRET_KEY", "") or "") if has_app_context() else SERVER_CONFIG.flask_secret_key
+    if not _admin_token() or not secret or secret == "dev-demo-secret-change-me":
+        return jsonify({"error": "Administrator dashboard is not configured."}), 503
+    if not _admin_authenticated():
+        return jsonify({"error": "Administrator authentication required."}), 401
+    return None
+
+
+def admin_login():
+    error = ""
+    if request.method == "POST":
+        configured = _admin_token()
+        secret = str(current_app.config.get("SECRET_KEY", "") or "")
+        submitted = str(request.form.get("token") or "")
+        if configured and secret and secret != "dev-demo-secret-change-me" and hmac.compare_digest(submitted, configured):
+            session.clear()
+            session["admin_dashboard_authenticated"] = True
+            return redirect("/token-dashboard.html")
+        error = "Invalid administrator token."
+    elif _admin_authenticated():
+        return redirect("/token-dashboard.html")
+
+    return Response(
+        "<!doctype html><html><head><meta charset='utf-8'><title>Admin login</title>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<style>body{font:16px system-ui;max-width:420px;margin:10vh auto;padding:24px}"
+        "input,button{box-sizing:border-box;width:100%;padding:12px;margin-top:12px}"
+        ".error{color:#b42318}</style></head><body><h1>Calibration admin</h1>"
+        f"<p class='error'>{html.escape(error)}</p>"
+        "<form method='post'><label>Administrator token<input name='token' type='password' "
+        "required autocomplete='current-password'></label><button type='submit'>Sign in</button>"
+        "</form></body></html>",
+        mimetype="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def admin_logout():
+    session.clear()
+    return redirect("/admin/login")
+
+
 def token_dashboard():
+    if not _admin_authenticated():
+        return redirect("/admin/login")
     return send_from_directory(_runtime_web_dir(), "token-dashboard.html")
 
 
 def api_token_usage():
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     try:
         limit = int(request.args.get("limit", "50"))
     except ValueError:
@@ -958,6 +1032,9 @@ def api_token_usage():
 
 
 def api_demo_current_progress():
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     return jsonify(_runtime_state().progress.snapshot())
 
 
@@ -1008,6 +1085,9 @@ def api_demo_listing_detail(slug):
 
 
 def api_listing_artifacts(slug):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     try:
         return jsonify({"slug": slug, "artifacts": _list_listing_artifacts(slug)})
     except FileNotFoundError:
@@ -1015,6 +1095,9 @@ def api_listing_artifacts(slug):
 
 
 def api_demo_listing_artifacts(slug):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     try:
         return jsonify({"slug": slug, "artifacts": _list_listing_artifacts(slug, route_prefix="/api/demo/listings")})
     except FileNotFoundError:
@@ -1022,6 +1105,9 @@ def api_demo_listing_artifacts(slug):
 
 
 def api_listing_artifact(slug, filename):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     try:
         return _send_listing_artifact_file(slug, filename)
     except FileNotFoundError:
@@ -1029,6 +1115,9 @@ def api_listing_artifact(slug, filename):
 
 
 def api_demo_listing_artifact(slug, filename):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     try:
         return _send_listing_artifact_file(slug, filename)
     except FileNotFoundError:
@@ -1278,6 +1367,9 @@ def api_listing_analysis_result(slug):
 
 
 def api_listing_analysis_result_raw(slug):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     raw_path = _job_repository().artifact_path(slug, "analysis_result_raw.md")
     if not os.path.exists(raw_path):
         return jsonify({"error": "Raw result not found"}), 404
@@ -1291,6 +1383,9 @@ def api_listing_analysis_result_raw(slug):
 
 
 def api_demo_listing_analysis_result_raw(slug):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
     raw_path = _job_repository().artifact_path(slug, "analysis_result_raw.md")
     if not os.path.exists(raw_path):
         return jsonify({"error": "Raw result not found"}), 404
@@ -1301,6 +1396,42 @@ def api_demo_listing_analysis_result_raw(slug):
     return jsonify({
         "content": content,
     })
+
+
+def api_admin_calibration_bundle(slug):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
+    try:
+        job_dir = _job_repository().job_dir(slug, require=True)
+        if not (job_dir / "analysis_result.md").is_file():
+            raise FileNotFoundError(slug)
+        archive_path = create_calibration_bundle(job_dir, job_dir.name)
+    except FileNotFoundError:
+        return jsonify({"error": "Completed analysis not found."}), 404
+
+    archive_size = archive_path.stat().st_size
+
+    def stream_archive():
+        try:
+            with archive_path.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    yield chunk
+        finally:
+            try:
+                archive_path.unlink(missing_ok=True)
+            except OSError as exc:
+                safe_log(f"Calibration archive cleanup warning: {exc}")
+
+    return Response(
+        stream_with_context(stream_archive()),
+        mimetype="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="calibration-{job_dir.name}.zip"',
+            "Content-Length": str(archive_size),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 def api_listing_analysis_export(slug):
@@ -2337,6 +2468,15 @@ def _compact_vision_for_final(vision_result_json):
 
 def _compact_risk_score_for_final(risk_score_json):
     data = _safe_model_json(risk_score_json)
+    if data.get("schema_version") == 2:
+        return {
+            "allowed_final_verdict": data.get("allowed_final_verdict"),
+            "decision_status": data.get("decision_status"),
+            "vehicle_specific_findings": _limited_list(data.get("vehicle_specific_findings"), 10, 260, prefer_concerns=True),
+            "model_level_inspection_points": _limited_list(data.get("model_level_inspection_points"), 8, 220, prefer_concerns=True),
+            "missing_information": _limited_list(data.get("missing_information"), 8, 160),
+            "buyer_actions": _limited_list(data.get("buyer_actions"), 8, 220, prefer_concerns=True),
+        }
     return {
         "risk_score": data.get("risk_score"),
         "allowed_final_verdict": data.get("allowed_final_verdict"),
@@ -2540,6 +2680,28 @@ def _pipeline_save_kb_blocks(blocks):
     return _save_kb_blocks(blocks)
 
 
+def _pipeline_calculate_risk_score(text_research, vision, listing_text=None):
+    from risk_scorer import calculate_hotfixed_risk_score
+
+    configured = (
+        current_app.config.get("RISK_SCORER_V2_ACTIVE", False)
+        if has_app_context()
+        else SERVER_CONFIG.risk_scorer_v2_active
+    )
+    active = configured is True or str(configured).strip().lower() in {"1", "true", "yes", "on"}
+    if not active:
+        return calculate_hotfixed_risk_score(text_research, vision, listing_text)
+    try:
+        from risk_scorer_v2 import calculate_risk_score_v2
+
+        return calculate_risk_score_v2(text_research, vision, listing_text)
+    except Exception as exc:
+        safe_log(f"Risk scorer v2 failed; using safe yellow fallback: {exc}")
+        from risk_scorer_v2 import safe_yellow_fallback
+
+        return safe_yellow_fallback(str(exc))
+
+
 def _analysis_pipeline_dependencies():
     """Compose the analysis service without exposing Flask state inside it."""
     return AnalysisPipelineDependencies(
@@ -2559,6 +2721,7 @@ def _analysis_pipeline_dependencies():
         save_kb_blocks=_pipeline_save_kb_blocks,
         safe_model_json=_safe_model_json,
         strip_kb_section=_strip_kb_section,
+        calculate_risk_score=_pipeline_calculate_risk_score,
         prepare_images=prepare_llm_images,
         stream_text_model=_stream_text_model,
         log=safe_log,

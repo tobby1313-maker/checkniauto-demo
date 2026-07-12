@@ -6,4 +6,6 @@ Auta/
 .analysis_images/
 tmp/
 scrapper-jobs/
+calibration_data/
+offline-calibration/
 .git_disabled/
