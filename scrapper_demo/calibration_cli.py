@@ -94,7 +94,10 @@ def evaluate_dataset(dataset: Path, *, split: str | None = None) -> dict[str, An
         expert_proceed = bool(label["proceed_to_inspection"])
         predicted_proceed = predicted_rank <= STATUS_RANK["INSPECT_WITH_RESERVATIONS"]
         try:
-            age = max(0, datetime.now().year - int(manifest.get("vehicle_year")))
+            manifest_year = manifest.get("vehicle_year")
+            if not isinstance(manifest_year, (str, int, float)):
+                raise ValueError("vehicle year unavailable")
+            age = max(0, datetime.now().year - int(manifest_year))
             age_group = "0-3" if age <= 3 else "4-9" if age <= 9 else "10+"
         except (TypeError, ValueError):
             age_group = "unknown"
