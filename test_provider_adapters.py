@@ -123,6 +123,10 @@ class ProviderAdapterTest(unittest.TestCase):
                 gemini._generation_settings("vision"),
                 {"max_output_tokens": 8000, "temperature": 0.2},
             )
+            self.assertEqual(
+                gemini._generation_settings("final_synthesis"),
+                {"max_output_tokens": 12000, "temperature": 0.5},
+            )
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
             self.assertEqual(
                 gemini._generation_settings("final_synthesis"),
@@ -134,6 +138,14 @@ class ProviderAdapterTest(unittest.TestCase):
             self.assertEqual(gemini._thinking_config("text_research"), {"thinkingBudget": 0})
             self.assertEqual(gemini._thinking_config("vision"), {"thinkingBudget": 0})
             self.assertEqual(gemini._thinking_config("final_synthesis"), {"thinkingBudget": 1024})
+            self.assertEqual(
+                gemini._thinking_config("text_research", "gemini-3.5-flash"),
+                {"thinkingLevel": "minimal"},
+            )
+            self.assertEqual(
+                gemini._thinking_config("final_synthesis", "gemini-3.5-flash"),
+                {"thinkingLevel": "low"},
+            )
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
             self.assertEqual(gemini._thinking_config("text_research"), {})
 
@@ -157,12 +169,21 @@ class ProviderAdapterTest(unittest.TestCase):
             patch.object(gemini, "safe_log"),
         ):
             self.assertEqual(
-                list(gemini.stream_generate("key", "system", "user", phase="final_synthesis")),
+                list(
+                    gemini.stream_generate(
+                        "key",
+                        "system",
+                        "user",
+                        model="gemini-3.5-flash",
+                        phase="final_synthesis",
+                    )
+                ),
                 ["report"],
             )
 
         config = payloads[0]["generationConfig"]
-        self.assertEqual(config["thinkingConfig"], {"thinkingBudget": 1024})
+        self.assertEqual(config["maxOutputTokens"], 12000)
+        self.assertEqual(config["thinkingConfig"], {"thinkingLevel": "low"})
         self.assertNotIn("responseMimeType", config)
 
     def test_gemini_does_not_append_limit_warning_to_structured_output(self):

@@ -57,7 +57,9 @@ QUALITY_GENERATION_SETTINGS = {
     # still far below the legacy 65k cap and are bounded by compact prompts.
     "text_research": {"max_output_tokens": 12000, "temperature": 0.2},
     "vision": {"max_output_tokens": 8000, "temperature": 0.2},
-    "final_synthesis": {"max_output_tokens": 8000, "temperature": 0.5},
+    # This is a safety ceiling, not a target. Gemini counts hidden thinking and
+    # visible report tokens together against it.
+    "final_synthesis": {"max_output_tokens": 12000, "temperature": 0.5},
 }
 # Gemini 2.5 Flash enables thinking by default.  The text-research and vision
 # phases are contract-bound JSON extraction steps, so hidden reasoning can
@@ -67,9 +69,8 @@ QUALITY_GENERATION_SETTINGS = {
 QUALITY_THINKING_CONFIG = {
     "text_research": {"thinkingBudget": 0},
     "vision": {"thinkingBudget": 0},
-    # Keep a small reasoning allowance for report composition. The output cap
-    # includes thought tokens, so leaving this dynamic can consume the whole
-    # 8k budget before the report reaches its required closing sections.
+    # Gemini 2.5 fallback: keep a small reasoning allowance for report
+    # composition. Gemini 3.x is handled with thinkingLevel in the helper.
     "final_synthesis": {"thinkingBudget": 1024},
 }
 GROUNDING_CONTEXT_MAX_CHARS = 6000
@@ -97,11 +98,19 @@ def _generation_settings(
     return settings
 
 
-def _thinking_config(phase: str | None) -> dict[str, int | str]:
-    """Return phase-specific Gemini thinking controls for the quality profile."""
+def _thinking_config(phase: str | None, model: str | None = None) -> dict[str, int | str]:
+    """Return phase/model-specific Gemini thinking controls."""
     profile = os.environ.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
     if profile == "legacy" or not phase:
         return {}
+    model_name = str(model or "").strip().lower().split("/")[-1]
+    if model_name.startswith("gemini-3"):
+        # Gemini 3.x uses thinkingLevel; numeric thinkingBudget is only a
+        # backwards-compatibility path and may be ignored in practice.
+        if phase in {"text_research", "vision"}:
+            return {"thinkingLevel": "minimal"}
+        if phase == "final_synthesis":
+            return {"thinkingLevel": "low"}
     return dict(QUALITY_THINKING_CONFIG.get(phase, {}))
 
 
@@ -608,9 +617,6 @@ def _call_gemini(
         "topK": 40,
         "maxOutputTokens": generation_settings["max_output_tokens"],
     }
-    thinking_config = _thinking_config(phase)
-    if thinking_config:
-        generation_config["thinkingConfig"] = thinking_config
     if phase in {"text_research", "vision"}:
         generation_config["responseMimeType"] = "application/json"
     payload = {
@@ -644,9 +650,15 @@ def _call_gemini(
             request_model = candidate_model
             started_at = time.perf_counter()
             url = f"{GEMINI_API_BASE}/{candidate_model}:streamGenerateContent?key={api_key.strip()}&alt=sse"
+            candidate_generation_config = dict(generation_config)
+            thinking_config = _thinking_config(phase, candidate_model)
+            if thinking_config:
+                candidate_generation_config["thinkingConfig"] = thinking_config
+            candidate_payload = dict(payload)
+            candidate_payload["generationConfig"] = candidate_generation_config
             response = requests.post(
                 url,
-                json=payload,
+                json=candidate_payload,
                 headers={"Content-Type": "application/json"},
                 stream=True,
                 timeout=120,
