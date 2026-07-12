@@ -111,6 +111,47 @@ def _done_event(slug: str, kb_blocks: list[dict[str, Any]], saved_kb: list[dict[
     )
 
 
+def _read_vin_light_decode(repository: ListingJobRepositoryProtocol, slug: str) -> dict[str, Any]:
+    """Load the scraper's local VIN decode without failing the analysis pass."""
+    raw_text = repository.read_text(slug, "vin_decoded.json", default="") or ""
+    value = {}
+    if raw_text:
+        try:
+            value = json.loads(raw_text)
+        except (TypeError, json.JSONDecodeError):
+            value = {}
+    if not isinstance(value, dict) or not str(value.get("vin") or "").strip():
+        # Older/manual jobs may have a VIN in car_info.md but no persisted
+        # decoder artifact. Recreate the same local light check cheaply.
+        car_info = repository.read_text(slug, "car_info.md", default="") or ""
+        try:
+            from vin_utils import extract_vin_from_text, validate_vin
+
+            fallback_vin = extract_vin_from_text(car_info)
+            value = validate_vin(fallback_vin) if fallback_vin else {}
+        except Exception:
+            value = {}
+    if not isinstance(value, dict) or not str(value.get("vin") or "").strip():
+        return {}
+    return {
+        key: value.get(key)
+        for key in (
+            "vin",
+            "valid",
+            "wmi",
+            "manufacturer",
+            "vds",
+            "model_year_code",
+            "model_year_candidates",
+            "region",
+            "plant_hint",
+            "check_digit_valid",
+            "check_digit_severity",
+        )
+        if value.get(key) not in (None, "", [], {})
+    }
+
+
 def multi_model_analysis_events(
     slug: str,
     grok_key: str,
@@ -139,8 +180,13 @@ def multi_model_analysis_events(
         return
 
     car_info_text = repository.read_text(slug, "car_info.md", default="") or ""
+    vin_light_decode = _read_vin_light_decode(repository, slug)
     model_listing_context = dependencies.listing_context_text(car_info_text)
     grounding_listing_context = dependencies.listing_context_text(car_info_text, description_chars=700)
+    if vin_light_decode:
+        vin_context = dependencies.compact_json_for_prompt(vin_light_decode)
+        model_listing_context += f"\n\nVIN_LIGHT_CHECK (local prefix decoder; not a history result):\n{vin_context}"
+        grounding_listing_context += f"\n\nVIN_LIGHT_CHECK (local prefix decoder; not a history result):\n{vin_context}"
     validation_warnings = []
 
     web_research_text = ""
@@ -323,6 +369,7 @@ def multi_model_analysis_events(
                 text_research_data["listing_facts"] = {}
             text_research_data["listing_facts"]["vin"] = photo_vin
             text_research_json_text = dependencies.compact_json_for_prompt(text_research_data)
+        vin_light_decode = _read_vin_light_decode(repository, slug)
         yield _status_event(injected_vin_note)
 
     yield _status_event("Phase 3/4: Backend deterministic risk scoring...")
@@ -360,6 +407,7 @@ def multi_model_analysis_events(
         risk_score_json,
         web_research_text,
         _image_meta,
+        vin_light_decode,
     )
 
     full_report = ""

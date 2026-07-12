@@ -2538,6 +2538,7 @@ def _build_final_synthesis_context(
     risk_score_json,
     web_research_text,
     image_meta=None,
+    vin_light_decode=None,
 ):
     text_research_data = _safe_model_json(text_research_json_text)
     has_structured_web_findings = bool(text_research_data.get("web_research_findings"))
@@ -2547,6 +2548,7 @@ def _build_final_synthesis_context(
         "text_research": _compact_text_research_for_final(text_research_json_text),
         "vision": _compact_vision_for_final(vision_result_json),
         "image_payload": _compact_value(image_meta or {}),
+        "vin_light_check": _compact_value(vin_light_decode or {}),
         "backend_risk_score": _compact_risk_score_for_final(risk_score_json),
         # Structured web findings already carry the useful conclusions. The
         # raw grounded excerpt is retained only when parsing failed or yielded

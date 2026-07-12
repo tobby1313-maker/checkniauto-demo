@@ -19,6 +19,22 @@ SUZUKI_CAR_INFO = """
 """
 
 
+NO_VAT_CAR_INFO = """
+# Kia Sportage 2.0 CVVT 16V 2WD EX AT
+
+- **Price:** 9 990 EUR
+- **Mileage:** 164 000 km
+"""
+
+
+VAT_CAR_INFO = """
+# Volkswagen Passat 2.0 TDI
+
+- **Price:** 12 000 EUR bez DPH
+- **Additional info:** Možný odpočet DPH.
+"""
+
+
 BROKEN_MARKDOWN = """# ðŸš— AnalÃ½za: Mitsubishi ASX 1,6 benzÃ­n MIVEC 2WD Invite
 
 ## ðŸ§¾ DÃ¡ta z inzerÃ¡tu
@@ -142,6 +158,27 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertNotIn("http://", cleaned)
         self.assertNotIn("https://", cleaned)
 
+    def test_keeps_only_verified_comparable_links_in_price_section(self):
+        markdown = (
+            "## Cena a vyjednávanie\n\n"
+            "- [Kia Sportage 2.0 CVVT A/T (2013, 105 000 km)]"
+            "(https://www.autobazar.eu/ponuka/kia-sportage-2013) – 10 999 EUR.\n"
+            "- [Blocked example](https://example.com/ad) – 9 000 EUR.\n\n"
+            "## Webové overenie\n\n"
+            "- [Research source](https://www.autobazar.eu/source)\n"
+        )
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertIn(
+            "[Kia Sportage 2.0 CVVT A/T (2013, 105 000 km)]"
+            "(https://www.autobazar.eu/ponuka/kia-sportage-2013)",
+            cleaned,
+        )
+        self.assertNotIn("https://example.com/ad", cleaned)
+        self.assertNotIn("https://www.autobazar.eu/source", cleaned)
+        self.assertNotIn("Research source", cleaned)
+
     def test_removes_unavailable_url_parentheticals(self):
         markdown = (
             "- Motor treba overiť (Google Search, URL nie je priamo overiteľná).\n"
@@ -164,6 +201,44 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertNotIn("Verejné databázy neposkytli", cleaned)
         self.assertNotIn("absencii VIN", cleaned)
         self.assertIn("Pri motore a prevodovke", cleaned)
+
+    def test_removes_generic_dph_context_when_ad_has_no_vat_statement(self):
+        markdown = (
+            "## Cena a vyjednávanie\n\n"
+            "DPH kontext: V inzeráte nie je uvedená možnosť odpočtu DPH. "
+            "Pre súkromnú osobu to nepredstavuje nevýhodu, avšak pre podnikateľa "
+            "platiaceho DPH je táto cena konečná.\n\n"
+            "Cena je orientačná podľa stavu vozidla.\n"
+        )
+
+        cleaned = normalize_analysis_markdown(markdown, NO_VAT_CAR_INFO)
+
+        self.assertNotIn("DPH", cleaned)
+        self.assertNotIn("súkromnú osobu", cleaned)
+        self.assertNotIn("podnikateľa", cleaned)
+        self.assertIn("Cena je orientačná", cleaned)
+
+    def test_preserves_dph_context_when_ad_explicitly_mentions_vat(self):
+        markdown = (
+            "## Cena a vyjednávanie\n\n"
+            "DPH kontext: Inzerát uvádza cenu 12 000 EUR bez DPH a možnosť odpočtu DPH.\n"
+        )
+
+        cleaned = normalize_analysis_markdown(markdown, VAT_CAR_INFO)
+
+        self.assertIn("DPH kontext", cleaned)
+        self.assertIn("odpočtu DPH", cleaned)
+
+    def test_uses_neutral_vin_decoding_label_in_customer_report(self):
+        markdown = (
+            "## VIN a transparentnosť\n\n"
+            "- **Ľahké dekódovanie:** WMI zodpovedá Volkswagenu.\n"
+        )
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertNotIn("Ľahké dekódovanie", cleaned)
+        self.assertIn("**Dekódovanie:**", cleaned)
 
     def test_removes_supported_mileage_false_negative_from_report(self):
         cleaned = normalize_analysis_markdown(SUZUKI_FALSE_NEGATIVE_MARKDOWN, SUZUKI_CAR_INFO)

@@ -2,7 +2,7 @@
 
 Safe transformations:
   - Google Search grounding redirect URL sanitization
-  - Public hyperlink removal (raw research artifacts retain their URLs)
+  - Public hyperlink filtering (only comparable-ad links survive in the price section)
   - Basic VIN and mileage canonicalization
   - Table structure repair (split rows across lines)
   - Blank line normalization
@@ -16,15 +16,36 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+_BLOCKED_PUBLIC_LINK_HOSTS = {
+    GROUNDING_REDIRECT_HOST,
+    "example.com",
+    "example.org",
+    "example.net",
+}
 
 
 @dataclass(frozen=True)
 class ListingFacts:
     vin: str = ""
     mileage: str = ""
+    vat_explicit: bool = False
+
+
+# VAT/DPH is relevant to the buyer-facing report only when the advertisement
+# explicitly discusses the tax treatment or a net/gross price.  A bare asking
+# price is not evidence that the buyer should receive a VAT explanation.
+_VAT_MENTION_RE = re.compile(
+    r"(?i)\b(?:dph|vat|netto|brutto)\b|"
+    r"\b(?:da[nň]\s+z\s+pridanej\s+hodnoty|odpo[cč]et(?:e|u)?\s+dph)\b"
+)
+_VAT_FOLLOWUP_RE = re.compile(
+    r"(?i)\b(?:s[uú]kromn|podnikate[ľl]|odpo[cč]et|kone[cč]n(?:a|e)|"
+    r"bez\s+(?:mo[zž]nosti\s+)?uplatnenia|vat[- ]eligible|tax\s+deduct)"
+)
 
 
 def extract_listing_facts(car_info_text: str | None) -> ListingFacts:
@@ -43,7 +64,12 @@ def extract_listing_facts(car_info_text: str | None) -> ListingFacts:
             mileage = _format_km(match.group(1))
             break
 
-    return ListingFacts(vin=vin_match.group(0) if vin_match else "", mileage=mileage)
+    vat_explicit = any(_VAT_MENTION_RE.search(line) for line in text.splitlines())
+    return ListingFacts(
+        vin=vin_match.group(0) if vin_match else "",
+        mileage=mileage,
+        vat_explicit=vat_explicit,
+    )
 
 
 def normalize_analysis_markdown(text: str | None, car_info_text: str | None = None) -> str:
@@ -54,12 +80,75 @@ def normalize_analysis_markdown(text: str | None, car_info_text: str | None = No
     value = _sanitize_grounding_redirects(value)
     value = _remove_public_hyperlinks(value)
     value = _remove_unavailable_url_notes(value)
+    value = _remove_unlisted_vat_claims(value, facts)
+    value = _normalize_vin_customer_label(value)
     value = _remove_standalone_sources_section(value)
     value = _normalize_tables(value)
     value = _apply_fact_guard(value, facts)
     value = _remove_false_negative_claims(value, facts)
     value = _trim_excess_blank_lines(value)
     return value.rstrip() + ("\n" if value.strip() else "")
+
+
+def _normalize_vin_customer_label(text: str) -> str:
+    """Use a neutral customer-facing label for the VIN decoding note."""
+    return re.sub(
+        r"(?i)\b(?:ľahké|lahke)\s+dekódovanie\b",
+        "Dekódovanie",
+        str(text or ""),
+    )
+
+
+def _remove_unlisted_vat_claims(text: str, facts: ListingFacts) -> str:
+    """Remove generic VAT/DPH commentary when the ad says nothing about it.
+
+    The model sometimes turns the absence of a VAT label into a full tax
+    explanation (for example, a ``DPH kontext`` paragraph).  That is not a
+    useful finding for most buyers and is not supported by the listing.  Keep
+    the rule at the public-output boundary as a deterministic backstop for all
+    providers, while preserving the section when the advertisement explicitly
+    mentions VAT/DPH/net/gross treatment.
+    """
+    if facts.vat_explicit:
+        return text
+
+    cleaned: list[str] = []
+    skip_vat_section = False
+    drop_followup = False
+    for line in str(text or "").split("\n"):
+        stripped = line.strip()
+        is_heading = bool(re.match(r"^\s*#{1,6}\s+", line))
+        heading_text = re.sub(r"^\s*#{1,6}\s+", "", line).strip(" :")
+        is_dedicated_vat_heading = bool(
+            re.fullmatch(r"(?i)(?:dph|vat)(?:\s+(?:kontext|context|treatment))?", heading_text)
+        )
+
+        if skip_vat_section:
+            if is_heading:
+                skip_vat_section = False
+            else:
+                continue
+
+        if _VAT_MENTION_RE.search(line):
+            # A dedicated heading should remove its whole body, including
+            # wrapped lines that do not repeat the DPH/VAT acronym.
+            if is_dedicated_vat_heading:
+                skip_vat_section = True
+            drop_followup = True
+            continue
+
+        if drop_followup:
+            if not stripped:
+                drop_followup = False
+                cleaned.append(line)
+                continue
+            if _VAT_FOLLOWUP_RE.search(line):
+                continue
+            drop_followup = False
+
+        cleaned.append(line)
+
+    return "\n".join(cleaned)
 
 
 def _strip_outer_markdown_fence(text: str) -> str:
@@ -92,10 +181,51 @@ def _sanitize_grounding_redirects(text: str) -> str:
     return text
 
 
+def _is_allowed_comparable_url(url: str) -> bool:
+    """Allow only real public URLs for the comparable-ad exception."""
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except Exception:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    host = (parsed.hostname or "").lower()
+    return bool(host) and not any(
+        host == blocked or host.endswith(f".{blocked}")
+        for blocked in _BLOCKED_PUBLIC_LINK_HOSTS
+    )
+
+
+def _is_comparable_section_heading(line: str) -> bool:
+    if not re.match(r"^\s*##\s+", line):
+        return False
+    heading = re.sub(r"^\s*##\s+", "", line).lower()
+    return ("cena" in heading and "vyjed" in heading) or (
+        "price" in heading and "negoti" in heading
+    )
+
+
 def _remove_public_hyperlinks(text: str) -> str:
-    """Remove Markdown and plain URLs while keeping the surrounding finding."""
-    value = str(text or "")
+    """Keep verified comparable-ad links only inside the price section."""
     output: list[str] = []
+    in_price_section = False
+    for line in str(text or "").split("\n"):
+        if re.match(r"^\s*##\s+", line):
+            in_price_section = _is_comparable_section_heading(line)
+        output.append(
+            _sanitize_public_link_line(
+                line,
+                allow_comparable_links=in_price_section,
+            )
+        )
+    return "\n".join(output)
+
+
+def _sanitize_public_link_line(line: str, *, allow_comparable_links: bool) -> str:
+    """Strip links from one report line, preserving approved comparable links."""
+    value = str(line or "")
+    output: list[str] = []
+    preserved_links: list[str] = []
     index = 0
 
     while index < len(value):
@@ -132,15 +262,30 @@ def _remove_public_hyperlinks(text: str) -> str:
             index = url_start
             continue
 
+        label = value[label_start + 1 : label_end]
+        url = value[url_start:url_end]
         output.append(value[index:label_start])
+        if allow_comparable_links and label.strip() and _is_allowed_comparable_url(url):
+            token = f"\x00COMPARABLE_LINK_{len(preserved_links)}\x00"
+            output.append(token)
+            preserved_links.append(f"[{label}]({url})")
+        else:
+            # Preserve the surrounding sentence, but remove the linked label
+            # outside the dedicated comparable-ad exception just as before.
+            if allow_comparable_links:
+                output.append(label)
         index = url_end + 1
 
     value = "".join(output)
+    # Bare URLs are never customer-facing; comparable links must be Markdown
+    # links with a descriptive label.
     value = re.sub(r"https?://[^\s<>]+", "", value, flags=re.IGNORECASE)
     value = re.sub(r"\(\s*\)", "", value)
     value = re.sub(r"\[\s*\]", "", value)
     value = re.sub(r"\s+([,.;:])", r"\1", value)
     value = re.sub(r"\(\s*([,.;:])", r"\1", value)
+    for index, link in enumerate(preserved_links):
+        value = value.replace(f"\x00COMPARABLE_LINK_{index}\x00", link)
     return value
 
 

@@ -10,7 +10,7 @@ Focuses on manufacturers common in the SK/CZ market.
 WMI_MAP = {
     # Germany — most common in SK/CZ
     "VW": "Volkswagen", "WV1": "Volkswagen", "WV2": "Volkswagen",
-    "WV3": "Volkswagen", "WVW": "Volkswagen",
+    "WV3": "Volkswagen", "WVW": "Volkswagen", "WVG": "Volkswagen",
     "AUD": "Audi", "TRU": "Audi",
     "WBA": "BMW", "WBS": "BMW", "WBY": "BMW",
     "WDD": "Mercedes-Benz", "WDB": "Mercedes-Benz", "WDC": "Mercedes-Benz",
@@ -133,6 +133,8 @@ PLANT_MAP = {
     "WVWA": "Wolfsburg, Germany",
     "WVWB": "Brussels, Belgium",
     "WVWC": "Emden, Germany",
+    # WVG Touareg VINs use the 11th character for the assembly plant.
+    "WVGD": "Bratislava, Slovakia",
     "1VWB": "Puebla, Mexico",
     "WAUA": "Ingolstadt, Germany",
     "WAUB": "Ingolstadt, Germany",

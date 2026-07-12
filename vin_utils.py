@@ -26,7 +26,8 @@ def validate_vin(vin: str) -> dict:
     result = {
         "vin": vin, "valid": False, "validation_message": "",
         "wmi": "", "manufacturer": "", "vds": "", "vis": "",
-        "model_year_hint": None, "region": "", "plant_hint": "",
+        "model_year_hint": None, "model_year_code": "", "model_year_candidates": [],
+        "region": "", "plant_hint": "",
         "check_digit_valid": False,
         "check_digit_policy": "unknown",
         "check_digit_severity": "error",
@@ -58,12 +59,19 @@ def validate_vin(vin: str) -> dict:
     manufacturer = WMI_MAP.get(wmi, "Unknown/Unmapped")
 
     region = REGION_MAP.get(wmi[0], "Unknown")
-    plant_key = wmi + cleaned[3]
+    # Volkswagen WVG Touareg VINs encode the assembly plant at position 11;
+    # older generic mappings in this utility use position 4 as a fallback.
+    plant_key = wmi + (cleaned[10] if wmi == "WVG" else cleaned[3])
     plant_hint = PLANT_MAP.get(plant_key, "")
     check_digit_policy = _check_digit_policy(region)
     check_digit_severity = _check_digit_severity(check_digit_valid, check_digit_policy)
 
     year_char = cleaned[9]
+    year_candidates = []
+    if year_char in MODEL_YEAR_MAP_LEGACY:
+        year_candidates.append(MODEL_YEAR_MAP_LEGACY[year_char])
+    if year_char in MODEL_YEAR_MAP:
+        year_candidates.append(MODEL_YEAR_MAP[year_char])
     year_hint = None
     if check_digit_policy == "mandatory_na":
         if year_char in MODEL_YEAR_MAP:
@@ -76,6 +84,8 @@ def validate_vin(vin: str) -> dict:
         "wmi": wmi, "manufacturer": manufacturer,
         "vds": vds, "vis": vis,
         "model_year_hint": year_hint,
+        "model_year_code": year_char,
+        "model_year_candidates": year_candidates,
         "region": region, "plant_hint": plant_hint,
         "check_digit_valid": check_digit_valid,
         "check_digit_policy": check_digit_policy,

@@ -223,8 +223,12 @@ Postup researchu:
 7. Najdi 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka generacia,
    motor, pohon, prevodovka, podobny rok a najazd. Pri kazdej uved materialny
    rozdiel; ak su porovnania slabe, povedz to.
-8. Ak je uvedeny VIN, uverejni iba konkretnu relevantnu verejnu zmienku. Absenciu
-   vysledku neprezentuj ako riziko ani ako nejasnu historiu vozidla.
+8. Ak je uvedeny VIN, urob aj lahku samostatnu kontrolu presneho VIN vo vyhladavani
+   (hladaj cely retazec v uvodzovkach). Uved iba konkretnu relevantnu verejnu
+   zmienku o aukcii, poistnej udalosti, servise alebo inom zazname, ak sa najde.
+   Ak sa relevantny verejne indexovany zaznam nenajde, uved to raz neutralne ako
+   vysledok tejto lahkej kontroly a odporuc manualne overenie oficialnej historie;
+   absenciu vysledku nikdy neprezentuj ako riziko ani ako nejasnu historiu vozidla.
 
 Pravidla:
 - Nevymyslaj zdroje ani odkazy.
@@ -267,7 +271,8 @@ Format:
 - podmienene opravy iba ak kontrola potvrdi problem; nesucitavaj ich do ocakavaneho totalu
 
 ### VIN / historia / transparentnost
-- iba konkretne verejne zistenie s URL; inak tuto podsekciu vynechaj
+- lahke dekodovanie z VIN_LIGHT_CHECK; potom presny VIN search a iba konkretne verejne zistenie s URL
+- ak sa nic relevantne nenajde: jedna neutralna veta o vysledku tejto kontroly a odporucanie na manualne overenie
 
 ### Najdolezitejsie webove zistenia pre finalnu analyzu
 - 5 az 8 bodov napriec motorom, prevodovkou/pohonom, generaciou, trhom a nakladmi

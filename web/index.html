@@ -1852,8 +1852,34 @@
             setReferencePhotos(photos);
         }
 
-        function inlineMarkdown(value) {
-            let publicText = replaceMarkdownLinks(String(value || ""), () => "");
+        function allowedComparableUrl(url) {
+            try {
+                const parsed = new URL(String(url || ""));
+                if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+                const host = parsed.hostname.toLowerCase();
+                return !["vertexaisearch.cloud.google.com", "example.com", "example.org", "example.net"]
+                    .some((blocked) => host === blocked || host.endsWith(`.${blocked}`));
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function comparablePriceHeading(value) {
+            const heading = String(value || "").toLowerCase();
+            return (heading.includes("cena") && heading.includes("vyjed"))
+                || (heading.includes("price") && heading.includes("negoti"));
+        }
+
+        function inlineMarkdown(value, allowComparableLinks = false) {
+            const comparableLinks = [];
+            let publicText = replaceMarkdownLinks(String(value || ""), (label, url) => {
+                if (!allowComparableLinks || !label.trim() || !allowedComparableUrl(url)) return "";
+                const token = `\u0000COMPARABLE_LINK_${comparableLinks.length}\u0000`;
+                comparableLinks.push(
+                    `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`,
+                );
+                return token;
+            });
             publicText = publicText.replace(/https?:\/\/[^\s<]+/gi, "");
             publicText = publicText.replace(/\(\s*\)/g, "");
             publicText = publicText.replace(/\[\s*\]/g, "");
@@ -1864,6 +1890,10 @@
             html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
             html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
             html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+            comparableLinks.forEach((link, index) => {
+                const token = `\u0000COMPARABLE_LINK_${index}\u0000`;
+                html = html.replace(token, link);
+            });
             return html;
         }
 
@@ -1942,10 +1972,11 @@
             let tableRows = [];
             let inCode = false;
             let codeLines = [];
+            let inComparablePriceSection = false;
 
             const flushParagraph = () => {
                 if (!paragraph.length) return;
-                blocks.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+                blocks.push(`<p>${inlineMarkdown(paragraph.join(" "), inComparablePriceSection)}</p>`);
                 paragraph = [];
             };
             const flushList = () => {
@@ -1958,7 +1989,7 @@
                 const rows = tableRows.map((row, index) => {
                     const cells = row.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
                     const tag = index === 0 ? "th" : "td";
-                    return `<tr>${cells.map((cell) => `<${tag}>${inlineMarkdown(cell)}</${tag}>`).join("")}</tr>`;
+                    return `<tr>${cells.map((cell) => `<${tag}>${inlineMarkdown(cell, inComparablePriceSection)}</${tag}>`).join("")}</tr>`;
                 }).join("");
                 blocks.push(`<table>${rows}</table>`);
                 tableRows = [];
@@ -2007,7 +2038,8 @@
                 if (heading) {
                     closeFlow();
                     const level = heading[1].length;
-                    blocks.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+                    if (level === 2) inComparablePriceSection = comparablePriceHeading(heading[2]);
+                    blocks.push(`<h${level}>${inlineMarkdown(heading[2], false)}</h${level}>`);
                     continue;
                 }
 
@@ -2027,14 +2059,14 @@
                         listType = nextType;
                         blocks.push(`<${listType}>`);
                     }
-                    blocks.push(`<li>${inlineMarkdown((unordered || ordered)[1])}</li>`);
+                    blocks.push(`<li>${inlineMarkdown((unordered || ordered)[1], inComparablePriceSection)}</li>`);
                     continue;
                 }
 
                 const quote = /^>\s?(.+)$/.exec(trimmed);
                 if (quote) {
                     closeFlow();
-                    blocks.push(`<blockquote>${inlineMarkdown(quote[1])}</blockquote>`);
+                    blocks.push(`<blockquote>${inlineMarkdown(quote[1], inComparablePriceSection)}</blockquote>`);
                     continue;
                 }
 

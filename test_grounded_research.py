@@ -18,6 +18,8 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("Zvolavacie a servisne kampane", prompt)
         self.assertIn("3-5 co najblizsich aktualnych porovnatelnych ponuk", prompt)
         self.assertIn("podmienene opravy nikdy", prompt)
+        self.assertIn("lahku samostatnu kontrolu presneho VIN", prompt)
+        self.assertIn("cely retazec v uvodzovkach", prompt)
 
     def test_default_gemini_model_order_matches_demo_routing(self):
         standard_chain = llm_client._ordered_unique_models(
@@ -127,6 +129,31 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(parsed["text_research"]["sources_used"], [])
         self.assertEqual(parsed["listing"]["vin"], "U5YPC811BDL362988")
 
+    def test_final_context_carries_vin_light_decode_metadata(self):
+        context = web_server._build_final_synthesis_context(
+            "sk",
+            "# Volkswagen Touareg\n\n## Specifications\n- **VIN:** WVGFF9BP4CD005167\n- **Year:** 2012",
+            json.dumps({"listing_facts": {"vin": "WVGFF9BP4CD005167"}, "vin_check": {"vin_present": True}}),
+            json.dumps({"photos_provided": False}),
+            json.dumps({"allowed_final_verdict": "ZVAZIT"}),
+            "",
+            {},
+            {
+                "vin": "WVGFF9BP4CD005167",
+                "valid": True,
+                "wmi": "WVG",
+                "manufacturer": "Volkswagen",
+                "model_year_code": "C",
+                "model_year_candidates": [1982, 2012],
+                "plant_hint": "Bratislava, Slovakia",
+            },
+        )
+        payload = json.loads(context.split("\n\n", 1)[1])
+
+        self.assertEqual(payload["vin_light_check"]["manufacturer"], "Volkswagen")
+        self.assertEqual(payload["vin_light_check"]["plant_hint"], "Bratislava, Slovakia")
+        self.assertIn(2012, payload["vin_light_check"]["model_year_candidates"])
+
     def test_vision_and_synthesis_prompts_require_detailed_buyer_sections(self):
         root = Path(__file__).resolve().parent
         vision_prompt = (root / "prompts" / "gemini_vision_system.md").read_text(encoding="utf-8")
@@ -141,6 +168,29 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("| Farba |", final_prompt)
         self.assertIn("Benzín + LPG", final_prompt)
         self.assertIn("podľa fotiek", final_prompt)
+
+    def test_vat_prompts_omit_unlisted_tax_commentary(self):
+        root = Path(__file__).resolve().parent
+        research_prompt = (root / "prompts" / "grok_text_research_system.md").read_text(encoding="utf-8")
+        final_prompt = (root / "prompts" / "grok_final_synthesis_system.md").read_text(encoding="utf-8")
+
+        self.assertIn("VAT/DPH is opt-in evidence", research_prompt)
+        self.assertIn("leave `vat_context` empty", research_prompt)
+        self.assertIn("If that field is empty, do not mention DPH/VAT", final_prompt)
+        self.assertIn("verified comparable-ad links", final_prompt)
+        self.assertIn("Do not link `web_research_findings`", final_prompt)
+        self.assertIn("vin_light_check", final_prompt)
+        self.assertIn("neutral no-result sentence", final_prompt)
+        self.assertIn("**Dekódovanie:**", final_prompt)
+        self.assertNotIn("Ľahké dekódovanie", final_prompt)
+
+    def test_browser_renderer_allows_links_only_for_price_comparables(self):
+        root = Path(__file__).resolve().parent
+        web_index = (root / "web" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("allowedComparableUrl", web_index)
+        self.assertIn("inComparablePriceSection", web_index)
+        self.assertIn("target=\"_blank\"", web_index)
 
     def test_final_prompt_formats_technical_risks_as_severity_blocks(self):
         root = Path(__file__).resolve().parent
