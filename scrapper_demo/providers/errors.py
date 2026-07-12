@@ -19,3 +19,7 @@ class OpenRouterApiKeyError(ApiKeyError):
 
 class GroundingTransientError(ConnectionError):
     """Raised for retryable Gemini Google Search grounding failures."""
+
+
+class ModelOutputLimitError(Exception):
+    """Raised when Gemini stops before completing a structured response."""

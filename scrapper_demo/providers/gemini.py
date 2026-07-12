@@ -18,7 +18,7 @@ from token_tracker import (
 )
 
 from scrapper_demo.logging import safe_log
-from .errors import ApiKeyError, GroundingTransientError, RateLimitError
+from .errors import ApiKeyError, GroundingTransientError, ModelOutputLimitError, RateLimitError
 
 
 # Google Gemini API URL (model placeholder will be substituted)
@@ -53,9 +53,11 @@ LEGACY_GENERATION_SETTINGS = {
     "temperature": 0.7,
 }
 QUALITY_GENERATION_SETTINGS = {
-    "text_research": {"max_output_tokens": 8000, "temperature": 0.2},
-    "vision": {"max_output_tokens": 3500, "temperature": 0.2},
-    "final_synthesis": {"max_output_tokens": 7000, "temperature": 0.5},
+    # Structured phases need enough headroom to finish valid JSON. These are
+    # still far below the legacy 65k cap and are bounded by compact prompts.
+    "text_research": {"max_output_tokens": 12000, "temperature": 0.2},
+    "vision": {"max_output_tokens": 8000, "temperature": 0.2},
+    "final_synthesis": {"max_output_tokens": 8000, "temperature": 0.5},
 }
 GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -855,6 +857,7 @@ def _call_gemini(
         actual_output_tokens = None
         actual_thinking_tokens = None
         actual_total_tokens = None
+        finish_reason_seen = ""
         for line in response.iter_lines():
             if isinstance(line, bytes):
                 line = line.decode('utf-8')
@@ -909,16 +912,7 @@ def _call_gemini(
                 # Check for finish reason
                 finish_reason = candidates[0].get("finishReason", "") if candidates else ""
                 if finish_reason and finish_reason != "STOP":
-                    if finish_reason == "SAFETY":
-                        yield (
-                            "\n\n⚠️ **Analýza bola zastavená bezpečnostným filtrom Gemini.** "
-                            "Skús upraviť prompt alebo použiť iný model."
-                        )
-                    elif finish_reason == "MAX_TOKENS":
-                        yield (
-                            "\n\n⚠️ **Analýza dosiahla limit tokenov.** "
-                            "Výstup je neúplný. Skús zjednodušiť prompt."
-                        )
+                    finish_reason_seen = finish_reason
 
             except json.JSONDecodeError:
                 continue
@@ -934,9 +928,14 @@ def _call_gemini(
             actual_output_tokens=actual_output_tokens,
             actual_thinking_tokens=actual_thinking_tokens,
             actual_total_tokens=actual_total_tokens,
-            status="success",
+            status="truncated" if finish_reason_seen else "success",
             duration_ms=round((time.perf_counter() - started_at) * 1000),
         )
+        if finish_reason_seen:
+            raise ModelOutputLimitError(
+                f"Gemini {phase or 'analysis'} stopped before completing its output "
+                f"(finish reason: {finish_reason_seen})."
+            )
 
     except requests.exceptions.Timeout:
         default_tracker.record_request(

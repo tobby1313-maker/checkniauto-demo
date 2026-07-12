@@ -7,6 +7,7 @@ from scrapper_demo.providers import gemini, grok, openrouter
 from scrapper_demo.providers.errors import (
     ApiKeyError,
     GrokApiKeyError,
+    ModelOutputLimitError,
     OpenRouterApiKeyError,
 )
 
@@ -101,24 +102,42 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(record_request.call_args.kwargs["actual_output_tokens"], 3)
         self.assertEqual(record_request.call_args.kwargs["actual_thinking_tokens"], 5)
         self.assertEqual(record_request.call_args.kwargs["actual_total_tokens"], 19)
-        self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 8000)
+        self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 12000)
         self.assertEqual(payloads[0]["generationConfig"]["temperature"], 0.2)
 
     def test_generation_profile_sets_phase_specific_limits_and_legacy_rollback(self):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
             self.assertEqual(
                 gemini._generation_settings("text_research"),
-                {"max_output_tokens": 8000, "temperature": 0.2},
+                {"max_output_tokens": 12000, "temperature": 0.2},
             )
             self.assertEqual(
                 gemini._generation_settings("vision"),
-                {"max_output_tokens": 3500, "temperature": 0.2},
+                {"max_output_tokens": 8000, "temperature": 0.2},
             )
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
             self.assertEqual(
                 gemini._generation_settings("final_synthesis"),
                 {"max_output_tokens": 65536, "temperature": 0.7},
             )
+
+    def test_gemini_does_not_append_limit_warning_to_structured_output(self):
+        response = FakeResponse(
+            200,
+            lines=[
+                b'data: {"candidates":[{"content":{"parts":[{"text":"{\\"partial\\": true"}]},"finishReason":"MAX_TOKENS"}]}',
+                b"data: [DONE]",
+            ],
+        )
+        with (
+            patch.object(gemini.requests, "post", return_value=response),
+            patch.object(gemini.default_tracker, "record_request") as record_request,
+            patch.object(gemini, "safe_log"),
+        ):
+            with self.assertRaises(ModelOutputLimitError):
+                list(gemini.stream_generate("key", "system", "user", phase="vision"))
+
+        self.assertEqual(record_request.call_args.kwargs["status"], "truncated")
 
     def test_grok_auth_error_is_not_reported_as_generic_api_error(self):
         response = FakeResponse(401, text="invalid key")
