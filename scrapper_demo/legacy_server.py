@@ -2421,6 +2421,39 @@ def _replace_photo_analysis_section(report_text, vision_result_json, output_lang
 
 def _compact_text_research_for_final(text_research_json_text):
     data = _safe_model_json(text_research_json_text)
+    verified_comparables = []
+    for item in _limited_list(data.get("market_comparables"), 5, prefer_concerns=True):
+        if not isinstance(item, dict) or item.get("verified_url") is not True:
+            continue
+        sanitized = _sanitize_source_item(item)
+        if isinstance(sanitized, dict) and sanitized.get("verified_url") is True:
+            verified_comparables.append(sanitized)
+
+    market_assessment = _compact_value(data.get("market_assessment"))
+    if not verified_comparables:
+        original = market_assessment if isinstance(market_assessment, dict) else {}
+        market_assessment = {
+            "available": False,
+            "advertised_price_eur": original.get("advertised_price_eur"),
+            "observed_market_low_eur": None,
+            "observed_market_high_eur": None,
+            "comparable_count": 0,
+            "summary": "No directly verifiable comparable ads with exact URLs were found.",
+            "limitations": "Current market comparison requires manual verification.",
+            "negotiation_anchor_eur": None,
+            "negotiation_reason": "",
+            "price_view": "requires_manual_verification",
+        }
+    elif isinstance(market_assessment, dict):
+        prices = [
+            item.get("price_eur")
+            for item in verified_comparables
+            if isinstance(item.get("price_eur"), (int, float))
+        ]
+        market_assessment["comparable_count"] = len(verified_comparables)
+        if prices:
+            market_assessment["observed_market_low_eur"] = min(prices)
+            market_assessment["observed_market_high_eur"] = max(prices)
     return {
         "evidence_summary": _compact_value(data.get("evidence_summary")),
         "listing_facts": _compact_value(data.get("listing_facts")),
@@ -2439,11 +2472,8 @@ def _compact_text_research_for_final(text_research_json_text):
             _sanitize_source_item(item)
             for item in _limited_list(data.get("technical_risks"), 8, prefer_concerns=True)
         ],
-        "market_assessment": _compact_value(data.get("market_assessment")),
-        "market_comparables": [
-            _sanitize_source_item(item)
-            for item in _limited_list(data.get("market_comparables"), 5, prefer_concerns=True)
-        ],
+        "market_assessment": market_assessment,
+        "market_comparables": verified_comparables,
         "expected_costs": _limited_list(data.get("expected_costs"), 10, prefer_concerns=True),
         "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 8, prefer_concerns=True),
         # The final report does not print citations or a source registry. Keep

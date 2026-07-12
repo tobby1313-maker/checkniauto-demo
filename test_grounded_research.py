@@ -16,7 +16,9 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("Samostatne vyhladaj prevodovku", prompt)
         self.assertIn("Generacia, karoseria a podvozok", prompt)
         self.assertIn("Zvolavacie a servisne kampane", prompt)
-        self.assertIn("3-5 co najblizsich aktualnych porovnatelnych ponuk", prompt)
+        self.assertIn("najviac 3-5 co najblizsich aktualnych porovnatelnych ponuk", prompt)
+        self.assertIn("iba konkretny inzerat", prompt)
+        self.assertIn("Bez priameho URL nevypisuj konkretne auto", prompt)
         self.assertIn("podmienene opravy nikdy", prompt)
         self.assertIn("lahku samostatnu kontrolu presneho VIN", prompt)
         self.assertIn("cely retazec v uvodzovkach", prompt)
@@ -106,6 +108,46 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(len(compact["expected_costs"]), 10)
         self.assertEqual(len(compact["text_research_risk_flags"]), 8)
         self.assertEqual(compact["sources_used"], [])
+
+    def test_final_compaction_drops_unlinked_market_estimates(self):
+        payload = {
+            "market_assessment": {
+                "available": True,
+                "advertised_price_eur": 9500,
+                "observed_market_low_eur": 8990,
+                "observed_market_high_eur": 10500,
+                "comparable_count": 3,
+                "price_view": "fair",
+            },
+            "market_comparables": [
+                {
+                    "description": "Suzuki Grand Vitara 2.4i 4x4 A/T, 2009, 137000 km",
+                    "price_eur": 8990,
+                    "mileage_km": 137000,
+                    "source_url": "",
+                    "verified_url": False,
+                },
+                {
+                    "description": "Suzuki Grand Vitara 2.4 VVT Automat 4x4, 2009, 158000 km",
+                    "price_eur": 9490,
+                    "mileage_km": 158000,
+                    "source_url": "",
+                    "verified_url": False,
+                },
+            ],
+        }
+
+        compact = web_server._compact_text_research_for_final(json.dumps(payload))
+
+        self.assertEqual(compact["market_comparables"], [])
+        self.assertFalse(compact["market_assessment"]["available"])
+        self.assertEqual(compact["market_assessment"]["comparable_count"], 0)
+        self.assertIsNone(compact["market_assessment"]["observed_market_low_eur"])
+        self.assertIsNone(compact["market_assessment"]["observed_market_high_eur"])
+        self.assertEqual(
+            compact["market_assessment"]["price_view"],
+            "requires_manual_verification",
+        )
 
     def test_final_context_has_global_budget_and_keeps_quality_fields(self):
         payload = {

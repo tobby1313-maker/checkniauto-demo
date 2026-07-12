@@ -252,9 +252,13 @@ Postup researchu:
 6. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Rozlis bezny vstupny servis,
    diagnostiku, podmienene opravy a drahy downside; podmienene opravy nikdy
    neprezentuj ako ocakavany sucet.
-7. Najdi 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka generacia,
-   motor, pohon, prevodovka, podobny rok a najazd. Pri kazdej uved materialny
-   rozdiel; ak su porovnania slabe, povedz to.
+7. Najdi najviac 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka
+   generacia, motor, pohon, prevodovka, podobny rok a najazd. Za najdenu ponuku
+   sa povazuje iba konkretny inzerat, ku ktoremu mas priamy verejny URL detailu.
+   Pri kazdej uved materialny rozdiel. Ponuku bez priameho URL vynechaj; cenu,
+   rok, najazd ani vybavu nerekonstruuj zo vseobecnej znalosti alebo zo search
+   snippetu bez otvoritelneho detailu. Ak nenajdes ani jednu taku ponuku, napis
+   iba, ze presne porovnatelne inzeraty s priamym URL neboli najdene.
 8. Ak je uvedeny VIN, urob aj lahku samostatnu kontrolu presneho VIN vo vyhladavani
    (hladaj cely retazec v uvodzovkach). Uved iba konkretnu relevantnu verejnu
    zmienku o aukcii, poistnej udalosti, servise alebo inom zazname, ak sa najde.
@@ -270,6 +274,12 @@ Pravidla:
 - Vystup udrz pod 1100 slov, ale nevynechaj podporenu vrstvu motora, prevodovky,
   pohonu ani generacie len kvoli strucnosti.
 - URL citacie: pouzi iba odkazy, ktore vyzeraju ako realne existujuce verejne stranky.
+- Pri porovnatelnych autach musi URL smerovat na konkretny detail inzeratu, nie
+  na domovsku stranku, kategoriu, zoznam vysledkov alebo vyhladavaci dopyt.
+- Kazdu porovnatelnu ponuku zapis ako Markdown link
+  `[model (rok, najazd)](priamy-url-inzeratu) - cena - materialny rozdiel`.
+- Bez priameho URL nevypisuj konkretne auto ako najdenu ponuku a nepouzivaj ho
+  na vypocet poctu ponuk, cenoveho rozsahu ani hodnotenia ferovosti ceny.
 - Nepouzivaj presmerovacie URL z Google/Vertex AI ako verejne zdroje. Ak mas iba taky odkaz, uveď nazov zdroja a napis: "URL citacia nie je overitelna."
 - Ak nevies dolozit cenu alebo naklad, napis, ze ide iba o orientacny odhad.
 
@@ -296,7 +306,8 @@ Format:
 - kampan alebo jasne uved, ze spolahlivy zdroj nebol najdeny - potrebna VIN kontrola - URL
 
 ### Orientacna cena / trh
-- 3-5 najblizsich ponuk s cenou, najazdom, podstatnym rozdielom a URL; potom obmedzenia porovnania
+- najviac 3-5 najblizsich konkretnych inzeratov; kazdy musi mat cenu, najazd,
+  podstatny rozdiel a priamy Markdown URL detailu; bez priameho URL ponuku vynechaj
 
 ### Naklady: pravdepodobne vs. podmienene
 - pravdepodobny vstupny servis a diagnostika
