@@ -59,6 +59,15 @@ QUALITY_GENERATION_SETTINGS = {
     "vision": {"max_output_tokens": 8000, "temperature": 0.2},
     "final_synthesis": {"max_output_tokens": 8000, "temperature": 0.5},
 }
+# Gemini 2.5 Flash enables thinking by default.  The text-research and vision
+# phases are contract-bound JSON extraction steps, so hidden reasoning can
+# consume the entire generation budget before any JSON is emitted.  Keep the
+# final synthesis on the model's normal reasoning path to preserve report
+# quality, but disable thinking for these two structured phases.
+QUALITY_THINKING_CONFIG = {
+    "text_research": {"thinkingBudget": 0},
+    "vision": {"thinkingBudget": 0},
+}
 GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 GROUNDING_RESOLVE_TIMEOUT = 6     # seconds per redirect resolution (HEAD request)
@@ -82,6 +91,14 @@ def _generation_settings(
     if temperature is not None:
         settings["temperature"] = max(0.0, min(2.0, float(temperature)))
     return settings
+
+
+def _thinking_config(phase: str | None) -> dict[str, int | str]:
+    """Return phase-specific Gemini thinking controls for the quality profile."""
+    profile = os.environ.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+    if profile == "legacy" or not phase:
+        return {}
+    return dict(QUALITY_THINKING_CONFIG.get(phase, {}))
 
 
 def _is_retryable_gemini_model_error(status_code: int, error_text: str = "") -> bool:
@@ -581,6 +598,15 @@ def _call_gemini(
         max_output_tokens=max_output_tokens,
         temperature=temperature,
     )
+    generation_config = {
+        "temperature": generation_settings["temperature"],
+        "topP": 0.95,
+        "topK": 40,
+        "maxOutputTokens": generation_settings["max_output_tokens"],
+    }
+    thinking_config = _thinking_config(phase)
+    if thinking_config:
+        generation_config["thinkingConfig"] = thinking_config
     payload = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]
@@ -597,12 +623,7 @@ def _call_gemini(
             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
         ],
-        "generationConfig": {
-            "temperature": generation_settings["temperature"],
-            "topP": 0.95,
-            "topK": 40,
-            "maxOutputTokens": generation_settings["max_output_tokens"],
-        }
+        "generationConfig": generation_config,
     }
 
     try:

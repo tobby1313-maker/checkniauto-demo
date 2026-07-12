@@ -159,7 +159,7 @@ temp directory in `scrapper-demo/Auta`.
 | `DEMO_MODE` | `true` | Restricts the app to public demo routes. |
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
 | `DEMO_SKIP_KB` | `true` | Prevents public demo analysis from reading or writing the private knowledge base. |
-| `DEMO_ANALYSIS_PROFILE` | `quality_optimized` | Generation profile. `quality_optimized` bounds structured intermediate outputs and final context; `legacy` restores the previous generation limits for rollback. |
+| `DEMO_ANALYSIS_PROFILE` | `quality_optimized` | Generation profile. `quality_optimized` bounds structured intermediate outputs and final context and disables Gemini thinking for the text/vision JSON phases; `legacy` restores the previous generation limits for rollback. |
 | `FLASK_SECRET_KEY` | `dev-demo-secret-change-me` | Flask secret; replace in every deployed environment. |
 | `ADMIN_DASHBOARD_TOKEN` | empty | Required secret for the token dashboard, telemetry, diagnostic artifacts, raw results, and calibration exports. Protected routes return unavailable until configured. |
 | `RISK_SCORER_V2_ACTIVE` | `false` | Activates the offline-calibrated gate scorer. Leave disabled until holdout acceptance criteria pass. |
@@ -188,6 +188,13 @@ temp directory in `scrapper-demo/Auta`.
 | `SCRAPPER_TOKEN_INPUT_COST_PER_1M` | `1.5` | Optional token cost estimate input rate. |
 | `SCRAPPER_TOKEN_OUTPUT_COST_PER_1M` | `9.00` | Optional token cost estimate output rate. |
 | `SCRAPPER_TOKEN_COST_CURRENCY` | `EUR` | Currency label for token cost estimates. |
+
+For a Google AI Studio/free Gemini key, keep `DEMO_ANALYSIS_PROFILE=quality_optimized`.
+Gemini 2.5 Flash can spend its default hidden thinking budget before emitting the
+structured JSON, which may end in `MAX_TOKENS` with zero visible output. The
+quality profile disables thinking only for the text-research and vision extraction
+phases; final synthesis keeps its normal reasoning behavior. A backup Gemini key
+is still used for authentication and quota failures.
 
 ## Public Demo UI
 

@@ -104,6 +104,10 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(record_request.call_args.kwargs["actual_total_tokens"], 19)
         self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 12000)
         self.assertEqual(payloads[0]["generationConfig"]["temperature"], 0.2)
+        self.assertEqual(
+            payloads[0]["generationConfig"]["thinkingConfig"],
+            {"thinkingBudget": 0},
+        )
 
     def test_generation_profile_sets_phase_specific_limits_and_legacy_rollback(self):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
@@ -120,6 +124,14 @@ class ProviderAdapterTest(unittest.TestCase):
                 gemini._generation_settings("final_synthesis"),
                 {"max_output_tokens": 65536, "temperature": 0.7},
             )
+
+    def test_thinking_profile_disables_hidden_reasoning_for_structured_phases(self):
+        with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
+            self.assertEqual(gemini._thinking_config("text_research"), {"thinkingBudget": 0})
+            self.assertEqual(gemini._thinking_config("vision"), {"thinkingBudget": 0})
+            self.assertEqual(gemini._thinking_config("final_synthesis"), {})
+        with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
+            self.assertEqual(gemini._thinking_config("text_research"), {})
 
     def test_gemini_does_not_append_limit_warning_to_structured_output(self):
         response = FakeResponse(
