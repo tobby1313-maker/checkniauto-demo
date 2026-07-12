@@ -1,6 +1,6 @@
 import unittest
 
-from analysis_normalizer import normalize_analysis_markdown
+from analysis_normalizer import add_verified_comparable_links, normalize_analysis_markdown
 
 
 CAR_INFO = """
@@ -178,6 +178,58 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertNotIn("https://example.com/ad", cleaned)
         self.assertNotIn("https://www.autobazar.eu/source", cleaned)
         self.assertNotIn("Research source", cleaned)
+
+    def test_adds_verified_links_to_matching_comparables_only(self):
+        markdown = (
+            "## 💰 Cena a vyjednávanie\n\n"
+            "Suzuki Grand Vitara 2.4i automat (r.v. 2010, 86 980 km) — 9 900 EUR — ponuka z ČR.\n"
+            "Suzuki Grand Vitara 2.4 automat (r.v. 2011, 100 000 km) — 9 500 EUR — podobná ponuka.\n\n"
+            "## Webové overenie\n\n"
+            "Suzuki Grand Vitara — 9 900 EUR.\n"
+        )
+        comparables = [
+            {
+                "description": "Suzuki Grand Vitara 2.4i automat, 2010, 86 980 km",
+                "price_eur": 9900,
+                "mileage_km": 86980,
+                "source_url": "https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1",
+                "verified_url": True,
+            },
+            {
+                "description": "Suzuki Grand Vitara 2.4 automat, 2011, 100 000 km",
+                "price_eur": 9500,
+                "mileage_km": 100000,
+                "source_url": "https://auto.bazos.sk/inzerat/2/grand-vitara.php",
+                "verified_url": True,
+            },
+        ]
+
+        linked = add_verified_comparable_links(markdown, comparables)
+
+        self.assertIn(
+            "[Suzuki Grand Vitara 2.4i automat (r.v. 2010, 86 980 km)]"
+            "(https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1)",
+            linked,
+        )
+        self.assertIn(
+            "[Suzuki Grand Vitara 2.4 automat (r.v. 2011, 100 000 km)]"
+            "(https://auto.bazos.sk/inzerat/2/grand-vitara.php)",
+            linked,
+        )
+        self.assertNotIn("## Webové overenie\n\n[Suzuki", linked)
+
+    def test_does_not_add_unverified_or_ambiguous_comparable_link(self):
+        markdown = "## Cena a vyjednávanie\n\nSuzuki Grand Vitara — 9 900 EUR — podobná ponuka.\n"
+        comparables = [
+            {
+                "description": "Suzuki Grand Vitara 2010",
+                "price_eur": 9900,
+                "source_url": "https://cars.example.invalid/1",
+                "verified_url": False,
+            }
+        ]
+
+        self.assertEqual(markdown, add_verified_comparable_links(markdown, comparables))
 
     def test_removes_unavailable_url_parentheticals(self):
         markdown = (

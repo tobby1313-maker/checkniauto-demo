@@ -76,7 +76,7 @@ from scrapper_demo.storage import (
 )
 
 from llm_client import extract_kb_save_blocks
-from analysis_normalizer import normalize_analysis_markdown
+from analysis_normalizer import add_verified_comparable_links, normalize_analysis_markdown
 from token_tracker import default_tracker, estimate_output_tokens, estimate_request_tokens
 
 configure_console_encoding()
@@ -1334,7 +1334,17 @@ def _read_car_info_text(slug_dir):
 
 
 def _public_analysis_markdown(text, slug_dir):
-    return normalize_analysis_markdown(text, _read_car_info_text(slug_dir))
+    normalized = normalize_analysis_markdown(text, _read_car_info_text(slug_dir))
+    research_path = os.path.join(slug_dir, "grok_research.json")
+    try:
+        with open(research_path, "r", encoding="utf-8") as research_file:
+            research_data = json.load(research_file)
+    except (OSError, TypeError, ValueError):
+        return normalized
+    return add_verified_comparable_links(
+        normalized,
+        research_data.get("market_comparables", []) if isinstance(research_data, dict) else [],
+    )
 
 
 def api_listing_analysis_result(slug):

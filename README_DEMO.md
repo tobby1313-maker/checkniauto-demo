@@ -31,7 +31,10 @@ The analysis pipeline is:
 5. Calculate a deterministic backend listing-screening status in `risk_scorer.py`.
 6. Generate the final buyer-facing report. Gemini defaults to a stronger Flash
    model for this phase.
-7. Save the public report and intermediate artifacts for the dashboard.
+7. Save the public report and intermediate artifacts for the dashboard. When
+   final synthesis names a structured, verified market comparable but omits
+   its Markdown link, the public-output normalizer restores the exact ad link
+   deterministically inside `Cena a vyjednávanie` only.
 
 The public analysis pipeline does not load or update a vehicle knowledge base.
 Model, engine, transmission, drivetrain, generation, recall, cost, and market

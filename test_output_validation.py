@@ -471,6 +471,39 @@ Aktualne porovnanie trhu vyzaduje manualne online overenie, preto je vyjednavaci
             payload = json.loads(Path(path).read_text(encoding="utf-8"))
             self.assertEqual(payload["warnings"][0]["type"], "missing_end_marker")
 
+    def test_public_report_restores_verified_comparable_link_from_research_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            job_dir = Path(temp_dir)
+            (job_dir / "car_info.md").write_text("# Suzuki Grand Vitara\n", encoding="utf-8")
+            (job_dir / "grok_research.json").write_text(
+                json.dumps(
+                    {
+                        "market_comparables": [
+                            {
+                                "description": "Suzuki Grand Vitara 2.4i automat, 2010, 86 980 km",
+                                "price_eur": 9900,
+                                "mileage_km": 86980,
+                                "source_url": "https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1",
+                                "verified_url": True,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            report = (
+                "## Cena a vyjednávanie\n\n"
+                "Suzuki Grand Vitara 2.4i automat (2010, 86 980 km) — 9 900 EUR — ponuka z ČR.\n"
+            )
+
+            public_report = web_server._public_analysis_markdown(report, str(job_dir))
+
+            self.assertIn(
+                "[Suzuki Grand Vitara 2.4i automat (2010, 86 980 km)]"
+                "(https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1)",
+                public_report,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

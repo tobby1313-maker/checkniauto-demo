@@ -15,7 +15,9 @@ NOT performed (too destructive):
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
 
@@ -88,6 +90,117 @@ def normalize_analysis_markdown(text: str | None, car_info_text: str | None = No
     value = _remove_false_negative_claims(value, facts)
     value = _trim_excess_blank_lines(value)
     return value.rstrip() + ("\n" if value.strip() else "")
+
+
+def add_verified_comparable_links(
+    text: str | None,
+    market_comparables: Iterable[Mapping[str, Any]] | None,
+) -> str:
+    """Link unlinked market-comparable lines using structured evidence.
+
+    Final synthesis occasionally reproduces a comparable correctly but omits
+    its Markdown link.  Restore that link without another model call, but only
+    when the structured record explicitly marks the URL as verified and the
+    price plus descriptive evidence identify exactly one report line.
+    """
+    comparables = [
+        item
+        for item in (market_comparables or [])
+        if isinstance(item, Mapping)
+        and item.get("verified_url") is True
+        and _is_allowed_comparable_url(str(item.get("source_url") or item.get("url") or ""))
+    ]
+    if not comparables:
+        return str(text or "")
+
+    output: list[str] = []
+    in_price_section = False
+    used_urls: set[str] = set()
+    for line in str(text or "").split("\n"):
+        if re.match(r"^\s*##\s+", line):
+            in_price_section = _is_comparable_section_heading(line)
+        if in_price_section and "](http" not in line.lower():
+            line = _link_matching_comparable_line(line, comparables, used_urls)
+        output.append(line)
+    return "\n".join(output)
+
+
+def _link_matching_comparable_line(
+    line: str,
+    comparables: list[Mapping[str, Any]],
+    used_urls: set[str],
+) -> str:
+    """Return a linked comparable line only for one unambiguous match."""
+    match = re.match(r"^(\s*(?:[-*+]\s+)?)(.+?)(\s+[—–-]\s+)(.+)$", str(line or ""))
+    if not match:
+        return line
+    prefix, label, delimiter, remainder = match.groups()
+    if not label.strip() or not re.search(r"(?i)\b(?:eur|€)\b|€", remainder):
+        return line
+
+    line_numbers = _normalized_numbers(f"{label} {remainder}")
+    label_words = _meaningful_words(label)
+    candidates: list[tuple[int, str]] = []
+    for item in comparables:
+        url = str(item.get("source_url") or item.get("url") or "").strip()
+        if not url or url in used_urls:
+            continue
+        price = _whole_number(item.get("price_eur"))
+        if price is None or price not in line_numbers:
+            continue
+
+        description = str(item.get("description") or "")
+        description_words = _meaningful_words(description)
+        word_overlap = len(label_words & description_words)
+        mileage = _whole_number(item.get("mileage_km"))
+        mileage_matches = mileage is not None and mileage in line_numbers
+        year_matches = bool(
+            {number for number in _normalized_numbers(description) if 1900 <= number <= 2100}
+            & line_numbers
+        )
+        # Price alone is too weak: require a mileage/year match or enough of
+        # the vehicle description to be present in the line.
+        if not (mileage_matches or year_matches or word_overlap >= 3):
+            continue
+        score = word_overlap + (4 if mileage_matches else 0) + (2 if year_matches else 0)
+        candidates.append((score, url))
+
+    if not candidates:
+        return line
+    candidates.sort(reverse=True)
+    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+        return line
+    url = candidates[0][1]
+    used_urls.add(url)
+    return f"{prefix}[{label.strip()}]({url}){delimiter}{remainder}"
+
+
+def _whole_number(value: Any) -> int | None:
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalized_numbers(value: str) -> set[int]:
+    """Extract numbers while treating grouped thousands as one value."""
+    numbers: set[int] = set()
+    pattern = r"(?<!\d)(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?!\d)"
+    for token in re.findall(pattern, str(value or "")):
+        compact = re.sub(r"[ \u00a0]", "", token)
+        if compact.isdigit():
+            numbers.add(int(compact))
+    return numbers
+
+
+def _meaningful_words(value: str) -> set[str]:
+    folded = unicodedata.normalize("NFKD", str(value or ""))
+    folded = "".join(char for char in folded if not unicodedata.combining(char)).lower()
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]{2,}", folded)
+        if word not in {"automat", "automatic", "model", "vozidlo", "ponuka", "km", "eur"}
+    }
 
 
 def _normalize_vin_customer_label(text: str) -> str:
