@@ -67,6 +67,10 @@ QUALITY_GENERATION_SETTINGS = {
 QUALITY_THINKING_CONFIG = {
     "text_research": {"thinkingBudget": 0},
     "vision": {"thinkingBudget": 0},
+    # Keep a small reasoning allowance for report composition. The output cap
+    # includes thought tokens, so leaving this dynamic can consume the whole
+    # 8k budget before the report reaches its required closing sections.
+    "final_synthesis": {"thinkingBudget": 1024},
 }
 GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -607,6 +611,8 @@ def _call_gemini(
     thinking_config = _thinking_config(phase)
     if thinking_config:
         generation_config["thinkingConfig"] = thinking_config
+    if phase in {"text_research", "vision"}:
+        generation_config["responseMimeType"] = "application/json"
     payload = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]

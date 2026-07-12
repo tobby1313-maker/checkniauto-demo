@@ -108,6 +108,10 @@ class ProviderAdapterTest(unittest.TestCase):
             payloads[0]["generationConfig"]["thinkingConfig"],
             {"thinkingBudget": 0},
         )
+        self.assertEqual(
+            payloads[0]["generationConfig"]["responseMimeType"],
+            "application/json",
+        )
 
     def test_generation_profile_sets_phase_specific_limits_and_legacy_rollback(self):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
@@ -129,9 +133,37 @@ class ProviderAdapterTest(unittest.TestCase):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
             self.assertEqual(gemini._thinking_config("text_research"), {"thinkingBudget": 0})
             self.assertEqual(gemini._thinking_config("vision"), {"thinkingBudget": 0})
-            self.assertEqual(gemini._thinking_config("final_synthesis"), {})
+            self.assertEqual(gemini._thinking_config("final_synthesis"), {"thinkingBudget": 1024})
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
             self.assertEqual(gemini._thinking_config("text_research"), {})
+
+    def test_final_synthesis_uses_bounded_thinking_without_json_response_mode(self):
+        response = FakeResponse(
+            200,
+            lines=[
+                b'data: {"candidates":[{"content":{"parts":[{"text":"report"}]},"finishReason":"STOP"}]}',
+                b"data: [DONE]",
+            ],
+        )
+        payloads = []
+
+        def fake_post(_url, **kwargs):
+            payloads.append(kwargs["json"])
+            return response
+
+        with (
+            patch.object(gemini.requests, "post", side_effect=fake_post),
+            patch.object(gemini.default_tracker, "record_request"),
+            patch.object(gemini, "safe_log"),
+        ):
+            self.assertEqual(
+                list(gemini.stream_generate("key", "system", "user", phase="final_synthesis")),
+                ["report"],
+            )
+
+        config = payloads[0]["generationConfig"]
+        self.assertEqual(config["thinkingConfig"], {"thinkingBudget": 1024})
+        self.assertNotIn("responseMimeType", config)
 
     def test_gemini_does_not_append_limit_warning_to_structured_output(self):
         response = FakeResponse(

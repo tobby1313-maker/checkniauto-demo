@@ -179,9 +179,9 @@ DEMO_SKIP_KB = SERVER_CONFIG.demo_skip_kb
 MAX_UPLOAD_BYTES = SERVER_CONFIG.max_upload_bytes
 FINAL_LISTING_DESCRIPTION_CHARS = 900
 MODEL_LISTING_DESCRIPTION_CHARS = 1400
-FINAL_TEXT_FIELD_CHARS = 640
+FINAL_TEXT_FIELD_CHARS = 420
 FINAL_WEB_RESEARCH_CHARS = 2800
-FINAL_CONTEXT_MAX_CHARS = 32000
+FINAL_CONTEXT_MAX_CHARS = 26000
 
 app = create_app(
     SERVER_CONFIG.as_flask_mapping(),
@@ -2453,14 +2453,23 @@ def _trim_final_context_payload(payload, max_chars=FINAL_CONTEXT_MAX_CHARS):
     """Shrink optional evidence lists while retaining a valid JSON payload."""
     list_paths = [
         ("text_research", "web_research_findings", 4),
-        ("text_research", "technical_risks", 4),
+        ("text_research", "technical_risks", 5),
         ("text_research", "expected_costs", 4),
         ("text_research", "seller_claims", 3),
         ("text_research", "missing_or_uncertain_data", 3),
+        ("text_research", "data_conflicts", 2),
         ("text_research", "consistency_checks", 3),
+        ("text_research", "market_comparables", 3),
+        ("text_research", "text_research_risk_flags", 3),
         ("vision", "exterior_observations", 4),
         ("vision", "interior_observations", 3),
         ("vision", "supported_observations", 3),
+        ("vision", "missing_views", 3),
+        ("vision", "visible_red_flags", 3),
+        ("backend_risk_score", "vehicle_specific_findings", 4),
+        ("backend_risk_score", "model_level_inspection_points", 4),
+        ("backend_risk_score", "missing_information", 3),
+        ("backend_risk_score", "buyer_actions", 4),
     ]
     while _final_payload_size(payload) > max_chars:
         candidates = []

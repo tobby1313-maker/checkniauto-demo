@@ -190,11 +190,12 @@ temp directory in `scrapper-demo/Auta`.
 | `SCRAPPER_TOKEN_COST_CURRENCY` | `EUR` | Currency label for token cost estimates. |
 
 For a Google AI Studio/free Gemini key, keep `DEMO_ANALYSIS_PROFILE=quality_optimized`.
-Gemini 2.5 Flash can spend its default hidden thinking budget before emitting the
-structured JSON, which may end in `MAX_TOKENS` with zero visible output. The
-quality profile disables thinking only for the text-research and vision extraction
-phases; final synthesis keeps its normal reasoning behavior. A backup Gemini key
-is still used for authentication and quota failures.
+Gemini can spend its hidden thinking budget before emitting the structured JSON
+or completing the report, which may end in `MAX_TOKENS`. The quality profile
+disables thinking for text-research and vision extraction and gives final synthesis
+a bounded 1,024-token reasoning allowance. A backup Gemini key is still used for
+authentication and quota failures; `MAX_TOKENS` is a generation-budget condition,
+not a key-quota failure.
 
 ## Public Demo UI
 
