@@ -23,6 +23,16 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("lahku samostatnu kontrolu presneho VIN", prompt)
         self.assertIn("cely retazec v uvodzovkach", prompt)
 
+    def test_market_fallback_prompt_is_short_and_requires_direct_ad_urls(self):
+        prompt = llm_client._build_grounded_market_prompt(
+            "Suzuki Vitara 1.6 VVT Elegance 2WD automatic, 2015, 240513 km"
+        )
+
+        self.assertIn("iba na aktualne alebo nedavno", prompt)
+        self.assertIn("priamy verejny URL detailu", prompt)
+        self.assertIn("Povodny analyzovany inzerat nepouzivaj", prompt)
+        self.assertIn("Vystup udrz pod 350 slov", prompt)
+
     def test_default_gemini_model_order_matches_demo_routing(self):
         standard_chain = llm_client._ordered_unique_models(
             llm_client.GEMINI_TEXT_RESEARCH_MODEL,
@@ -232,6 +242,12 @@ class GroundedResearchTest(unittest.TestCase):
 
         self.assertIn("allowedComparableUrl", web_index)
         self.assertIn("inComparablePriceSection", web_index)
+        self.assertIn("enhanceQuickSummaryHtml", web_index)
+        self.assertIn("quick-summary-layout", web_index)
+        self.assertIn("scorecard-panel", web_index)
+        self.assertIn("score-unavailable-badge", web_index)
+        self.assertIn("enhanceProsConsHtml", web_index)
+        self.assertIn("pros-cons-layout", web_index)
         self.assertIn("target=\"_blank\"", web_index)
 
     def test_final_prompt_formats_technical_risks_as_severity_blocks(self):

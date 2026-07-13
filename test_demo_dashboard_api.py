@@ -381,6 +381,49 @@ class DemoDashboardApiTest(unittest.TestCase):
         self.assertIn("Fotografie však nevylučujú skryté chyby", updated)
         self.assertNotIn("nie je dostatočne zaostrená", updated)
 
+    def test_photo_analysis_omits_generic_limitations_but_keeps_specific_missing_views(self):
+        report = """# Analýza: Suzuki Vitara
+
+## 📸 Analýza fotografií
+
+- Starý text.
+
+## ✅ Klady
+
+- Test.
+"""
+        vision = json.dumps({
+            "photos_provided": True,
+            "view_coverage": {
+                "exterior": "visible_detail",
+                "interior": "visible_detail",
+                "dashboard": "visible_detail",
+                "engine_bay": "missing",
+                "underbody": "missing",
+            },
+            "exterior_observations": [{
+                "photo_label": "Foto 01-03",
+                "observation": "Exteriér je dobre viditeľný.",
+            }],
+            "interior_observations": [{
+                "photo_label": "Foto 08-14",
+                "observation": "Interiér je dobre viditeľný.",
+            }],
+            "visible_red_flags": [],
+            "photo_limitations": [
+                "Niektoré fotografie sú mierne tmavé, čo sťažuje detailnú kontrolu.",
+                "Fotografie sú obmedzené na vybrané uhly, čo neumožňuje kompletné posúdenie vozidla.",
+                "Odlesk na Foto 09 neumožňuje spoľahlivo posúdiť konkrétnu kontrolku.",
+            ],
+        }, ensure_ascii=False)
+
+        updated = web_server._replace_photo_analysis_section(report, vision, "sk")
+
+        self.assertNotIn("mierne tmavé", updated)
+        self.assertNotIn("vybrané uhly", updated)
+        self.assertIn("**Chýbajúce pohľady:** motorový priestor, podvozok", updated)
+        self.assertIn("Odlesk na Foto 09", updated)
+
     def test_photo_analysis_includes_documents_and_red_flag_details(self):
         report = """# Analýza: Mazda CX-5
 

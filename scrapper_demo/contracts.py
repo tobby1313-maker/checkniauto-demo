@@ -83,6 +83,7 @@ class RiskScoreResult(TypedDict, total=False):
     override_rules_applied: list[RiskOverride]
     missing_data_flags: list[str]
     buyer_priority_checks: list[str]
+    buyer_scorecard: dict[str, Any]
 
 
 class SSETokenUsage(TypedDict):

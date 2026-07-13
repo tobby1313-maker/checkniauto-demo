@@ -326,6 +326,44 @@ Kontext inzeratu:
 """
 
 
+def _build_grounded_market_prompt(listing_context: str) -> str:
+    """Build a short rescue prompt dedicated to exact comparable ads."""
+    context = listing_context
+    if len(context) > GROUNDING_CONTEXT_MAX_CHARS:
+        context = context[:GROUNDING_CONTEXT_MAX_CHARS] + "\n\n[Context truncated for market research pass.]"
+    return f"""Si market-research modul pre analyzu ojazdeneho auta.
+
+Pouzi Google Search grounding a sustred sa iba na aktualne alebo nedavno
+indexovane konkretne inzeraty podobnych vozidiel v SK/CZ/EU. Vyhladavaj cielene
+na marketplace weboch ako Autobazar.EU, Autobazar.SK, Bazos.sk/Bazos.cz,
+Sauto.cz, TipCars a dalsich relevantnych inzertnych portaloch.
+
+Najprv hladaj rovnaku generaciu, motor, prevodovku, pohon, podobny rocnik a
+najazd. Ak je ponuk malo, mozes mierne rozsirit rocnik alebo najazd, ale jasne
+uved materialny rozdiel. Povodny analyzovany inzerat nepouzivaj ako porovnanie.
+
+Prisne pravidla:
+- Vrat najviac 5 a aspon 1 ponuku iba vtedy, ked mas priamy verejny URL detailu
+  konkretneho inzeratu.
+- Nepouzivaj domovsku stranku, kategoriu, zoznam vysledkov, vyhladavaci URL,
+  technicky clanok ani Google/Vertex redirect ako URL porovnania.
+- Nevymyslaj cenu, rok, najazd, vybavu ani URL zo search snippetu bez
+  otvoritelneho detailu.
+- Kazdy platny riadok musi byt presne v tvare:
+  `- [model/verzia (rok, najazd)](priamy-url-detailu) — cena EUR — materialny rozdiel.`
+- Ak nenajdes ani jeden priamy detail inzeratu, vrat iba vetu:
+  `Presne porovnatelne inzeraty s priamym URL neboli najdene.`
+- Nevypisuj technicke rizika, servis, VIN, zvolavacie akcie ani vseobecne ceny.
+- Vystup udrz pod 350 slov.
+
+## Priamo overitelne porovnatelne inzeraty
+
+Kontext analyzovaneho vozidla:
+
+{context}
+"""
+
+
 def _extract_interaction_text_and_citations(data: dict) -> str:
     """Extract model text and URL citations from an Interactions API response."""
     text_blocks = []
@@ -400,6 +438,7 @@ def run_grounded_web_research(
     listing_context: str,
     model: str | None = None,
     listing_slug: str | None = None,
+    research_mode: str = "full",
 ) -> str:
     """Run a text-only Gemini Interactions API pass with Google Search grounding."""
     if not api_key or not api_key.strip():
@@ -408,7 +447,13 @@ def run_grounded_web_research(
     model_to_use = model if model else GEMINI_GROUNDING_MODEL
     model_candidates = _ordered_unique_models(model_to_use, GEMINI_GROUNDING_FALLBACK_MODELS)
 
-    prompt = _build_grounded_search_prompt(listing_context)
+    market_only = str(research_mode or "full").strip().lower() == "market"
+    prompt = (
+        _build_grounded_market_prompt(listing_context)
+        if market_only
+        else _build_grounded_search_prompt(listing_context)
+    )
+    tracking_phase = "market_grounding" if market_only else "grounding"
     last_error_text = ""
     unavailable_models = []
     rate_limited_models = []
@@ -437,7 +482,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
-                phase="grounding",
+                phase=tracking_phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -450,7 +495,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
-                phase="grounding",
+                phase=tracking_phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -478,7 +523,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
-                phase="grounding",
+                phase=tracking_phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -498,7 +543,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
-                phase="grounding",
+                phase=tracking_phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -515,7 +560,7 @@ def run_grounded_web_research(
             default_tracker.record_request(
                 model=candidate_model,
                 request_type="grounded_search",
-                phase="grounding",
+                phase=tracking_phase,
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
@@ -547,7 +592,7 @@ def run_grounded_web_research(
         default_tracker.record_request(
             model=candidate_model,
             request_type="grounded_search",
-            phase="grounding",
+            phase=tracking_phase,
             listing_slug=listing_slug,
             input_tokens=input_tokens,
             output_tokens=estimate_output_tokens(output_text),

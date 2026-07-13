@@ -231,6 +231,52 @@ class AnalysisNormalizerTest(unittest.TestCase):
 
         self.assertEqual(markdown, add_verified_comparable_links(markdown, comparables))
 
+    def test_sorts_cost_tables_and_removes_repeated_eur_units(self):
+        markdown = """## Očakávané náklady na najbližších 30 000 km
+
+| Položka | Prečo | Odhad EUR | Urgentnosť |
+|---|---|---:|---|
+| Diagnostika | Kontrola chýb | 50 - 100 EUR | Vysoká |
+| Rozvody | Pri hluku | 800 - 1 500 EUR | Stredná |
+| Olej | Vstupný servis | 100 - 150 € | Stredná |
+
+**Pravdepodobný orientačný súčet:** 250 - 450 EUR
+"""
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        rows = [line for line in cleaned.splitlines() if line.startswith("| ")][2:]
+        self.assertEqual(rows[0], "| Rozvody | Pri hluku | 800 - 1 500 | Stredná |")
+        self.assertEqual(rows[1], "| Olej | Vstupný servis | 100 - 150 | Stredná |")
+        self.assertEqual(rows[2], "| Diagnostika | Kontrola chýb | 50 - 100 | Vysoká |")
+        self.assertIn("**Pravdepodobný orientačný súčet:** 250 - 450 EUR", cleaned)
+
+    def test_removes_generic_photo_limitations_only(self):
+        markdown = """## Analýza fotografií
+
+- **Obmedzenie:** Niektoré fotografie sú mierne tmavé, čo sťažuje detailnú kontrolu.
+- **Obmedzenie:** Fotografie sú obmedzené na vybrané uhly, čo neumožňuje kompletné posúdenie vozidla.
+- **Obmedzenie:** Odlesk na Foto 09 znemožňuje prečítať konkrétnu kontrolku.
+"""
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertNotIn("mierne tmavé", cleaned)
+        self.assertNotIn("vybrané uhly", cleaned)
+        self.assertIn("Odlesk na Foto 09", cleaned)
+
+    def test_replaces_false_market_database_wording(self):
+        markdown = (
+            "## Cena a vyjednávanie\n\n"
+            "Vzhľadom na to, že v databáze neboli nájdené žiadne priamo porovnateľné inzeráty, "
+            "trh vyžaduje manuálne overenie.\n"
+        )
+
+        cleaned = normalize_analysis_markdown(markdown, CAR_INFO)
+
+        self.assertNotIn("v databáze", cleaned.lower())
+        self.assertIn("pri webovom vyhľadávaní sa nenašli", cleaned.lower())
+
     def test_removes_unavailable_url_parentheticals(self):
         markdown = (
             "- Motor treba overiť (Google Search, URL nie je priamo overiteľná).\n"
@@ -335,7 +381,7 @@ class AnalysisNormalizerTest(unittest.TestCase):
 
         self.assertNotIn("| --- | --- | - | --- |", cleaned)
         self.assertEqual(cleaned.count("| --- | --- | ---: | --- |"), 2)
-        self.assertIn("| VIN kontrola | - | 20 EUR | Nízka |", cleaned)
+        self.assertIn("| VIN kontrola | - | 20 | Nízka |", cleaned)
         self.assertIn("| Palivové čerpadlo | Len pri potvrdenej chybe", cleaned)
 
     def test_removes_standalone_sources_section_and_inline_links(self):

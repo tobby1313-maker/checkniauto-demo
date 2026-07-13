@@ -8,6 +8,102 @@ import web_server
 
 
 class OutputValidationTest(unittest.TestCase):
+    def test_pros_and_cons_are_moved_after_quick_summary_without_duplication(self):
+        report = """# Analýza: Test
+
+## Rýchle zhrnutie
+
+- Stručné hodnotenie.
+
+## Dáta z inzerátu
+
+Údaje.
+
+## Klady
+
+- Zachovalý interiér.
+
+## Zápory / riziká
+
+- Chýba servisná história.
+
+## Záverečné odporúčanie
+
+Odporúčanie.
+"""
+
+        updated = web_server._move_pros_cons_after_quick_summary(report)
+
+        self.assertLess(updated.index("## Klady"), updated.index("## Dáta z inzerátu"))
+        self.assertLess(updated.index("## Zápory / riziká"), updated.index("## Dáta z inzerátu"))
+        self.assertEqual(updated.count("## Klady"), 1)
+        self.assertEqual(updated.count("## Zápory / riziká"), 1)
+        self.assertIn("- Zachovalý interiér.", updated)
+        self.assertIn("- Chýba servisná história.", updated)
+        self.assertEqual(web_server._move_pros_cons_after_quick_summary(updated), updated)
+
+    def test_backend_scorecard_is_appended_to_quick_summary(self):
+        report = """# Analýza: Test
+
+## Rýchle zhrnutie
+
+- **Hodnotenie:** Stojí za obhliadku
+- **Cena:** Férová
+
+## Dáta z inzerátu
+
+Text.
+"""
+        risk_score = {
+            "buyer_scorecard": {
+                "scores": {
+                    "listing_transparency": 35,
+                    "market_position": 62,
+                    "engine_profile": 40,
+                    "transmission_profile": 45,
+                    "visual_condition": 78,
+                    "service_readiness": 54,
+                },
+                "overall_score": 52,
+                "confidence": "MEDIUM",
+            }
+        }
+
+        updated = web_server._replace_quick_summary_scorecard(
+            report, json.dumps(risk_score), "sk"
+        )
+
+        self.assertIn("### Skóre analýzy", updated)
+        self.assertIn("| Cena voči trhu | 62/100 |", updated)
+        self.assertIn("| Servisná pripravenosť | 54/100 |", updated)
+        self.assertIn("| **Celkové skóre** | **52/100** |", updated)
+        self.assertIn("| **Istota analýzy** | **Stredná** |", updated)
+        self.assertLess(updated.index("### Skóre analýzy"), updated.index("## Dáta z inzerátu"))
+
+    def test_backend_scorecard_marks_unavailable_market_data_without_fake_score(self):
+        risk_score = {
+            "buyer_scorecard": {
+                "scores": {
+                    "listing_transparency": 55,
+                    "market_position": None,
+                    "engine_profile": None,
+                    "transmission_profile": 60,
+                    "visual_condition": None,
+                    "service_readiness": 48,
+                },
+                "overall_score": 53,
+                "confidence": "LOW",
+            }
+        }
+
+        markdown = web_server._quick_summary_scorecard_markdown(
+            json.dumps(risk_score), "sk"
+        )
+
+        self.assertIn("| Cena voči trhu | **Nedostatok údajov** |", markdown)
+        self.assertNotIn("| Cena voči trhu | 40/100 |", markdown)
+        self.assertIn("nezapočítajú do váženého priemeru", markdown)
+
     def test_final_report_with_matching_verdict_and_end_marker_has_no_warnings(self):
         warnings = web_server._soft_validate_final_report(
             """# Analyza: Test

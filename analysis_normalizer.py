@@ -83,9 +83,12 @@ def normalize_analysis_markdown(text: str | None, car_info_text: str | None = No
     value = _remove_public_hyperlinks(value)
     value = _remove_unavailable_url_notes(value)
     value = _remove_unlisted_vat_claims(value, facts)
+    value = _remove_generic_photo_limitations(value)
+    value = _replace_false_market_database_wording(value)
     value = _normalize_vin_customer_label(value)
     value = _remove_standalone_sources_section(value)
     value = _normalize_tables(value)
+    value = _normalize_cost_estimate_tables(value)
     value = _apply_fact_guard(value, facts)
     value = _remove_false_negative_claims(value, facts)
     value = _trim_excess_blank_lines(value)
@@ -208,6 +211,40 @@ def _normalize_vin_customer_label(text: str) -> str:
     return re.sub(
         r"(?i)\b(?:ľahké|lahke)\s+dekódovanie\b",
         "Dekódovanie",
+        str(text or ""),
+    )
+
+
+def _remove_generic_photo_limitations(text: str) -> str:
+    """Drop low-value photo disclaimers while preserving specific limitations."""
+    generic_fragments = (
+        "mierne tmav",
+        "slightly dark",
+        "vybrane uhly",
+        "selected angles",
+        "limited angles",
+        "kompletne posudenie vozidla",
+        "complete assessment of the vehicle",
+        "fully assess the vehicle",
+    )
+    output: list[str] = []
+    for line in str(text or "").split("\n"):
+        folded = unicodedata.normalize("NFKD", line)
+        folded = "".join(char for char in folded if not unicodedata.combining(char)).lower()
+        is_limitation_line = bool(
+            re.search(r"(?i)(?:\*\*)?(?:obmedzenie|limitation)(?:\*\*)?\s*:", folded)
+        )
+        if is_limitation_line and any(fragment in folded for fragment in generic_fragments):
+            continue
+        output.append(line)
+    return "\n".join(output)
+
+
+def _replace_false_market_database_wording(text: str) -> str:
+    """Describe the live market pass as web search, never as a database lookup."""
+    return re.sub(
+        r"(?i)v\s+datab[aá]ze\s+neboli\s+n[aá]jden[eé]",
+        "pri webovom vyhľadávaní sa nenašli",
         str(text or ""),
     )
 
@@ -546,6 +583,70 @@ def _join_fragments(previous: str, current: str) -> str:
     prev = previous.rstrip()
     cur = current.strip()
     return prev + " " + cur
+
+
+def _normalize_cost_estimate_tables(text: str) -> str:
+    """Sort cost tables and keep their shared EUR unit in the header only."""
+    lines = str(text or "").split("\n")
+    output: list[str] = []
+    index = 0
+    while index < len(lines):
+        if (
+            index + 1 < len(lines)
+            and _is_table_row(lines[index])
+            and _is_table_delimiter(lines[index + 1])
+        ):
+            header_cells = _split_table_row(lines[index])
+            estimate_index = next(
+                (
+                    position
+                    for position, cell in enumerate(header_cells)
+                    if _is_estimate_eur_heading(cell)
+                ),
+                None,
+            )
+            if estimate_index is not None:
+                data_end = index + 2
+                rows: list[list[str]] = []
+                while data_end < len(lines) and _is_table_row(lines[data_end]):
+                    cells = _split_table_row(lines[data_end])
+                    if len(cells) == len(header_cells):
+                        cells[estimate_index] = _strip_eur_unit(cells[estimate_index])
+                        rows.append(cells)
+                    else:
+                        rows.append(cells)
+                    data_end += 1
+                if rows:
+                    rows.sort(
+                        key=lambda cells: _estimate_sort_key(
+                            cells[estimate_index] if len(cells) > estimate_index else ""
+                        ),
+                        reverse=True,
+                    )
+                    output.extend((lines[index], lines[index + 1]))
+                    output.extend(_table_row(cells) for cells in rows)
+                    index = data_end
+                    continue
+        output.append(lines[index])
+        index += 1
+    return "\n".join(output)
+
+
+def _is_estimate_eur_heading(value: str) -> bool:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+    return "odhad" in normalized and ("eur" in normalized or "€" in normalized)
+
+
+def _strip_eur_unit(value: str) -> str:
+    cleaned = re.sub(r"(?i)\s*(?:eur|€)(?!\w)", "", str(value or ""))
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _estimate_sort_key(value: str) -> int:
+    """Use the upper bound so the largest possible buyer exposure is first."""
+    numbers = _normalized_numbers(value)
+    return max(numbers) if numbers else -1
 
 
 # ── Fact guard ──────────────────────────────────────────────────

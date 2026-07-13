@@ -24,11 +24,17 @@ The analysis pipeline is:
 1. Scrape or import the listing into a temporary `Auta/<slug>/` job folder.
 2. Run stateless Gemini grounded web research for the identified generation,
    engine, transmission/drivetrain, recalls, repair exposure, and close market
-   comparables when available.
+   comparables when available. If this broad pass returns no directly linked
+   comparable ad, a short market-only grounded fallback searches relevant
+   SK/CZ/EU marketplaces; it is skipped when the broad pass already found a
+   link and is tracked separately as `market_grounding`.
 3. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
    optional provider branches if their keys are explicitly configured.
 4. Run Gemini vision analysis on representative uploaded or scraped photos.
-5. Calculate a deterministic backend listing-screening status in `risk_scorer.py`.
+5. Calculate a deterministic backend listing-screening status and buyer
+   scorecard. Every score uses the same direction: `100` is more favorable;
+   areas without enough evidence remain unscored and are excluded from the
+   weighted scorecard average.
 6. Generate the final buyer-facing report. Gemini defaults to a stronger Flash
    model for this phase.
 7. Save the public report and intermediate artifacts for the dashboard. When
@@ -54,6 +60,7 @@ scrapper_demo/
   legacy_server.py                    compatibility composition and local handlers
   logging.py                          Unicode-safe console logging
   progress.py                         process-local progress/rate/job state
+  scorecard.py                        deterministic buyer-facing scorecard
   providers/                          Gemini, Grok, OpenRouter, retry, and errors
   routes/                             public/demo and private Flask blueprints
   services/analysis_pipeline.py       provider-neutral analysis orchestration
@@ -213,6 +220,9 @@ It provides:
 - Manual mode for unsupported marketplaces.
 - Streaming progress overlay with cancel support.
 - Final report view with reference photos.
+- Responsive quick-summary scorecard with visual bars and analysis confidence.
+- Pros and cons moved directly below the quick summary and displayed side by
+  side on wider screens, without duplicating the original report sections.
 - Copy text and export-to-PDF actions.
 - Saved-analysis drawer backed by `/api/demo/listings`.
 

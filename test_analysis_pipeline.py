@@ -27,6 +27,8 @@ def _dependencies(repository, prompt_dir):
         normalize_report_headings=lambda value: value,
         public_analysis_markdown=lambda value, slug_dir: value,
         replace_photo_analysis_section=lambda value, *args: value,
+        replace_quick_summary_scorecard=lambda value, *args: value,
+        move_pros_cons_after_quick_summary=lambda value: value,
         save_kb_blocks=lambda blocks: [],
         safe_model_json=lambda value: json.loads(value),
         strip_kb_section=lambda value: value,
@@ -89,10 +91,20 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             ):
                 (prompt_dir / filename).write_text("system", encoding="utf-8")
 
+            collected_phases = []
+
             def collect_gemini(entries, phase, factory, **kwargs):
                 yield from ()
+                collected_phases.append(phase)
                 if phase == "web research":
-                    return "grounded research", entries[0]
+                    return "### Orientacna cena / trh\n- Bez priamych URL.", entries[0]
+                if phase == "market comparable research":
+                    return (
+                        "## Priamo overitelne porovnatelne inzeraty\n"
+                        "- [Sample car (2015, 150 000 km)]"
+                        "(https://auto.bazos.sk/inzerat/123456/sample.php) — 8 900 EUR — podobny najazd.",
+                        entries[0],
+                    )
                 if phase == "text/research analysis":
                     return '{"listing_facts": {}, "vin_check": {}}', entries[0]
                 raise AssertionError(f"Unexpected collected phase: {phase}")
@@ -132,10 +144,18 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
                 for marker in ("Phase 1/4", "Phase 2/4", "Phase 3/4", "Phase 4/4")
             ]
             self.assertEqual(phase_positions, sorted(phase_positions))
-            self.assertEqual(repository.read_text("sample", "web_research.md"), "grounded research")
+            self.assertIn("https://auto.bazos.sk/inzerat/123456/sample.php", repository.read_text("sample", "web_research.md"))
+            self.assertEqual(
+                collected_phases[:3],
+                ["web research", "market comparable research", "text/research analysis"],
+            )
             self.assertTrue(repository.read_text("sample", "grok_research.json"))
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
             self.assertTrue(repository.read_text("sample", "risk_score.json"))
+            self.assertIn(
+                "buyer_scorecard",
+                json.loads(repository.read_text("sample", "risk_score.json")),
+            )
             self.assertEqual(repository.read_text("sample", "analysis_result_raw.md"), "# Final report")
             self.assertIn("<!-- END_ANALYSIS -->", repository.read_text("sample", "analysis_result.md"))
             self.assertIn('"done": true', events[-1])

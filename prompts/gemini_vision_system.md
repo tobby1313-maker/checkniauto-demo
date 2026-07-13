@@ -12,7 +12,7 @@ Photo coverage rules:
 - A view visible in an overview sheet must not be reported as missing from the listing.
 - If a view is visible only in overview thumbnails and cannot be inspected closely, report it as "visible_overview_only" or "not_assessable_in_detail", not as missing.
 - Only say an angle is missing when it is absent from the full-gallery overview, or when `full_gallery_included` is false and it is absent from the provided sample.
-- Use `photo_limitations` for real limits such as low resolution, dark photos, cropped details, no underbody view, or sample-only payloads. Do not treat full-gallery overview mode itself as weak photos.
+- Use `photo_limitations` only when image quality materially prevents assessment of a specific buyer-relevant detail, and name that detail (for example an unreadable odometer/VIN, glare hiding a damaged panel, or resolution too low to assess a suspected warning light). Do not add generic limitations such as "some photos are slightly dark", "selected angles do not allow a complete assessment", or the universal fact that photos cannot show every defect. Put genuinely absent views in `missing_views` / `view_coverage` instead and do not duplicate them in `photo_limitations`. Do not treat full-gallery overview mode itself as weak photos.
 
 You may identify:
 - visible odometer reading,

@@ -26,6 +26,34 @@
     "applied_rules": { "type": "array", "items": { "type": "object" } },
     "override_rules_applied": { "type": "array", "items": { "type": "object" } },
     "missing_data_flags": { "type": "array", "items": { "type": "string" } },
-    "buyer_priority_checks": { "type": "array", "items": { "type": "string" } }
+    "buyer_priority_checks": { "type": "array", "items": { "type": "string" } },
+    "buyer_scorecard": {
+      "type": "object",
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "scale_direction": { "type": "string", "enum": ["higher_is_better"] },
+        "scores": {
+          "type": "object",
+          "required": [
+            "listing_transparency",
+            "market_position",
+            "engine_profile",
+            "transmission_profile",
+            "visual_condition",
+            "service_readiness"
+          ],
+          "properties": {
+            "listing_transparency": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "market_position": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+            "engine_profile": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+            "transmission_profile": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+            "visual_condition": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+            "service_readiness": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "overall_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
+      }
+    }
   }
 }

@@ -2275,6 +2275,27 @@ def _high_confidence_dashboard_note(item):
     return bool(str(item.get("observation") or "").strip())
 
 
+def _is_useful_photo_limitation(value):
+    """Keep only specific image-quality limits that matter to a buyer check."""
+    normalized = _normalize_claim_text(value)
+    generic_fragments = (
+        "mierne tmav",
+        "slightly dark",
+        "vybrane uhly",
+        "selected angles",
+        "limited angles",
+        "obmedzene uhly",
+        "kompletne posudenie vozidla",
+        "complete assessment of the vehicle",
+        "fully assess the vehicle",
+        "fotografie nepokryvaju vsetky",
+        "photos do not cover all",
+        "nie je mozne kompletne posudit",
+        "cannot be completely assessed",
+    )
+    return bool(normalized) and not any(fragment in normalized for fragment in generic_fragments)
+
+
 def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
     data = _safe_model_json(vision_result_json)
     language = _demo_output_language(output_language)
@@ -2385,7 +2406,7 @@ def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
 
     for limitation in (data.get("photo_limitations") or [])[:4]:
         text = str(limitation or "").strip()
-        if not text:
+        if not _is_useful_photo_limitation(text):
             continue
         if any(_normalize_claim_text(text) in _normalize_claim_text(line) for line in lines):
             continue
@@ -2417,6 +2438,162 @@ def _replace_photo_analysis_section(report_text, vision_result_json, output_lang
     if end_marker in str(report_text or ""):
         return str(report_text or "").replace(end_marker, new_section + end_marker)
     return str(report_text or "").rstrip() + "\n\n" + new_section
+
+
+def _quick_summary_scorecard_markdown(risk_score_json, output_language="sk"):
+    data = _safe_model_json(risk_score_json)
+    card = data.get("buyer_scorecard") if isinstance(data.get("buyer_scorecard"), dict) else {}
+    scores = card.get("scores") if isinstance(card.get("scores"), dict) else {}
+    required = (
+        "listing_transparency",
+        "market_position",
+        "engine_profile",
+        "transmission_profile",
+        "visual_condition",
+        "service_readiness",
+    )
+    if any(key not in scores or (scores[key] is not None and not isinstance(scores[key], (int, float))) for key in required):
+        return ""
+    language = _demo_output_language(output_language)
+    if language == "en":
+        labels = (
+            ("Listing transparency", "listing_transparency"),
+            ("Price vs. market", "market_position"),
+            ("Engine profile", "engine_profile"),
+            ("Transmission and drivetrain", "transmission_profile"),
+            ("Visual condition", "visual_condition"),
+            ("Service readiness", "service_readiness"),
+        )
+        confidence_labels = {"HIGH": "High", "MEDIUM": "Medium", "LOW": "Low"}
+        unavailable_label = "Insufficient data"
+        title, area, score_label = "### Analysis score", "Area", "Score"
+        overall_label, confidence_label = "Overall score", "Analysis confidence"
+        note = "100 means a more favorable profile. Areas without sufficient evidence are not scored or included in the weighted average. This is a screening aid, not a technical inspection."
+    else:
+        labels = (
+            ("Transparentnosť inzerátu", "listing_transparency"),
+            ("Cena voči trhu", "market_position"),
+            ("Profil motora", "engine_profile"),
+            ("Prevodovka a pohon", "transmission_profile"),
+            ("Vizuálny stav", "visual_condition"),
+            ("Servisná pripravenosť", "service_readiness"),
+        )
+        confidence_labels = {"HIGH": "Vysoká", "MEDIUM": "Stredná", "LOW": "Nízka"}
+        unavailable_label = "Nedostatok údajov"
+        title, area, score_label = "### Skóre analýzy", "Oblasť", "Skóre"
+        overall_label, confidence_label = "Celkové skóre", "Istota analýzy"
+        note = "100 znamená priaznivejší profil. Oblasti bez dostatočných podkladov sa nebodujú ani nezapočítajú do váženého priemeru. Ide o skríning, nie technickú prehliadku."
+    rows = [title, "", f"| {area} | {score_label} |", "|---|---:|"]
+    rows.extend(
+        f"| {label} | {int(round(scores[key]))}/100 |"
+        if scores[key] is not None
+        else f"| {label} | **{unavailable_label}** |"
+        for label, key in labels
+    )
+    overall = int(round(float(card.get("overall_score") or 0)))
+    confidence = confidence_labels.get(str(card.get("confidence") or "MEDIUM").upper(), confidence_labels["MEDIUM"])
+    rows.extend(
+        (
+            f"| **{overall_label}** | **{overall}/100** |",
+            f"| **{confidence_label}** | **{confidence}** |",
+            "",
+            f"> {note}",
+        )
+    )
+    return "\n".join(rows)
+
+
+def _replace_quick_summary_scorecard(report_text, risk_score_json, output_language="sk"):
+    """Append the deterministic scorecard to the quick-summary section."""
+    scorecard = _quick_summary_scorecard_markdown(risk_score_json, output_language)
+    if not scorecard:
+        return report_text
+    lines = str(report_text or "").splitlines()
+    start = None
+    end = len(lines)
+    for index, line in enumerate(lines):
+        if not re.match(r"^\s*##\s+", line):
+            continue
+        key = _normalize_heading_key(re.sub(r"^\s*##\s+", "", line))
+        if start is None and ("rychle zhrnutie" in key or "quick summary" in key):
+            start = index
+            continue
+        if start is not None:
+            end = index
+            break
+    if start is None:
+        return report_text
+    # Final synthesis is instructed not to create this block, but remove one
+    # if a provider emitted it anyway so the backend remains the sole source.
+    section = lines[start + 1 : end]
+    cleaned = []
+    skipping = False
+    for line in section:
+        if re.match(r"^\s*###\s+", line):
+            key = _normalize_heading_key(re.sub(r"^\s*###\s+", "", line))
+            skipping = "skore analyzy" in key or "analysis score" in key
+            if skipping:
+                continue
+        if skipping:
+            continue
+        cleaned.append(line)
+    replacement = lines[: start + 1] + cleaned
+    while replacement and not replacement[-1].strip():
+        replacement.pop()
+    replacement.extend(("", scorecard, ""))
+    replacement.extend(lines[end:])
+    return "\n".join(replacement).rstrip() + "\n"
+
+
+def _move_pros_cons_after_quick_summary(report_text):
+    """Move the existing pros/cons sections directly below quick summary."""
+    lines = str(report_text or "").splitlines()
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if re.match(r"^\s*##\s+", line)
+    ]
+    if not starts:
+        return report_text
+    preamble = lines[: starts[0]]
+    sections = []
+    for position, start in enumerate(starts):
+        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        key = _normalize_heading_key(re.sub(r"^\s*##\s+", "", lines[start]))
+        sections.append({"key": key, "lines": lines[start:end]})
+
+    quick = next(
+        (section for section in sections if "rychle zhrnutie" in section["key"] or "quick summary" in section["key"]),
+        None,
+    )
+    pros = next(
+        (section for section in sections if section["key"] == "klady" or section["key"] == "pros"),
+        None,
+    )
+    cons = next(
+        (
+            section
+            for section in sections
+            if ("zapory" in section["key"] and "rizik" in section["key"])
+            or section["key"] in {"cons", "cons risks", "cons risk"}
+        ),
+        None,
+    )
+    if quick is None or pros is None or cons is None:
+        return report_text
+
+    reordered = []
+    for section in sections:
+        if section is quick:
+            reordered.extend((quick, pros, cons))
+        elif section is pros or section is cons:
+            continue
+        else:
+            reordered.append(section)
+    output = preamble[:]
+    for section in reordered:
+        output.extend(section["lines"])
+    return "\n".join(output).rstrip() + "\n"
 
 
 def _compact_text_research_for_final(text_research_json_text):
@@ -2538,6 +2715,11 @@ def _trim_final_context_payload(payload, max_chars=FINAL_CONTEXT_MAX_CHARS):
 
 def _compact_vision_for_final(vision_result_json):
     data = _safe_model_json(vision_result_json)
+    useful_photo_limitations = [
+        item
+        for item in data.get("photo_limitations") or []
+        if _is_useful_photo_limitation(item)
+    ]
     return {
         "photos_provided": data.get("photos_provided"),
         "photo_coverage": _compact_value(data.get("photo_coverage")),
@@ -2545,7 +2727,7 @@ def _compact_vision_for_final(vision_result_json):
         "view_coverage": _compact_value(data.get("view_coverage")),
         "supported_observations": _balanced_vision_list(data.get("supported_observations"), 10),
         "missing_views": _limited_list(data.get("missing_views"), 8, 160),
-        "photo_limitations": _limited_list(data.get("photo_limitations"), 5, 220),
+        "photo_limitations": _limited_list(useful_photo_limitations, 5, 220),
         "exterior_observations": _balanced_vision_list(data.get("exterior_observations"), 8),
         "interior_observations": _balanced_vision_list(data.get("interior_observations"), 6),
         "dashboard_or_warning_lights": _balanced_vision_list(data.get("dashboard_or_warning_lights"), 4),
@@ -2834,6 +3016,8 @@ def _analysis_pipeline_dependencies():
         normalize_report_headings=_normalize_report_headings,
         public_analysis_markdown=_public_analysis_markdown,
         replace_photo_analysis_section=_replace_photo_analysis_section,
+        replace_quick_summary_scorecard=_replace_quick_summary_scorecard,
+        move_pros_cons_after_quick_summary=_move_pros_cons_after_quick_summary,
         save_kb_blocks=_pipeline_save_kb_blocks,
         safe_model_json=_safe_model_json,
         strip_kb_section=_strip_kb_section,

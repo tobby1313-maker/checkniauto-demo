@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -35,6 +36,7 @@ from scrapper_demo.providers.retry import (
     gemini_retry_status,
     normalize_gemini_key_entries,
 )
+from scrapper_demo.scorecard import build_buyer_scorecard
 from scrapper_demo.validation import (
     _ensure_end_analysis_marker,
     _soft_validate_final_report,
@@ -61,6 +63,8 @@ class AnalysisPipelineDependencies:
     normalize_report_headings: Callable[[str], str]
     public_analysis_markdown: Callable[[str, str], str]
     replace_photo_analysis_section: Callable[..., str]
+    replace_quick_summary_scorecard: Callable[..., str]
+    move_pros_cons_after_quick_summary: Callable[[str], str]
     save_kb_blocks: Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
     safe_model_json: Callable[[str], dict[str, Any]]
     strip_kb_section: Callable[[str], str]
@@ -96,6 +100,26 @@ def _error_event(message: str) -> str:
 
 def _token_event(input_tokens: int, output_tokens: int) -> str:
     return _sse_event(token_usage={"input_tokens": input_tokens, "output_tokens": output_tokens})
+
+
+def _has_linked_market_comparable(research_text: str) -> bool:
+    """Return True only for an inline ad link inside a market-results section."""
+    in_market_section = False
+    for line in str(research_text or "").splitlines():
+        stripped = line.strip()
+        if re.match(r"^#{2,4}\s+", stripped):
+            heading = re.sub(r"^#{2,4}\s+", "", stripped).lower()
+            in_market_section = (
+                ("cena" in heading and "trh" in heading)
+                or "porovnatelne inzeraty" in heading
+                or "comparable ads" in heading
+            )
+            continue
+        if not in_market_section:
+            continue
+        if re.search(r"\[[^\]\n]+\]\(https?://[^\s)]+(?:\([^\s)]*\)[^\s)]*)*\)", line, re.IGNORECASE):
+            return True
+    return False
 
 
 def _text_event(chunk: str) -> str:
@@ -209,7 +233,33 @@ def multi_model_analysis_events(
         )
         if grounded:
             web_research_text = grounded
-            repository.write_text(slug, "web_research.md", grounded)
+            if not _has_linked_market_comparable(grounded):
+                yield _status_event("No linked comparables found; running targeted market search...")
+                try:
+                    market_grounded, _market_key = yield from dependencies.collect_gemini(
+                        gemini_key_entries,
+                        "market comparable research",
+                        lambda key: [
+                            dependencies.grounded_research(
+                                key,
+                                grounding_listing_context,
+                                model=GEMINI_GROUNDING_MODEL,
+                                listing_slug=slug,
+                                research_mode="market",
+                            )
+                        ],
+                        retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+                        same_key_retries=0,
+                    )
+                    if market_grounded and _has_linked_market_comparable(market_grounded):
+                        web_research_text = grounded.rstrip() + "\n\n" + market_grounded.strip()
+                        yield _status_event("Targeted market search found linked comparable ads.")
+                    else:
+                        yield _status_event("Targeted market search found no directly linked comparable ads.")
+                except Exception as market_exc:
+                    dependencies.log(f"Targeted market research warning: {market_exc}")
+                    yield _status_event("Targeted market search unavailable; continuing with verified research.")
+            repository.write_text(slug, "web_research.md", web_research_text)
             yield _status_event("Web research ready for text/research analysis.")
     except Exception as exc:
         dependencies.log(f"Web research warning: {exc}")
@@ -379,6 +429,11 @@ def multi_model_analysis_events(
         listing_text=car_info_text,
         output_language=dependencies.output_language(output_language),
     )
+    risk_score["buyer_scorecard"] = build_buyer_scorecard(
+        text_research_json_text,
+        vision_result_json,
+        risk_score,
+    )
     risk_score_json = json.dumps(risk_score, indent=2, ensure_ascii=False)
     repository.write_text(slug, "risk_score.json", risk_score_json)
     validation_warnings.extend(
@@ -507,6 +562,8 @@ def multi_model_analysis_events(
         )
     )
     public_text = dependencies.replace_photo_analysis_section(public_text, vision_result_json, output_language)
+    public_text = dependencies.replace_quick_summary_scorecard(public_text, risk_score_json, output_language)
+    public_text = dependencies.move_pros_cons_after_quick_summary(public_text)
     repository.write_text(slug, "analysis_result.md", public_text)
     validation_warnings.extend(dependencies.validate_final_report(public_text, verdict))
     warnings_path = dependencies.write_validation_warnings(
