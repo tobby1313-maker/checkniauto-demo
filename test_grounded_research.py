@@ -4,6 +4,7 @@ from pathlib import Path
 
 import llm_client
 import web_server
+from scrapper_demo.services.analysis_pipeline import _has_linked_market_comparable
 
 
 class GroundedResearchTest(unittest.TestCase):
@@ -28,10 +29,28 @@ class GroundedResearchTest(unittest.TestCase):
             "Suzuki Vitara 1.6 VVT Elegance 2WD automatic, 2015, 240513 km"
         )
 
-        self.assertIn("iba na aktualne alebo nedavno", prompt)
+        self.assertIn("rebricek podobnosti", prompt)
+        self.assertIn("A: rovnaka generacia, motor, prevodovka a pohon", prompt)
+        self.assertIn("site-specific dopyty", prompt)
+        self.assertIn("CZ/PL ponuku", prompt)
         self.assertIn("priamy verejny URL detailu", prompt)
         self.assertIn("Povodny analyzovany inzerat nepouzivaj", prompt)
         self.assertIn("Vystup udrz pod 350 slov", prompt)
+
+    def test_market_fallback_accepts_direct_ads_from_citation_block_only(self):
+        citation_output = (
+            "### Citacie z Google Search\n"
+            "- [Dacia Duster 1.3 TCe 4x4]"
+            "(https://www.sauto.cz/osobni/detail/dacia/duster/210093410)\n"
+        )
+        category_output = (
+            "## Priamo overitelne porovnatelne inzeraty\n"
+            "- [Dacia Duster results]"
+            "(https://www.autobazar.eu/vysledky/suv-terenne-vozidla/dacia/duster/2020/)\n"
+        )
+
+        self.assertTrue(_has_linked_market_comparable(citation_output, market_only=True))
+        self.assertFalse(_has_linked_market_comparable(category_output, market_only=True))
 
     def test_default_gemini_model_order_matches_demo_routing(self):
         standard_chain = llm_client._ordered_unique_models(
@@ -158,6 +177,35 @@ class GroundedResearchTest(unittest.TestCase):
             compact["market_assessment"]["price_view"],
             "requires_manual_verification",
         )
+
+    def test_final_compaction_keeps_verified_foreign_ads_as_aggregate_only(self):
+        payload = {
+            "market_assessment": {
+                "available": True,
+                "observed_market_low_eur": 11000,
+                "observed_market_high_eur": 13000,
+                "observed_market_average_eur": 12000,
+                "comparable_count": 2,
+                "price_view": "fair",
+            },
+            "market_comparables": [
+                {
+                    "description": "Dacia Duster 1.3 TCe 4x4",
+                    "price_eur": 12000,
+                    "source_country": "DE",
+                    "source_url": "https://www.mobile.de/auto-inserat/duster/1.html",
+                    "verified_url": True,
+                }
+            ],
+        }
+
+        compact = web_server._compact_text_research_for_final(json.dumps(payload))
+
+        self.assertEqual(compact["market_comparables"], [])
+        self.assertTrue(compact["market_assessment"]["available"])
+        self.assertEqual(compact["market_assessment"]["comparable_count"], 2)
+        self.assertEqual(compact["market_assessment"]["public_comparable_count"], 0)
+        self.assertEqual(compact["market_assessment"]["observed_market_average_eur"], 12000)
 
     def test_final_context_has_global_budget_and_keeps_quality_fields(self):
         payload = {

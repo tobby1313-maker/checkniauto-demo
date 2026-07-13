@@ -77,7 +77,7 @@ Text.
         self.assertIn("| Cena voči trhu | 62/100 |", updated)
         self.assertIn("| Servisná pripravenosť | 54/100 |", updated)
         self.assertIn("| **Celkové skóre** | **52/100** |", updated)
-        self.assertIn("| **Istota analýzy** | **Stredná** |", updated)
+        self.assertIn("| **Spoľahlivosť analýzy** | **Stredná** |", updated)
         self.assertLess(updated.index("### Skóre analýzy"), updated.index("## Dáta z inzerátu"))
 
     def test_backend_scorecard_marks_unavailable_market_data_without_fake_score(self):
@@ -579,7 +579,7 @@ Aktualne porovnanie trhu vyzaduje manualne online overenie, preto je vyjednavaci
                                 "description": "Suzuki Grand Vitara 2.4i automat, 2010, 86 980 km",
                                 "price_eur": 9900,
                                 "mileage_km": 86980,
-                                "source_url": "https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1",
+                                "source_url": "https://auto.bazos.cz/inzerat/1/suzuki-grand-vitara.php",
                                 "verified_url": True,
                             }
                         ]
@@ -596,7 +596,7 @@ Aktualne porovnanie trhu vyzaduje manualne online overenie, preto je vyjednavaci
 
             self.assertIn(
                 "[Suzuki Grand Vitara 2.4i automat (2010, 86 980 km)]"
-                "(https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1)",
+                "(https://auto.bazos.cz/inzerat/1/suzuki-grand-vitara.php)",
                 public_report,
             )
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
+from urllib.parse import urlparse
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,6 +39,7 @@ from scrapper_demo.providers.retry import (
     normalize_gemini_key_entries,
 )
 from scrapper_demo.scorecard import build_buyer_scorecard
+from scrapper_demo.market_comparables import deduplicate_market_comparables
 from scrapper_demo.validation import (
     _ensure_end_analysis_marker,
     _soft_validate_final_report,
@@ -102,23 +105,78 @@ def _token_event(input_tokens: int, output_tokens: int) -> str:
     return _sse_event(token_usage={"input_tokens": input_tokens, "output_tokens": output_tokens})
 
 
-def _has_linked_market_comparable(research_text: str) -> bool:
-    """Return True only for an inline ad link inside a market-results section."""
+def _fold_market_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+
+
+def _probable_market_detail_url(value: str) -> bool:
+    """Reject search/category pages while accepting common direct-ad shapes."""
+    try:
+        parsed = urlparse(str(value or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    if host == "vertexaisearch.cloud.google.com" or host.endswith(".vertexaisearch.cloud.google.com"):
+        return False
+    path = parsed.path.lower()
+    if any(fragment in path for fragment in ("/vysledky", "/search", "/category", "/katalog", "/filter")):
+        return False
+    direct_markers = ("/detail", "/inzerat/", "/offer/", "/offers/", "/auto-inserat/")
+    if any(marker in path for marker in direct_markers):
+        return True
+    marketplace_hosts = (
+        "autobazar.sk",
+        "bazos.sk",
+        "bazos.cz",
+        "sauto.cz",
+        "tipcars.com",
+        "tipcars.sk",
+        "mobile.de",
+        "autoscout24.com",
+    )
+    return any(host == item or host.endswith(f".{item}") for item in marketplace_hosts) and bool(path.strip("/"))
+
+
+def _supported_customer_market_url(value: str) -> bool:
+    try:
+        host = (urlparse(str(value or "").strip()).hostname or "").lower()
+    except ValueError:
+        return False
+    supported = ("autobazar.eu", "autobazar.sk", "bazos.sk", "bazos.cz")
+    return any(host == item or host.endswith(f".{item}") for item in supported)
+
+
+def _has_linked_market_comparable(
+    research_text: str,
+    *,
+    market_only: bool = False,
+    customer_facing_only: bool = False,
+) -> bool:
+    """Return True when grounded output contains a probable direct ad URL."""
     in_market_section = False
     for line in str(research_text or "").splitlines():
         stripped = line.strip()
         if re.match(r"^#{2,4}\s+", stripped):
-            heading = re.sub(r"^#{2,4}\s+", "", stripped).lower()
+            heading = _fold_market_text(re.sub(r"^#{2,4}\s+", "", stripped))
             in_market_section = (
                 ("cena" in heading and "trh" in heading)
                 or "porovnatelne inzeraty" in heading
                 or "comparable ads" in heading
+                or "market comparables" in heading
+                or "citacie z google search" in heading
             )
             continue
-        if not in_market_section:
+        if not market_only and not in_market_section:
             continue
-        if re.search(r"\[[^\]\n]+\]\(https?://[^\s)]+(?:\([^\s)]*\)[^\s)]*)*\)", line, re.IGNORECASE):
-            return True
+        for match in re.finditer(r"\[[^\]\n]+\]\((https?://[^\s)]+(?:\([^\s)]*\)[^\s)]*)*)\)", line, re.IGNORECASE):
+            url = match.group(1)
+            if _probable_market_detail_url(url) and (
+                not customer_facing_only or _supported_customer_market_url(url)
+            ):
+                return True
     return False
 
 
@@ -233,8 +291,8 @@ def multi_model_analysis_events(
         )
         if grounded:
             web_research_text = grounded
-            if not _has_linked_market_comparable(grounded):
-                yield _status_event("No linked comparables found; running targeted market search...")
+            if not _has_linked_market_comparable(grounded, customer_facing_only=True):
+                yield _status_event("No supported SK/CZ comparable links found; running targeted market search...")
                 try:
                     market_grounded, _market_key = yield from dependencies.collect_gemini(
                         gemini_key_entries,
@@ -251,8 +309,13 @@ def multi_model_analysis_events(
                         retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
                         same_key_retries=0,
                     )
-                    if market_grounded and _has_linked_market_comparable(market_grounded):
-                        web_research_text = grounded.rstrip() + "\n\n" + market_grounded.strip()
+                    if market_grounded:
+                        web_research_text = (
+                            grounded.rstrip()
+                            + "\n\n## Cielene porovnanie trhu\n\n"
+                            + market_grounded.strip()
+                        )
+                    if market_grounded and _has_linked_market_comparable(market_grounded, market_only=True):
                         yield _status_event("Targeted market search found linked comparable ads.")
                     else:
                         yield _status_event("Targeted market search found no directly linked comparable ads.")
@@ -327,6 +390,19 @@ def multi_model_analysis_events(
                     phase="text_research",
                 ),
             )
+    try:
+        research_data = dependencies.safe_model_json(text_research_json_text)
+        if isinstance(research_data.get("market_comparables"), list):
+            comparable_count_before = len(research_data["market_comparables"])
+            research_data = deduplicate_market_comparables(research_data, car_info_text)
+            comparable_count_after = len(research_data.get("market_comparables") or [])
+            text_research_json_text = dependencies.compact_json_for_prompt(research_data)
+            if comparable_count_after < comparable_count_before:
+                yield _status_event(
+                    f"Removed {comparable_count_before - comparable_count_after} duplicate or cross-posted market ad(s)."
+                )
+    except Exception as comparable_exc:
+        dependencies.log(f"Market comparable deduplication warning: {comparable_exc}")
     repository.write_text(slug, "grok_research.json", text_research_json_text)
     validation_warnings.extend(
         dependencies.validate_json_contract(

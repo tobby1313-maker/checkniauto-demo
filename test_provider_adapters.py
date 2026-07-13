@@ -24,6 +24,52 @@ class FakeResponse:
 
 
 class ProviderAdapterTest(unittest.TestCase):
+    def test_grounding_redirect_is_preserved_until_it_can_be_resolved(self):
+        redirect_url = (
+            "https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc123"
+        )
+        direct_url = "https://www.sauto.cz/osobni/detail/dacia/duster/210093410"
+        payload = {
+            "steps": [
+                {
+                    "type": "model_output",
+                    "content": [
+                        {
+                            "text": "## Priamo overitelne porovnatelne inzeraty",
+                            "annotations": [
+                                {
+                                    "title": "Dacia Duster 1.3 TCe 4x4",
+                                    "url": redirect_url,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        extracted = gemini._extract_interaction_text_and_citations(payload)
+        with patch.object(gemini.requests, "head") as head:
+            head.return_value.status_code = 200
+            head.return_value.url = direct_url
+            resolved = gemini._resolve_annotation_redirects(extracted)
+
+        self.assertIn(f"]({redirect_url})", extracted)
+        self.assertIn(f"]({direct_url})", resolved)
+        self.assertNotIn(gemini.GROUNDING_REDIRECT_HOST, resolved)
+
+    def test_unresolved_grounding_redirect_becomes_plain_unverified_source(self):
+        redirect_url = (
+            "https://vertexaisearch.cloud.google.com/grounding-api-redirect/failed"
+        )
+        research = f"- [Dacia Duster]({redirect_url})"
+
+        with patch.object(gemini.requests, "head", side_effect=TimeoutError):
+            resolved = gemini._resolve_annotation_redirects(research)
+
+        self.assertNotIn(redirect_url, resolved)
+        self.assertIn("Dacia Duster (URL citacia nie je overitelna)", resolved)
+
     def test_facade_reexports_provider_implementations_and_shared_errors(self):
         self.assertIs(llm_client.analyze_with_llm, gemini.analyze_with_llm)
         self.assertIs(llm_client.analyze_with_grok, grok.analyze_with_grok)

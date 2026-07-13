@@ -190,7 +190,12 @@ def _resolve_annotation_redirects(research_text: str) -> str:
         except Exception:
             # If resolution fails (timeout, connection error, etc.), keep original
             continue
-
+    # Never pass unresolved Google redirect URLs to later model/public stages.
+    # Keep the source title for context, but mark the URL as unavailable.
+    result = redirect_pattern.sub(
+        lambda match: f"{match.group(1)} (URL citacia nie je overitelna)",
+        result,
+    )
     return result
 
 def analyze_with_llm(
@@ -255,6 +260,8 @@ Postup researchu:
 7. Najdi najviac 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka
    generacia, motor, pohon, prevodovka, podobny rok a najazd. Za najdenu ponuku
    sa povazuje iba konkretny inzerat, ku ktoremu mas priamy verejny URL detailu.
+   Najprv hladaj na Bazos.SK, Autobazar.EU/Autobazar.SK a potom Bazos.CZ.
+   Ponuky z inych CZ/EU portalov pouzi iba ako doplnkovu vzorku trhu.
    Pri kazdej uved materialny rozdiel. Ponuku bez priameho URL vynechaj; cenu,
    rok, najazd ani vybavu nerekonstruuj zo vseobecnej znalosti alebo zo search
    snippetu bez otvoritelneho detailu. Ak nenajdes ani jednu taku ponuku, napis
@@ -327,30 +334,47 @@ Kontext inzeratu:
 
 
 def _build_grounded_market_prompt(listing_context: str) -> str:
-    """Build a short rescue prompt dedicated to exact comparable ads."""
+    """Build a short rescue prompt dedicated to tiered comparable-ad search."""
     context = listing_context
     if len(context) > GROUNDING_CONTEXT_MAX_CHARS:
         context = context[:GROUNDING_CONTEXT_MAX_CHARS] + "\n\n[Context truncated for market research pass.]"
     return f"""Si market-research modul pre analyzu ojazdeneho auta.
 
-Pouzi Google Search grounding a sustred sa iba na aktualne alebo nedavno
-indexovane konkretne inzeraty podobnych vozidiel v SK/CZ/EU. Vyhladavaj cielene
-na marketplace weboch ako Autobazar.EU, Autobazar.SK, Bazos.sk/Bazos.cz,
-Sauto.cz, TipCars a dalsich relevantnych inzertnych portaloch.
+Pouzi Google Search grounding a sustred sa na konkretne inzeraty podobnych
+vozidiel. Povodny analyzovany inzerat nepouzivaj ako porovnanie.
 
-Najprv hladaj rovnaku generaciu, motor, prevodovku, pohon, podobny rocnik a
-najazd. Ak je ponuk malo, mozes mierne rozsirit rocnik alebo najazd, ale jasne
-uved materialny rozdiel. Povodny analyzovany inzerat nepouzivaj ako porovnanie.
+Najprv z kontextu vytiahni znacku, model, generaciu, motor, vykon, prevodovku,
+pohon, rok a najazd. Potom skutocne vykonaj viac roznych search dopytov; po
+jednom prazdnom dopyte sa nevzdavaj. Pouzi aj bezne aliasy: desatinnu bodku aj
+ciarku v objeme, TCe/TDI/dCi a podobne oznacenia, vykon v kW, 4x4/4WD/AWD.
+Najprv vykonaj site-specific dopyty pre podporovane portaly v tomto poradi:
+auto.bazos.sk, autobazar.eu/autobazar.sk a auto.bazos.cz. Az potom skus Sauto,
+TipCars, polske alebo nemecke portaly ako doplnkovu vzorku trhu. Nehladaj iba
+celu presnu vetu z nazvu inzeratu.
+
+Pouzi tento rebricek podobnosti:
+- A: rovnaka generacia, motor, prevodovka a pohon; rocnik +/- 2 roky.
+- B: rovnaka generacia, motor a prevodovka; pohon alebo vykon sa moze lisit.
+- C: rovnaka generacia, podobny rocnik, palivo a prevodovka; iny motor iba ked
+  sa nenasla ziadna ponuka A/B.
+Najazd moze byt odlisny; rozdiel vzdy napis. Uprednostni ponuky A, potom B, C.
 
 Prisne pravidla:
-- Vrat najviac 5 a aspon 1 ponuku iba vtedy, ked mas priamy verejny URL detailu
-  konkretneho inzeratu.
+- Vrat najviac 5 ponuk iba vtedy, ked mas priamy verejny URL detailu konkretneho
+  inzeratu. Stacia aj nedavno indexovane ponuky, ak detail stale zobrazuje cenu
+  a parametre; oznac ich ako nedavno indexovane.
 - Nepouzivaj domovsku stranku, kategoriu, zoznam vysledkov, vyhladavaci URL,
   technicky clanok ani Google/Vertex redirect ako URL porovnania.
 - Nevymyslaj cenu, rok, najazd, vybavu ani URL zo search snippetu bez
   otvoritelneho detailu.
+- Nevynechaj CZ/PL ponuku iba preto, ze cena nie je v EUR; zachovaj povodnu menu
+  a nevymyslaj prepocet. Ponuky z PL/DE a nepodporovanych portalov oznac jasne
+  ako background pre statistiku trhu, nie ako ponuky na zobrazenie zakaznikovi.
+- Ak najdes rovnake vozidlo na viac portaloch, vrat ho iba raz. Zhodny VIN je
+  definitivny duplikat; inak porovnaj presny najazd, rok, verziu, cenu a
+  predajcu/lokalitu. Nevracaj ani cross-post povodneho analyzovaneho inzeratu.
 - Kazdy platny riadok musi byt presne v tvare:
-  `- [model/verzia (rok, najazd)](priamy-url-detailu) — cena EUR — materialny rozdiel.`
+  `- [model/verzia (rok, najazd)](priamy-url-detailu) — cena mena — A/B/C: materialny rozdiel.`
 - Ak nenajdes ani jeden priamy detail inzeratu, vrat iba vetu:
   `Presne porovnatelne inzeraty s priamym URL neboli najdene.`
 - Nevypisuj technicke rizika, servis, VIN, zvolavacie akcie ani vseobecne ceny.
@@ -391,9 +415,11 @@ def _extract_interaction_text_and_citations(data: dict) -> str:
                 continue
             title = _clean_citation_label(annotation.get("title") or annotation.get("source") or url)
             if GROUNDING_REDIRECT_HOST in url:
-                if title and title not in seen_urls:
-                    seen_urls.add(title)
-                    citations.append(f"- {title} (URL citacia nie je overitelna)")
+                # Keep the redirect temporarily. The resolver runs immediately
+                # after extraction and replaces it with the destination URL.
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    citations.append(f"- [{title}]({url})")
                 continue
             if url in seen_urls:
                 continue

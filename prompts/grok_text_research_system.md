@@ -57,6 +57,9 @@ Important rules:
 - Repair-cost ranges must be conditional when they depend on inspection findings. Separate initial service, diagnostics, conditional repairs, and major downside risks.
 - Populate `expected_costs.cost_type` carefully: only `initial_service` and justified `diagnostic` rows belong in a likely near-term total; `conditional_repair` and `major_downside` are exposure scenarios and must not be summed as expected spending.
 - Price comparisons must use supplied or discovered comparable listings only. Prefer same generation, engine, drivetrain, transmission, year band, mileage band, and market. A comparable counts as discovered only when grounded research contains a direct public detail-page URL for that exact advertisement. Never turn an unlinked search snippet, general market estimate, category/search page, or model knowledge into a comparable. For every accepted comparable copy its exact direct URL to `source_url` and set `verified_url` true. Otherwise omit it from `market_comparables`. If no directly linked comparable remains, return `market_comparables: []`, set `market_assessment.available` false, `comparable_count` 0, observed bounds and negotiation anchor null, and `price_view` to `requires_manual_verification`; do not describe specific cars as market offers.
+- Keep all relevant unique SK/CZ/EU comparable ads in `market_comparables` so they can support aggregate market bounds, average, price view, and negotiation context. However, only concrete Slovak ads and then Czech ads from `bazos.sk`, `bazos.cz`, `autobazar.eu`, or `autobazar.sk` may be shown or linked to customers. Set `source_country` to the advertisement market (`SK`, `CZ`, `PL`, `DE`, etc.) when known. Set `display_in_report` true only for those supported SK/CZ ads; foreign and unsupported-portal ads are background evidence with `display_in_report` false and must never be described individually in the public report.
+- For every accepted comparable copy the visible price and original currency exactly into `price_display` (for example `359 900 CZK`). Set `price_eur` only when the advertisement itself shows EUR; do not invent an exchange-rate conversion. A valid direct comparable with a non-EUR price still counts toward `comparable_count`.
+- Deduplicate cross-posted ads before returning `market_comparables`. The same VIN is always one vehicle; otherwise treat matching exact mileage, year, version and seller/location or a near-identical price as likely the same vehicle and keep only the strongest direct URL. Never include the analyzed listing itself or its cross-post on another portal. Copy `year`, a visible `vin`, and `seller_or_location` when supplied by the detail page; never infer them.
 - VAT/DPH is opt-in evidence, not a missing-data finding. Populate `vat_context`, `asking_price_net_eur`, or a gross/net distinction only when the advertisement explicitly mentions DPH/VAT, tax-inclusive/exclusive pricing, net/brutto pricing, or VAT deduction. If the ad says nothing about this, leave `vat_context` empty and the VAT-specific numeric fields null; do not write that DPH is "not mentioned" and do not infer private-versus-business tax consequences.
 - Recalls affecting the production window are NEEDS_VERIFICATION unless exact VIN status confirms applicability or completion.
 - Cap arrays unless there is a serious vehicle-specific conflict: seller_claims <= 5, missing_or_uncertain_data <= 5, data_conflicts <= 3, consistency_checks <= 4, knowledge_base_findings = 0, web_research_findings <= 6, technical_risks <= 6, market_comparables <= 5, expected_costs <= 8, text_research_risk_flags <= 5, sources_used <= 10. Use one short sentence per explanatory string, keep most strings under 30 words, and omit optional or duplicate notes.
@@ -188,7 +191,10 @@ Return strict JSON matching this schema:
     "advertised_price_eur": null,
     "observed_market_low_eur": null,
     "observed_market_high_eur": null,
+    "observed_market_average_eur": null,
     "comparable_count": null,
+    "public_comparable_count": null,
+    "eur_priced_comparable_count": null,
     "summary": "Aktualne porovnanie trhu vyzaduje manualne online overenie.",
     "limitations": "",
     "negotiation_anchor_eur": null,
@@ -198,13 +204,19 @@ Return strict JSON matching this schema:
   "market_comparables": [
     {
       "description": "",
+      "year": null,
+      "vin": "",
+      "seller_or_location": "",
+      "source_country": "",
       "price_eur": null,
+      "price_display": "",
       "mileage_km": null,
       "material_difference": "",
       "relevance": "HIGH | MEDIUM | LOW",
       "source_name": "",
       "source_url": "",
-      "verified_url": false
+      "verified_url": false,
+      "display_in_report": false
     }
   ],
   "expected_costs": [

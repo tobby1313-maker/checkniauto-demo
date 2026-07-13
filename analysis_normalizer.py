@@ -28,6 +28,12 @@ _BLOCKED_PUBLIC_LINK_HOSTS = {
     "example.org",
     "example.net",
 }
+_SUPPORTED_COMPARABLE_LINK_HOSTS = {
+    "autobazar.eu",
+    "autobazar.sk",
+    "bazos.sk",
+    "bazos.cz",
+}
 
 
 @dataclass(frozen=True)
@@ -138,7 +144,7 @@ def _link_matching_comparable_line(
     if not match:
         return line
     prefix, label, delimiter, remainder = match.groups()
-    if not label.strip() or not re.search(r"(?i)\b(?:eur|€)\b|€", remainder):
+    if not label.strip() or not re.search(r"(?i)\b(?:eur|czk|k[cč]|pln|huf)\b|€", remainder):
         return line
 
     line_numbers = _normalized_numbers(f"{label} {remainder}")
@@ -149,6 +155,9 @@ def _link_matching_comparable_line(
         if not url or url in used_urls:
             continue
         price = _whole_number(item.get("price_eur"))
+        if price is None:
+            price_numbers = _normalized_numbers(str(item.get("price_display") or ""))
+            price = max(price_numbers) if price_numbers else None
         if price is None or price not in line_numbers:
             continue
 
@@ -332,7 +341,7 @@ def _sanitize_grounding_redirects(text: str) -> str:
 
 
 def _is_allowed_comparable_url(url: str) -> bool:
-    """Allow only real public URLs for the comparable-ad exception."""
+    """Allow customer links only from marketplaces supported by the app."""
     try:
         parsed = urlparse(str(url or "").strip())
     except Exception:
@@ -340,9 +349,14 @@ def _is_allowed_comparable_url(url: str) -> bool:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return False
     host = (parsed.hostname or "").lower()
-    return bool(host) and not any(
+    if not host or any(
         host == blocked or host.endswith(f".{blocked}")
         for blocked in _BLOCKED_PUBLIC_LINK_HOSTS
+    ):
+        return False
+    return any(
+        host == supported or host.endswith(f".{supported}")
+        for supported in _SUPPORTED_COMPARABLE_LINK_HOSTS
     )
 
 

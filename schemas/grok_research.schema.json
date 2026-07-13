@@ -209,7 +209,10 @@
         "advertised_price_eur": { "type": ["integer", "number", "null"] },
         "observed_market_low_eur": { "type": ["integer", "number", "null"] },
         "observed_market_high_eur": { "type": ["integer", "number", "null"] },
+        "observed_market_average_eur": { "type": ["integer", "number", "null"] },
         "comparable_count": { "type": ["integer", "null"] },
+        "public_comparable_count": { "type": ["integer", "null"] },
+        "eur_priced_comparable_count": { "type": ["integer", "null"] },
         "summary": { "type": "string" },
         "limitations": { "type": "string" },
         "negotiation_anchor_eur": { "type": ["integer", "number", "null"] },
@@ -226,13 +229,19 @@
         "type": "object",
         "properties": {
           "description": { "type": "string" },
+          "year": { "type": ["integer", "null"] },
+          "vin": { "type": "string" },
+          "seller_or_location": { "type": "string" },
+          "source_country": { "type": "string" },
           "price_eur": { "type": ["integer", "number", "null"] },
+          "price_display": { "type": "string" },
           "mileage_km": { "type": ["integer", "number", "null"] },
           "material_difference": { "type": "string" },
           "relevance": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
           "source_name": { "type": "string" },
           "source_url": { "type": "string" },
-          "verified_url": { "type": "boolean" }
+          "verified_url": { "type": "boolean" },
+          "display_in_report": { "type": "boolean" }
         }
       }
     },

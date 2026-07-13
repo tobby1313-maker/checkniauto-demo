@@ -62,6 +62,10 @@ from scrapper_demo.providers.openrouter import analyze as analyze_with_openroute
 from scrapper_demo.services import image_service
 from scrapper_demo.calibration import create_calibration_bundle
 from scrapper_demo.logging import configure_console_encoding, safe_log
+from scrapper_demo.market_comparables import (
+    customer_link_priority,
+    is_customer_facing_market_comparable,
+)
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     multi_model_analysis_events,
@@ -2467,7 +2471,7 @@ def _quick_summary_scorecard_markdown(risk_score_json, output_language="sk"):
         confidence_labels = {"HIGH": "High", "MEDIUM": "Medium", "LOW": "Low"}
         unavailable_label = "Insufficient data"
         title, area, score_label = "### Analysis score", "Area", "Score"
-        overall_label, confidence_label = "Overall score", "Analysis confidence"
+        overall_label, confidence_label = "Overall score", "Analysis reliability"
         note = "100 means a more favorable profile. Areas without sufficient evidence are not scored or included in the weighted average. This is a screening aid, not a technical inspection."
     else:
         labels = (
@@ -2481,7 +2485,7 @@ def _quick_summary_scorecard_markdown(risk_score_json, output_language="sk"):
         confidence_labels = {"HIGH": "Vysoká", "MEDIUM": "Stredná", "LOW": "Nízka"}
         unavailable_label = "Nedostatok údajov"
         title, area, score_label = "### Skóre analýzy", "Oblasť", "Skóre"
-        overall_label, confidence_label = "Celkové skóre", "Istota analýzy"
+        overall_label, confidence_label = "Celkové skóre", "Spoľahlivosť analýzy"
         note = "100 znamená priaznivejší profil. Oblasti bez dostatočných podkladov sa nebodujú ani nezapočítajú do váženého priemeru. Ide o skríning, nie technickú prehliadku."
     rows = [title, "", f"| {area} | {score_label} |", "|---|---:|"]
     rows.extend(
@@ -2598,23 +2602,44 @@ def _move_pros_cons_after_quick_summary(report_text):
 
 def _compact_text_research_for_final(text_research_json_text):
     data = _safe_model_json(text_research_json_text)
+    all_comparables = data.get("market_comparables")
+    if not isinstance(all_comparables, list):
+        all_comparables = []
+    verified_background = [
+        item
+        for item in all_comparables
+        if isinstance(item, dict)
+        and item.get("verified_url") is True
+        and _is_verified_public_url(str(item.get("source_url") or ""))
+    ]
     verified_comparables = []
-    for item in _limited_list(data.get("market_comparables"), 5, prefer_concerns=True):
-        if not isinstance(item, dict) or item.get("verified_url") is not True:
+    public_candidates = sorted(
+        (
+            item
+            for item in all_comparables
+            if isinstance(item, dict) and is_customer_facing_market_comparable(item)
+        ),
+        key=customer_link_priority,
+        reverse=True,
+    )
+    for item in public_candidates[:5]:
+        if item.get("verified_url") is not True:
             continue
         sanitized = _sanitize_source_item(item)
         if isinstance(sanitized, dict) and sanitized.get("verified_url") is True:
             verified_comparables.append(sanitized)
 
     market_assessment = _compact_value(data.get("market_assessment"))
-    if not verified_comparables:
+    if not verified_background:
         original = market_assessment if isinstance(market_assessment, dict) else {}
         market_assessment = {
             "available": False,
             "advertised_price_eur": original.get("advertised_price_eur"),
             "observed_market_low_eur": None,
             "observed_market_high_eur": None,
+            "observed_market_average_eur": None,
             "comparable_count": 0,
+            "public_comparable_count": 0,
             "summary": "No directly verifiable comparable ads with exact URLs were found.",
             "limitations": "Current market comparison requires manual verification.",
             "negotiation_anchor_eur": None,
@@ -2622,15 +2647,15 @@ def _compact_text_research_for_final(text_research_json_text):
             "price_view": "requires_manual_verification",
         }
     elif isinstance(market_assessment, dict):
-        prices = [
-            item.get("price_eur")
-            for item in verified_comparables
-            if isinstance(item.get("price_eur"), (int, float))
-        ]
-        market_assessment["comparable_count"] = len(verified_comparables)
-        if prices:
-            market_assessment["observed_market_low_eur"] = min(prices)
-            market_assessment["observed_market_high_eur"] = max(prices)
+        # Aggregate market figures are based on all unique relevant ads,
+        # including foreign background evidence. Only the concrete records
+        # below are restricted to customer-facing SK/CZ marketplaces.
+        market_assessment["public_comparable_count"] = len(verified_comparables)
+        if not verified_comparables:
+            market_assessment["public_comparable_note"] = (
+                "No supported Slovak or Czech detail-page ad is available for public linking; "
+                "do not list or link individual foreign/background offers."
+            )
     return {
         "evidence_summary": _compact_value(data.get("evidence_summary")),
         "listing_facts": _compact_value(data.get("listing_facts")),

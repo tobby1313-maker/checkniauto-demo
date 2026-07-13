@@ -2135,7 +2135,10 @@
                 const cells = row.querySelectorAll("td");
                 if (cells.length < 2) return;
                 const labelKey = normalizeTextKey(cells[0].textContent);
-                if (labelKey.includes("istota analyzy") || labelKey.includes("analysis confidence")) {
+                if (labelKey.includes("spolahlivost analyzy")
+                    || labelKey.includes("analysis reliability")
+                    || labelKey.includes("istota analyzy")
+                    || labelKey.includes("analysis confidence")) {
                     cells[1].innerHTML = `<span class="score-confidence-badge">${escapeHtml(cells[1].textContent.trim())}</span>`;
                     return;
                 }

@@ -26,8 +26,17 @@ The analysis pipeline is:
    engine, transmission/drivetrain, recalls, repair exposure, and close market
    comparables when available. If this broad pass returns no directly linked
    comparable ad, a short market-only grounded fallback searches relevant
-   SK/CZ/EU marketplaces; it is skipped when the broad pass already found a
-   link and is tracked separately as `market_grounding`.
+   SK/CZ/EU marketplaces with tiered A/B/C similarity and engine/drivetrain
+   aliases; it is skipped when the broad pass already found a link and is
+   tracked separately as `market_grounding`. Its output is retained for the
+   structured extraction phase even when links arrive in a citation block.
+   Structured comparables are then deduplicated across portals by VIN or a
+   conservative year/mileage/version/price/seller fingerprint, and cross-posts
+   of the analyzed listing are removed before scoring and final synthesis.
+   Customer-facing links use unique Slovak ads first and Czech ads second, only
+   from `bazos.sk`, `bazos.cz`, `autobazar.eu`, or `autobazar.sk`. Other EU ads
+   remain background evidence for aggregate market pricing and are not listed
+   or linked individually in the public report.
 3. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
    optional provider branches if their keys are explicitly configured.
 4. Run Gemini vision analysis on representative uploaded or scraped photos.
@@ -59,6 +68,7 @@ scrapper_demo/
   contracts.py                        shared typed boundary contracts
   legacy_server.py                    compatibility composition and local handlers
   logging.py                          Unicode-safe console logging
+  market_comparables.py              cross-portal comparable deduplication
   progress.py                         process-local progress/rate/job state
   scorecard.py                        deterministic buyer-facing scorecard
   providers/                          Gemini, Grok, OpenRouter, retry, and errors

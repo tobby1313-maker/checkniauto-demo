@@ -206,11 +206,7 @@ class AnalysisNormalizerTest(unittest.TestCase):
 
         linked = add_verified_comparable_links(markdown, comparables)
 
-        self.assertIn(
-            "[Suzuki Grand Vitara 2.4i automat (r.v. 2010, 86 980 km)]"
-            "(https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1)",
-            linked,
-        )
+        self.assertNotIn("https://www.sauto.cz", linked)
         self.assertIn(
             "[Suzuki Grand Vitara 2.4 automat (r.v. 2011, 100 000 km)]"
             "(https://auto.bazos.sk/inzerat/2/grand-vitara.php)",
@@ -230,6 +226,30 @@ class AnalysisNormalizerTest(unittest.TestCase):
         ]
 
         self.assertEqual(markdown, add_verified_comparable_links(markdown, comparables))
+
+    def test_restores_supported_comparable_link_with_original_czk_price(self):
+        markdown = (
+            "## Cena a vyjednávanie\n\n"
+            "Dacia Duster 1.3 TCe 4x4 (2020, 92 540 km) — 359 900 CZK — nižší nájazd.\n"
+        )
+        comparables = [
+            {
+                "description": "Dacia Duster 1.3 TCe 4x4, 2020, 92 540 km",
+                "price_eur": None,
+                "price_display": "359 900 CZK",
+                "mileage_km": 92540,
+                "source_url": "https://auto.bazos.cz/inzerat/210093410/dacia-duster.php",
+                "verified_url": True,
+            }
+        ]
+
+        linked = add_verified_comparable_links(markdown, comparables)
+
+        self.assertIn(
+            "[Dacia Duster 1.3 TCe 4x4 (2020, 92 540 km)]"
+            "(https://auto.bazos.cz/inzerat/210093410/dacia-duster.php)",
+            linked,
+        )
 
     def test_sorts_cost_tables_and_removes_repeated_eur_units(self):
         markdown = """## Očakávané náklady na najbližších 30 000 km
