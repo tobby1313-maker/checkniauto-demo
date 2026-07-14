@@ -124,6 +124,7 @@ class Phase0ContractTest(unittest.TestCase):
                 "gemini_vision.json",
                 "risk_score.json",
                 "validation_warnings.json",
+                "analysis_diagnostics.json",
                 "analysis_result_raw.md",
                 "analysis_result.md",
             ],
@@ -133,6 +134,7 @@ class Phase0ContractTest(unittest.TestCase):
         for artifact_name, schema_name in (
             ("component_identity.json", "component_identity.schema.json"),
             ("market_benchmark.json", "market_benchmark.schema.json"),
+            ("analysis_diagnostics.json", "analysis_diagnostics.schema.json"),
             ("grok_research.json", "grok_research.schema.json"),
             ("gemini_vision.json", "gemini_vision.schema.json"),
             ("risk_score.json", "risk_score.schema.json"),

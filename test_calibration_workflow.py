@@ -7,7 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import web_server
-from scrapper_demo.calibration import _manifest_metadata, create_calibration_bundle, safe_extract_bundle
+from scrapper_demo.calibration import (
+    _manifest_metadata,
+    create_calibration_bundle,
+    create_debugging_bundle,
+    safe_extract_bundle,
+)
 from scrapper_demo.calibration_cli import evaluate_dataset, validate_label
 
 
@@ -56,7 +61,20 @@ class CalibrationWorkflowTest(unittest.TestCase):
         (job / "grok_research.json").write_text(json.dumps({"listing_facts": listing_facts, "component_identity": component_identity, "vin_check": {"vin_present": True, "format_check": "ok"}}), encoding="utf-8")
         (job / "gemini_vision.json").write_text(json.dumps({"photos_provided": True, "photo_limitations": []}), encoding="utf-8")
         (job / "analysis_result.md").write_text("# Hidden verdict", encoding="utf-8")
+        (job / "analysis_result_raw.md").write_text("# Raw hidden verdict", encoding="utf-8")
         (job / "risk_score.json").write_text(json.dumps({"allowed_final_verdict": "hidden"}), encoding="utf-8")
+        (job / "analysis_request.md").write_text("legacy prompt", encoding="utf-8")
+        (job / "analysis_diagnostics.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "risk_scorer_v2_active": True,
+                    "build_commit": "test-commit",
+                    "models": {"vision": "test-model"},
+                }
+            ),
+            encoding="utf-8",
+        )
         return job
 
     def _login(self):
@@ -73,6 +91,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
         self._login()
         dashboard = self.client.get("/token-dashboard.html")
         self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b"Download debugging bundle", dashboard.data)
         dashboard.close()
         self.assertEqual(self.client.get("/api/token-usage").status_code, 200)
 
@@ -103,8 +122,53 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("component_identity.json", names)
             self.assertIn("reliability_research.md", names)
             self.assertIn("market_research.md", names)
+            self.assertIn("analysis_diagnostics.json", names)
+            self.assertIn("validation_warnings.json", names)
+            self.assertIn("reproducibility/risk_policy_v2.json", names)
+            self.assertIn(
+                "reproducibility/prompts/grok_final_synthesis_system.md", names
+            )
             self.assertNotIn("risk_score.json", names)
-        self.assertNotIn("analysis_result.md", names)
+            self.assertNotIn("analysis_result.md", names)
+            manifest = json.loads(archive.read("manifest.json"))
+            self.assertEqual(manifest["bundle_schema_version"], 2)
+            self.assertEqual(manifest["bundle_type"], "calibration")
+            self.assertEqual(manifest["build_commit"], "test-commit")
+
+    def test_debugging_bundle_contains_complete_outputs_and_no_expert_label(self):
+        job = self._job("debug-case")
+
+        bundle = create_debugging_bundle(job, "debug-case")
+        self.addCleanup(bundle.unlink, missing_ok=True)
+
+        with zipfile.ZipFile(bundle) as archive:
+            names = set(archive.namelist())
+            self.assertIn("risk_score.json", names)
+            self.assertIn("analysis_result_raw.md", names)
+            self.assertIn("analysis_result.md", names)
+            self.assertIn("analysis_request.md", names)
+            self.assertIn("analysis_diagnostics.json", names)
+            self.assertIn("validation_warnings.json", names)
+            self.assertNotIn("expert_label.json", names)
+            manifest = json.loads(archive.read("manifest.json"))
+            self.assertEqual(manifest["bundle_type"], "debugging")
+
+    def test_debugging_bundle_endpoint_requires_admin_and_streams_zip(self):
+        self._job("debug-route")
+        self.assertEqual(
+            self.client.get("/api/admin/debugging-bundles/debug-route").status_code,
+            401,
+        )
+        self._login()
+
+        response = self.client.get("/api/admin/debugging-bundles/debug-route")
+
+        self.assertEqual(response.status_code, 200)
+        archive_path = Path(self.temp.name) / "debug-route.zip"
+        archive_path.write_bytes(response.data)
+        response.close()
+        with zipfile.ZipFile(archive_path) as archive:
+            self.assertIn("risk_score.json", archive.namelist())
 
     def test_manifest_metadata_parses_fenced_research_and_car_info_fallbacks(self):
         job = self._job("metadata-case")

@@ -20,6 +20,7 @@ from vin_data import (
 )
 
 VIN_REGEX = re.compile(r'\b[A-HJ-NPR-Z0-9]{17}\b')
+MISSING_VIN_SENTINELS = {"", "N/A", "NA", "NONE", "NULL", "UNKNOWN", "NEUVEDENE", "NEUVEDENÉ"}
 
 
 def validate_vin(vin: str) -> dict:
@@ -30,8 +31,11 @@ def validate_vin(vin: str) -> dict:
       vin, valid, validation_message, wmi, manufacturer, vds, vis,
       model_year_hint, region, plant_hint, check_digit_valid
     """
+    cleaned_input = str(vin or "").strip().upper()
+    if cleaned_input in MISSING_VIN_SENTINELS:
+        cleaned_input = ""
     result = {
-        "vin": vin, "valid": False, "validation_message": "",
+        "vin": cleaned_input, "valid": False, "validation_message": "",
         "wmi": "", "manufacturer": "", "vds": "", "vis": "",
         "model_year_hint": None, "model_year_code": "", "model_year_candidates": [],
         "region": "", "plant_hint": "",
@@ -40,11 +44,11 @@ def validate_vin(vin: str) -> dict:
         "check_digit_severity": "error",
     }
 
-    if not vin or not isinstance(vin, str):
+    if not cleaned_input:
         result["validation_message"] = "No VIN provided."
         return result
 
-    cleaned = vin.strip().upper()
+    cleaned = cleaned_input
 
     if len(cleaned) != 17:
         result["validation_message"] = f"Invalid length: {len(cleaned)} chars (expected 17)."

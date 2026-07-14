@@ -8,6 +8,14 @@ from vin_utils import validate_vin
 
 
 class VinLightDecodeTests(unittest.TestCase):
+    def test_missing_vin_sentinels_are_not_invalid_identity_evidence(self):
+        for sentinel in ("N/A", "unknown", "none", ""):
+            with self.subTest(sentinel=sentinel):
+                decoded = validate_vin(sentinel)
+                self.assertEqual(decoded["vin"], "")
+                self.assertFalse(decoded["valid"])
+                self.assertEqual(decoded["validation_message"], "No VIN provided.")
+
     def test_wvg_touareg_light_decode_exposes_wmi_year_code_and_plant(self):
         decoded = validate_vin("WVGFF9BP4CD005167")
 

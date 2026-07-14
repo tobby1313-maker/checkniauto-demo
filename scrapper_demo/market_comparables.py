@@ -883,6 +883,25 @@ def deduplicate_market_comparables(
     unique.sort(key=_quality, reverse=True)
 
     research["market_comparables"] = unique
+    accepted_urls = {
+        _canonical_url(item.get("source_url"))
+        for item in unique
+        if _canonical_url(item.get("source_url"))
+    }
+    sources = research.get("sources_used")
+    if isinstance(sources, list):
+        research["sources_used"] = [
+            source
+            for source in sources
+            if not (
+                isinstance(source, dict)
+                and (
+                    str(source.get("source_type") or "").upper() == "MARKET_COMPARABLE"
+                    or "market comparable" in _fold(source.get("used_for"))
+                )
+                and _canonical_url(source.get("source_url")) not in accepted_urls
+            )
+        ]
     market = research.get("market_assessment")
     if isinstance(market, dict):
         market["comparable_count"] = len(unique)

@@ -358,6 +358,7 @@ Possible artifacts include:
 - `gemini_vision.json`
 - `risk_score.json`
 - `validation_warnings.json`
+- `analysis_diagnostics.json`
 - `analysis_result_raw.md`
 - `analysis_result.md`
 
@@ -384,11 +385,25 @@ Optional query:
 
 Returns the latest mirrored SSE progress for the token dashboard. Administrator login is required.
 
-### Administrator calibration export
+### Administrator calibration and debugging exports
 
-Sign in at `/admin/login`, open `/token-dashboard.html`, and use **Download
-calibration bundle** beside a completed car. Diagnostic artifact routes, raw
-results, telemetry, and exports share the same signed administrator session.
+Sign in at `/admin/login` and open `/token-dashboard.html`. Each completed car
+has two administrator-only exports:
+
+- **Download calibration bundle** creates a blind reviewer package. It excludes
+  `risk_score.json` and both final reports, but includes scorer inputs, original
+  and analysis images, an empty expert label, per-phase diagnostics, an always-
+  present validation-warning artifact, and versioned prompt/policy/schema
+  snapshots under `reproducibility/`.
+- **Download debugging bundle** includes the complete artifact chain, including
+  `analysis_request.md`, `risk_score.json`, raw final model output, and the
+  public report. It has no expert label and must not be shown to a reviewer
+  before independent labelling.
+
+Diagnostic artifact routes, raw results, telemetry, and both exports share the
+same signed administrator session. The endpoints are
+`/api/admin/calibration-bundles/<slug>` and
+`/api/admin/debugging-bundles/<slug>`.
 
 Render does not retain a calibration dataset. Download selected bundles before
 `DEMO_JOB_TTL_MINUTES` cleanup, label them offline, and import them with:
@@ -458,6 +473,7 @@ grok_research.json
 gemini_vision.json
 risk_score.json
 validation_warnings.json
+analysis_diagnostics.json
 analysis_result_raw.md
 analysis_result.md
 images/

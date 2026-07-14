@@ -6,6 +6,22 @@ from Bazos import extract_car_info
 
 
 class BazosScraperTests(unittest.TestCase):
+    def test_recovers_explicit_eur_price_from_description_and_uses_empty_vin(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Suzuki Vitara 1.6 VVT</h1>
+              <div class="popisdetail">Rok výroby: 2016\nCena: 9 800 € + dohoda</div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/vitara.php")
+
+        self.assertEqual(result["price"], 9800)
+        self.assertEqual(result["vin"], "")
+
     def test_extracts_label_before_value_vehicle_facts(self):
         soup = BeautifulSoup(
             """

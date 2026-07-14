@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-01-01T12:00:00",
+  "completed_at": "2026-01-01T12:05:00",
+  "build_commit": "fixture",
+  "risk_scorer_v2_active": false,
+  "models": {
+    "component_identity_grounding": "fixture-grounding",
+    "text_research": "fixture-text",
+    "vision": "fixture-vision",
+    "final_synthesis": "fixture-final"
+  },
+  "phases": {
+    "component_identity": { "status": "completed" },
+    "grounded_research": { "status": "completed" },
+    "text_research": { "status": "completed" },
+    "vision": { "status": "completed" },
+    "risk_scoring": { "status": "completed" },
+    "final_synthesis": { "status": "completed" }
+  },
+  "market": {
+    "benchmark_available": false
+  },
+  "validation": {
+    "warning_count": 0,
+    "warning_types": []
+  }
+}

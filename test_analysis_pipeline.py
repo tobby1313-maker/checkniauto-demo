@@ -41,6 +41,33 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_missing_vin_overrides_model_invalid_vin_hallucination(self):
+        merged = _merge_backend_evidence(
+            {
+                "listing_facts": {},
+                "vin_check": {
+                    "vin_present": True,
+                    "format_check": "problem",
+                    "local_validation": {"vin": "N/A", "valid": False},
+                },
+                "consistency_checks": [
+                    {
+                        "check": "VIN format validation",
+                        "result": "concern",
+                        "explanation": "N/A has invalid VIN length.",
+                    }
+                ],
+            },
+            {"vin": ""},
+            {},
+            {},
+        )
+
+        self.assertFalse(merged["vin_check"]["vin_present"])
+        self.assertEqual(merged["vin_check"]["format_check"], "skipped")
+        self.assertNotIn("local_validation", merged["vin_check"])
+        self.assertEqual(merged["consistency_checks"], [])
+
     def test_local_european_vin_metadata_removes_refuted_model_concerns(self):
         merged = _merge_backend_evidence(
             {

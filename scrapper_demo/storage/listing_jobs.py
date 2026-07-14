@@ -29,6 +29,7 @@ PUBLIC_ARTIFACTS = (
     "gemini_vision.json",
     "risk_score.json",
     "validation_warnings.json",
+    "analysis_diagnostics.json",
     "analysis_result_raw.md",
     "analysis_result.md",
 )
@@ -51,6 +52,7 @@ ARTIFACT_LABELS = {
     "gemini_vision.json": "Vision JSON",
     "risk_score.json": "Backend risk score",
     "validation_warnings.json": "Validation warnings",
+    "analysis_diagnostics.json": "Per-phase analysis diagnostics",
     "analysis_result_raw.md": "Raw final model output",
     "analysis_result.md": "Public report",
 }

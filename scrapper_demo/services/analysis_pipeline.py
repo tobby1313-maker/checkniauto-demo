@@ -115,6 +115,10 @@ def _token_event(input_tokens: int, output_tokens: int) -> str:
     return _sse_event(token_usage={"input_tokens": input_tokens, "output_tokens": output_tokens})
 
 
+def _selected_key_label(entry: GeminiKeyEntry | None) -> str:
+    return entry["label"] if entry else ""
+
+
 def _research_parse_failed(value: Any) -> bool:
     return (
         not isinstance(value, dict)
@@ -235,6 +239,34 @@ def _merge_backend_evidence(
             }
         )
         merged["consistency_checks"] = checks
+    elif not facts_vin_value:
+        # Model output must not turn a scraper sentinel or missing VIN into an
+        # invalid vehicle identity. Missing VIN is an information request only.
+        vin_check = merged.get("vin_check")
+        vin_check = dict(vin_check) if isinstance(vin_check, dict) else {}
+        vin_check.update(
+            {
+                "vin_present": False,
+                "format_check": "skipped",
+                "decoded_information": "VIN was not supplied in the listing.",
+                "online_history": "requires_manual_verification",
+            }
+        )
+        vin_check.pop("local_validation", None)
+        merged["vin_check"] = vin_check
+        checks = merged.get("consistency_checks")
+        if isinstance(checks, list):
+            merged["consistency_checks"] = [
+                item
+                for item in checks
+                if not (
+                    isinstance(item, dict)
+                    and "vin" in _fold_market_text(
+                        f"{item.get('check', '')} {item.get('explanation', '')}"
+                    )
+                    and str(item.get("result") or "").lower() == "concern"
+                )
+            ]
 
     known_missing_terms: set[str] = set()
     if facts.get("mileage") or facts.get("advertised_mileage_km"):
@@ -405,6 +437,9 @@ def _read_vin_light_decode(repository: ListingJobRepositoryProtocol, slug: str) 
             value = json.loads(raw_text)
         except (TypeError, json.JSONDecodeError):
             value = {}
+    persisted_vin = str(value.get("vin") or "").strip().upper() if isinstance(value, dict) else ""
+    if persisted_vin in {"N/A", "NA", "NONE", "NULL", "UNKNOWN", "NEUVEDENE", "NEUVEDENÉ"}:
+        value = {}
     if not isinstance(value, dict) or not str(value.get("vin") or "").strip():
         # Older/manual jobs may have a VIN in car_info.md but no persisted
         # decoder artifact. Recreate the same local light check cheaply.
@@ -465,6 +500,30 @@ def multi_model_analysis_events(
         return
 
     car_info_text = repository.read_text(slug, "car_info.md", default="") or ""
+    diagnostics: dict[str, Any] = {
+        "schema_version": 1,
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "completed_at": "",
+        "build_commit": os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT") or "",
+        "risk_scorer_v2_active": os.environ.get("RISK_SCORER_V2_ACTIVE", "").strip().lower()
+        in {"1", "true", "yes", "on"},
+        "models": {
+            "component_identity_grounding": GEMINI_GROUNDING_MODEL,
+            "reliability_grounding": GEMINI_GROUNDING_MODEL,
+            "market_grounding": GEMINI_GROUNDING_MODEL,
+            "text_research": GEMINI_TEXT_RESEARCH_MODEL,
+            "vision": GEMINI_VISION_MODEL,
+            "final_synthesis": GEMINI_FINAL_MODEL,
+        },
+        "phases": {},
+        "market": {},
+        "validation": {},
+    }
+
+    def save_diagnostics() -> None:
+        repository.write_json(slug, "analysis_diagnostics.json", diagnostics)
+
+    save_diagnostics()
     vin_light_decode = _read_vin_light_decode(repository, slug)
     model_listing_context = dependencies.listing_context_text(car_info_text)
     listing_context_data = parse_first_json_object(model_listing_context)
@@ -502,12 +561,23 @@ def multi_model_analysis_events(
         )
         component_identity = normalize_component_identity(identity_grounded)
         status = component_identity.get("identification_status", "UNKNOWN")
+        diagnostics["phases"]["component_identity"] = {
+            "status": "completed",
+            "identification_status": status,
+            "selected_key_label": _selected_key_label(_identity_key),
+        }
+        save_diagnostics()
         yield _status_event(f"Component identification saved: {status}.")
     except Exception as identity_exc:
         dependencies.log(f"Component identity research warning: {identity_exc}")
         yield _status_event(
             "Component identification unavailable; continuing without guessing exact codes."
         )
+        diagnostics["phases"]["component_identity"] = {
+            "status": "failed",
+            "error_type": type(identity_exc).__name__,
+        }
+        save_diagnostics()
     component_identity_json = json.dumps(
         component_identity, indent=2, ensure_ascii=False
     )
@@ -552,7 +622,16 @@ def multi_model_analysis_events(
                 grounded, customer_facing_only=True
             )
             background_link_count = linked_count - public_link_count
+            diagnostics["market"].update(
+                {
+                    "broad_direct_citation_count": linked_count,
+                    "broad_public_sk_cz_count": public_link_count,
+                    "broad_background_eu_count": background_link_count,
+                    "targeted_search_attempted": False,
+                }
+            )
             if linked_count < 3 or public_link_count == 0 or background_link_count == 0:
+                diagnostics["market"]["targeted_search_attempted"] = True
                 yield _status_event(
                     "Building a broader SK/CZ and background EU market sample..."
                 )
@@ -579,6 +658,14 @@ def multi_model_analysis_events(
                             + "\n\n## Cielene porovnanie trhu\n\n"
                             + market_grounded.strip()
                         )
+                    diagnostics["market"]["targeted_direct_citation_count"] = (
+                        _linked_market_comparable_count(
+                            market_grounded or "", market_only=True
+                        )
+                    )
+                    diagnostics["market"]["selected_key_label"] = _selected_key_label(
+                        _market_key
+                    )
                     if market_grounded and _has_linked_market_comparable(market_grounded, market_only=True):
                         yield _status_event("Targeted market search found linked comparable ads.")
                     else:
@@ -586,11 +673,24 @@ def multi_model_analysis_events(
                 except Exception as market_exc:
                     dependencies.log(f"Targeted market research warning: {market_exc}")
                     yield _status_event("Targeted market search unavailable; continuing with verified research.")
+                    diagnostics["market"]["targeted_search_error_type"] = type(
+                        market_exc
+                    ).__name__
+            diagnostics["phases"]["grounded_research"] = {
+                "status": "completed",
+                "selected_key_label": _selected_key_label(_grounding_key),
+            }
+            save_diagnostics()
             repository.write_text(slug, "web_research.md", web_research_text)
             yield _status_event("Web research ready for text/research analysis.")
     except Exception as exc:
         dependencies.log(f"Web research warning: {exc}")
         yield _status_event("Web research unavailable; continuing with listing data.")
+        diagnostics["phases"]["grounded_research"] = {
+            "status": "failed",
+            "error_type": type(exc).__name__,
+        }
+        save_diagnostics()
 
     if grok_key:
         text_provider = "grok"
@@ -601,6 +701,11 @@ def multi_model_analysis_events(
     else:
         text_provider = "gemini"
         text_api_key = ""
+    diagnostics["phases"]["text_research"] = {
+        "provider": text_provider,
+        "status": "started",
+    }
+    save_diagnostics()
     text_model_name = dependencies.model_display_name(text_provider)
 
     yield _status_event(f"Phase 1/4: {text_model_name} text and research analysis...")
@@ -612,6 +717,7 @@ def multi_model_analysis_events(
         text_research_system_prompt = f.read()
 
     text_research_json_text = ""
+    _text_key: GeminiKeyEntry | None = None
     text_research_content = dependencies.build_text_research_context(
         model_listing_context,
         output_language,
@@ -709,15 +815,41 @@ def multi_model_analysis_events(
             research_data = deduplicate_market_comparables(research_data, car_info_text)
             try:
                 exchange_rates = fetch_ecb_reference_rates()
+                diagnostics["market"]["exchange_rate_status"] = "available"
             except Exception as rate_exc:
                 dependencies.log(f"ECB exchange-rate warning: {rate_exc}")
                 exchange_rates = {}
+                diagnostics["market"]["exchange_rate_status"] = "unavailable"
+                diagnostics["market"]["exchange_rate_error_type"] = type(
+                    rate_exc
+                ).__name__
             market_benchmark = build_market_benchmark(
                 research_data,
                 car_info_text,
                 exchange_rates=exchange_rates,
             )
             repository.write_json(slug, "market_benchmark.json", market_benchmark)
+            diagnostics["market"].update(
+                {
+                    "structured_comparable_count_before_filtering": comparable_count_before,
+                    "verified_unique_comparable_count": len(
+                        research_data.get("market_comparables") or []
+                    ),
+                    "benchmark_accepted_count": len(
+                        market_benchmark.get("accepted_comparables") or []
+                    ),
+                    "benchmark_rejected_count": len(
+                        market_benchmark.get("rejected_comparables") or []
+                    ),
+                    "benchmark_available": market_benchmark.get("available") is True,
+                }
+            )
+            diagnostics["phases"]["text_research"] = {
+                "provider": text_provider,
+                "status": "completed",
+                "selected_key_label": _selected_key_label(_text_key),
+            }
+            save_diagnostics()
             validation_warnings.extend(
                 dependencies.validate_json_contract(
                     "market_benchmark.json",
@@ -753,6 +885,7 @@ def multi_model_analysis_events(
         vision_system_prompt = f.read()
 
     vision_result_json = ""
+    _vision_key: GeminiKeyEntry | None = None
     image_data_list, _image_meta = dependencies.prepare_images(slug_dir)
     if image_data_list:
         image_payload_context = dependencies.compact_json_for_prompt(_image_meta)
@@ -798,6 +931,14 @@ def multi_model_analysis_events(
             "gemini_vision.schema.json",
         )
     )
+    vision_diagnostics = dependencies.safe_model_json(vision_result_json)
+    diagnostics["phases"]["vision"] = {
+        "status": "completed",
+        "photos_provided": vision_diagnostics.get("photos_provided") is True,
+        "parse_error": vision_diagnostics.get("_parse_error") is True,
+        "selected_key_label": _selected_key_label(_vision_key),
+    }
+    save_diagnostics()
     yield _status_event("Gemini vision JSON saved.")
 
     injected_vin_note = dependencies.inject_photo_vin(
@@ -850,6 +991,13 @@ def multi_model_analysis_events(
             "risk_score.schema.json",
         )
     )
+    diagnostics["risk_scorer_v2_active"] = risk_score.get("schema_version") == 2
+    diagnostics["phases"]["risk_scoring"] = {
+        "status": "completed",
+        "schema_version": risk_score.get("schema_version"),
+        "policy_version": risk_score.get("policy_version"),
+    }
+    save_diagnostics()
     verdict = risk_score.get("allowed_final_verdict", "unknown")
     yield _status_event(f"Backend risk score saved: {verdict}")
 
@@ -978,7 +1126,24 @@ def multi_model_analysis_events(
         validation_warnings,
         log=dependencies.log,
     )
-    if warnings_path:
+    diagnostics["phases"]["final_synthesis"] = {
+        "status": "completed",
+        "provider": text_provider,
+        "output_tokens_estimate": output_tokens,
+    }
+    diagnostics["validation"] = {
+        "warning_count": len(validation_warnings),
+        "warning_types": sorted(
+            {
+                str(item.get("type") or "")
+                for item in validation_warnings
+                if isinstance(item, dict) and item.get("type")
+            }
+        ),
+    }
+    diagnostics["completed_at"] = datetime.now().isoformat(timespec="seconds")
+    save_diagnostics()
+    if validation_warnings:
         yield _status_event(
             f"Analysis completed with {len(validation_warnings)} validation warning(s)."
         )

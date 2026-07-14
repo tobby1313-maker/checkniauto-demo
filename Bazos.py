@@ -45,7 +45,7 @@ def extract_car_info(soup, url):
         "title": "",
         "price": 0,
         "currency": "EUR",
-        "vin": "N/A",
+        "vin": "",
         "description": "",
         "parameters": {},
         "seller": {},
@@ -88,6 +88,19 @@ def extract_car_info(soup, url):
     popis = soup.find('div', class_='popisdetail') or soup.find('div', class_='popis')
     if popis:
         info["description"] = popis.get_text(separator="\n").strip()
+
+    # Bazos occasionally renders the header price in a shape not covered by
+    # the selectors above while the seller repeats it in the description.
+    # Recover only an explicitly labelled EUR amount; never infer a price from
+    # an arbitrary number in the listing text.
+    if not info["price"] and info["description"]:
+        description_price = re.search(
+            r"(?:cena|price)\s*:\s*(\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)\s*(?:€|eur)(?:\s|$)",
+            info["description"],
+            re.IGNORECASE,
+        )
+        if description_price:
+            info["price"] = int(re.sub(r"\D", "", description_price.group(1)))
 
     # --- Seller & Location ---
     vsetky_b = soup.find_all('b')

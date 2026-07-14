@@ -429,6 +429,35 @@ r.v. 5/2020
         deduplicated = deduplicate_market_comparables(result, "# Other listing")
         self.assertEqual(len(deduplicated["market_comparables"]), 2)
 
+    def test_unverified_market_sources_are_removed_from_source_registry(self):
+        research = {
+            "market_assessment": {},
+            "market_comparables": [],
+            "sources_used": [
+                {
+                    "source_id": "stale-market",
+                    "source_type": "MARKET_COMPARABLE",
+                    "source_url": "https://auto.bazos.sk/inzerat/111111/stale.php",
+                    "verified_url": True,
+                    "used_for": "market comparable",
+                },
+                {
+                    "source_id": "reliability",
+                    "source_type": "TECHNICAL_PUBLICATION",
+                    "source_url": "https://example.invalid/reliability",
+                    "verified_url": True,
+                    "used_for": "reliability",
+                },
+            ],
+        }
+
+        result = deduplicate_market_comparables(research, "# Other listing")
+
+        self.assertEqual(
+            [item["source_id"] for item in result["sources_used"]],
+            ["reliability"],
+        )
+
     def test_mobile_detail_id_is_preserved_but_tracking_query_is_removed(self):
         research = {
             "market_assessment": {},

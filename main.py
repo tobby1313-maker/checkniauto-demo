@@ -294,7 +294,14 @@ def _run_vin_decoding(output_dir):
         except IOError:
             pass
 
-    if not vin_text:
+    if str(vin_text or "").strip().upper() in {
+        "", "N/A", "NA", "NONE", "NULL", "UNKNOWN", "NEUVEDENE", "NEUVEDENÉ"
+    }:
+        decoded_path = os.path.join(output_dir, "vin_decoded.json")
+        try:
+            os.remove(decoded_path)
+        except FileNotFoundError:
+            pass
         print("  VIN: Not found in scraped data.")
         return
 

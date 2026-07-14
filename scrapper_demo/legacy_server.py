@@ -60,7 +60,7 @@ from scrapper_demo.providers.grok import (
 )
 from scrapper_demo.providers.openrouter import analyze as analyze_with_openrouter
 from scrapper_demo.services import image_service
-from scrapper_demo.calibration import create_calibration_bundle
+from scrapper_demo.calibration import create_calibration_bundle, create_debugging_bundle
 from scrapper_demo.logging import configure_console_encoding, safe_log
 from scrapper_demo.market_comparables import (
     customer_link_priority,
@@ -373,6 +373,19 @@ def parse_car_info_md(md_text: str) -> ParsedListingData:
             if count_match:
                 result["photos_count"] = int(count_match.group(1))
 
+    if not result["price"] and result["description"]:
+        price_match = re.search(
+            r"(?i)(?:cena|price)\s*:\s*(\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)\s*(?:€|eur)(?:\s|$)",
+            result["description"],
+        )
+        if price_match:
+            result["price"] = int(re.sub(r"\D", "", price_match.group(1)))
+            result["currency"] = "EUR"
+
+    if str(result["vin"] or "").strip().upper() in {
+        "N/A", "NA", "NONE", "NULL", "UNKNOWN", "NEUVEDENE", "NEUVEDENÉ"
+    }:
+        result["vin"] = ""
     return result
 
 
@@ -1443,6 +1456,42 @@ def api_admin_calibration_bundle(slug):
         mimetype="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="calibration-{job_dir.name}.zip"',
+            "Content-Length": str(archive_size),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def api_admin_debugging_bundle(slug):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
+    try:
+        job_dir = _job_repository().job_dir(slug, require=True)
+        if not (job_dir / "analysis_result.md").is_file():
+            raise FileNotFoundError(slug)
+        archive_path = create_debugging_bundle(job_dir, job_dir.name)
+    except FileNotFoundError:
+        return jsonify({"error": "Completed analysis not found."}), 404
+
+    archive_size = archive_path.stat().st_size
+
+    def stream_archive():
+        try:
+            with archive_path.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    yield chunk
+        finally:
+            try:
+                archive_path.unlink(missing_ok=True)
+            except OSError as exc:
+                safe_log(f"Debugging archive cleanup warning: {exc}")
+
+    return Response(
+        stream_with_context(stream_archive()),
+        mimetype="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="debugging-{job_dir.name}.zip"',
             "Content-Length": str(archive_size),
             "Cache-Control": "no-store",
         },

@@ -59,6 +59,17 @@ class ListingStorageIntegrationTest(unittest.TestCase):
         self.assertEqual(completed[0][0], slug)
         self.assertEqual(self.repository.read_text(slug, "car_info.md"), "# Legacy Vehicle")
 
+    def test_missing_vin_sentinel_does_not_create_invalid_decode_artifact(self):
+        slug = "missing-vin"
+        job_dir = self.repository.job_dir(slug, create=True)
+        self.repository.write_text(slug, "car_info.md", "# Vehicle without VIN")
+        self.repository.write_json(slug, "raw_data.json", {"vin": "N/A"})
+        self.repository.write_json(slug, "vin_decoded.json", {"vin": "N/A", "valid": False})
+
+        main._run_vin_decoding(str(job_dir))
+
+        self.assertFalse(self.repository.artifact_path(slug, "vin_decoded.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

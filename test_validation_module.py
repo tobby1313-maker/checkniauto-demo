@@ -52,6 +52,13 @@ class ValidationModuleTest(unittest.TestCase):
         self.assertEqual(payload["warnings"][0]["message"], "fixture warning")
         self.assertEqual(logged, ["Validation warning: fixture warning"])
 
+    def test_empty_warning_list_still_creates_debug_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = validation.write_validation_warnings(temp_dir, [])
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["warnings"], [])
+
     def test_end_marker_is_idempotent_and_placeholder_hosts_are_rejected(self):
         report = validation.ensure_end_analysis_marker("# Report")
 

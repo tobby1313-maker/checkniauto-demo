@@ -321,15 +321,13 @@ def _ensure_end_analysis_marker(report_text):
 
 
 def _write_validation_warnings(slug_dir, warnings, *, log=None):
-    if not warnings:
-        return None
     payload = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
-        "warnings": warnings,
+        "warnings": list(warnings or []),
     }
     path = os.path.join(slug_dir, "validation_warnings.json")
     atomic_write_json(path, payload)
-    for warning in warnings:
+    for warning in payload["warnings"]:
         if log:
             log(f"Validation warning: {warning.get('message', warning)}")
     return path

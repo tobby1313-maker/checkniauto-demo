@@ -1,0 +1,26 @@
+{
+  "title": "Per-analysis Diagnostics",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "started_at",
+    "completed_at",
+    "build_commit",
+    "risk_scorer_v2_active",
+    "models",
+    "phases",
+    "market",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "enum": [1] },
+    "started_at": { "type": "string" },
+    "completed_at": { "type": "string" },
+    "build_commit": { "type": "string" },
+    "risk_scorer_v2_active": { "type": "boolean" },
+    "models": { "type": "object" },
+    "phases": { "type": "object" },
+    "market": { "type": "object" },
+    "validation": { "type": "object" }
+  }
+}
