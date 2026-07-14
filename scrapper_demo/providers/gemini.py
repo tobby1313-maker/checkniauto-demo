@@ -79,6 +79,61 @@ GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 GROUNDING_RESOLVE_TIMEOUT = 6     # seconds per redirect resolution (HEAD request)
 GROUNDING_RESOLVE_MAX_REDIRECTS = 5
 
+MARKET_RESPONSE_FORMAT = {
+    "type": "text",
+    "mime_type": "application/json",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "search_pass": {"type": "string"},
+            "candidates": {
+                "type": "array",
+                "maxItems": 6,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "year": {"type": ["integer", "null"]},
+                        "mileage_km": {"type": ["integer", "null"]},
+                        "engine": {"type": "string"},
+                        "transmission": {"type": "string"},
+                        "drivetrain": {"type": "string"},
+                        "price_display": {"type": "string"},
+                        "price_eur": {"type": ["number", "null"]},
+                        "price_basis": {"type": "string"},
+                        "source_country": {"type": "string"},
+                        "market_scope": {"type": "string"},
+                        "similarity_tier": {"type": "string"},
+                        "material_difference": {"type": "string"},
+                        "detail_url": {"type": "string"},
+                        "evidence_url": {"type": "string"},
+                        "url_kind": {"type": "string"},
+                    },
+                    "required": [
+                        "description",
+                        "year",
+                        "mileage_km",
+                        "engine",
+                        "transmission",
+                        "drivetrain",
+                        "price_display",
+                        "price_eur",
+                        "price_basis",
+                        "source_country",
+                        "market_scope",
+                        "similarity_tier",
+                        "material_difference",
+                        "detail_url",
+                        "evidence_url",
+                        "url_kind",
+                    ],
+                },
+            },
+        },
+        "required": ["search_pass", "candidates"],
+    },
+}
+
 
 def _emit_provider_diagnostics(
     callback: Callable[[dict[str, Any]], None] | None,
@@ -167,13 +222,18 @@ def _resolve_annotation_redirects(research_text: str) -> str:
     if not research_text or GROUNDING_REDIRECT_HOST not in research_text:
         return research_text
 
-    redirect_pattern = re.compile(
+    markdown_redirect_pattern = re.compile(
         r"\[([^\]]+)\]\((https://" + re.escape(GROUNDING_REDIRECT_HOST) + r"[^)\s]+)\)"
     )
-    seen_final = set()
+    raw_redirect_pattern = re.compile(
+        r"https://" + re.escape(GROUNDING_REDIRECT_HOST) + r"/[^\s\"'<>\)]+"
+    )
     result = str(research_text)
 
-    for label, redirect_url in redirect_pattern.findall(research_text):
+    # A grounding annotation URL can occur both in the model's JSON
+    # evidence_url and in the provider-appended Markdown citation. Resolve it
+    # once and replace every occurrence so both values stay identical.
+    for redirect_url in dict.fromkeys(raw_redirect_pattern.findall(research_text)):
         try:
             resp = requests.head(
                 redirect_url,
@@ -192,24 +252,19 @@ def _resolve_annotation_redirects(research_text: str) -> str:
                     or "gstatic.com" in final_url.lower()
                 ):
                     continue
-                if final_url in seen_final:
-                    continue
-                seen_final.add(final_url)
-                # Replace the redirect URL with the resolved public URL
-                result = result.replace(
-                    f"({redirect_url})",
-                    f"({final_url})",
-                    1,
-                )
+                result = result.replace(redirect_url, final_url)
         except Exception:
             # If resolution fails (timeout, connection error, etc.), keep original
             continue
     # Never pass unresolved Google redirect URLs to later model/public stages.
     # Keep the source title for context, but mark the URL as unavailable.
-    result = redirect_pattern.sub(
+    result = markdown_redirect_pattern.sub(
         lambda match: f"{match.group(1)} (URL citacia nie je overitelna)",
         result,
     )
+    # A redirect may remain in a JSON string even when no Markdown citation
+    # could be resolved. It is not usable evidence and must not flow further.
+    result = raw_redirect_pattern.sub("", result)
     return result
 
 def analyze_with_llm(
@@ -463,6 +518,8 @@ Podobnost:
 - C: rovnaka generacia, podobny rocnik, palivo a prevodovka.
 Najazd moze byt odlisny. Vrat aj polozky mimo povodneho rozsahu; backend ich
 deterministicky zaradi do strict/expanded-year/expanded-mileage alebo vyradi.
+Najprv vsak hladaj ponuky s najazdom co najblizsim cielovemu vozidlu. Ak je
+cielovy najazd vysoky, nezapln vystup iba novymi alebo nizko najazdenymi autami.
 
 Pravidla proveniencie:
 - URL nikdy nevytvaraj ani nedoplnaj podla sablony.
@@ -479,7 +536,8 @@ Pravidla proveniencie:
 - Nevymyslaj cenu, rok, najazd, parametre ani URL. Zachovaj povodnu menu.
 - Vrat najviac 6 ponuk. Vyluc salvage, aukcie, export-only a netto-only ceny.
 
-Vrat jeden kompletny JSON objekt bez Markdown komentara:
+Vrat vzdy jeden kompletny JSON objekt bez uvodu, ospravedlnenia alebo Markdown
+komentara, aj keby `candidates` zostalo prazdne:
 {{
   "search_pass": "{market_pass}",
   "candidates": [
@@ -536,7 +594,12 @@ def _extract_interaction_text_and_citations(data: dict[str, Any]) -> str:
             url = annotation.get("url")
             if not url:
                 continue
-            title = _clean_citation_label(annotation.get("title") or annotation.get("source") or url)
+            title = _clean_citation_label(
+                annotation.get("title")
+                or annotation.get("name")
+                or annotation.get("source")
+                or url
+            )
             if GROUNDING_REDIRECT_HOST in url:
                 # Keep the redirect temporarily. The resolver runs immediately
                 # after extraction and replaces it with the destination URL.
@@ -630,6 +693,8 @@ def run_grounded_web_research(
             "tools": [{"type": "google_search"}],
             "store": False,
         }
+        if market_only:
+            payload["response_format"] = MARKET_RESPONSE_FORMAT
 
         try:
             response = requests.post(
@@ -690,13 +755,13 @@ def run_grounded_web_research(
                 listing_slug=listing_slug,
                 input_tokens=input_tokens,
                 output_tokens=0,
-                status="rate_limited_retrying" if candidate_model != model_candidates[-1] else "rate_limited",
+                status="rate_limited",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=detail,
             )
-            if candidate_model != model_candidates[-1]:
-                time.sleep(1)
-                continue
+            # Let the outer API-key fallback handle quota exhaustion. Trying
+            # two more models with the same key multiplied paid input calls
+            # and did not help when the key/project quota was exhausted.
             raise RateLimitError(
                 "Gemini Google Search grounding limit prekroceny."
                 + (f" Detail: {detail}" if detail else "")

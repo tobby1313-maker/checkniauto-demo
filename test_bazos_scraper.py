@@ -49,6 +49,27 @@ class BazosScraperTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["Transmission"], "7-st. automatická")
         self.assertEqual(result["parameters"]["Drivetrain"], "4x4")
 
+    def test_dealer_alternatives_do_not_override_advertised_troc_facts(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>VW T-Roc 2023, 1.5TSi, DSG</h1>
+              <div class="popisdetail">
+                Predám Volkswagen T-Roc r.v. 2/2023, benzín 1.5TSi 110kW
+                s pohonom FWD (máme aj 4x4), prevodovka DSG 7-stupňov
+                (máme aj manuál), najazdené 159tis.km (garantovaných).
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/troc.php")
+
+        self.assertEqual(result["parameters"]["Mileage"], "159000 km")
+        self.assertEqual(result["parameters"]["Drivetrain"], "Predný")
+        self.assertEqual(result["parameters"]["Transmission"], "DSG 7-stupňov")
+
 
 if __name__ == "__main__":
     unittest.main()

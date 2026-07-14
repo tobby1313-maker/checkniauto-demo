@@ -459,7 +459,11 @@ r.v. 5/2020
     def test_background_czk_and_pln_prices_use_ecb_rates_for_median(self):
         research = {
             "market_assessment": {"advertised_price_eur": 15000},
-            "listing_facts": {"year": 2016, "advertised_mileage_km": 160000},
+            "listing_facts": {
+                "year": 2016,
+                "advertised_mileage_km": 160000,
+                "asking_price_gross_eur": 16000,
+            },
             "market_comparables": [
                 {
                     "description": "Hyundai Tucson 1.6 T-GDi 4x4 DCT",
@@ -512,6 +516,7 @@ r.v. 5/2020
 
         self.assertTrue(benchmark["available"])
         self.assertEqual(benchmark["median_eur"], 14000)
+        self.assertEqual(benchmark["advertised_price_eur"], 16000)
         self.assertEqual(benchmark["benchmark_scope"], "EU_MIXED_BACKGROUND")
         self.assertEqual(research["market_assessment"]["price_view"], "fair")
         self.assertEqual(research["market_assessment"]["benchmark_comparable_count"], 3)

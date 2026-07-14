@@ -891,7 +891,13 @@ def _build_market_benchmark_v1(
     median_eur = int(round(statistics.median(selected_prices))) if selected_prices else None
     local_median_eur = int(round(statistics.median(local_prices))) if local_prices else None
     foreign_median_eur = int(round(statistics.median(foreign_prices))) if foreign_prices else None
-    advertised = _number(market.get("advertised_price_eur"))
+    advertised = (
+        _number(listing_facts.get("asking_price_gross_eur"))
+        if isinstance(listing_facts, dict)
+        else None
+    )
+    if advertised is None:
+        advertised = _number(market.get("advertised_price_eur"))
     if advertised is None:
         advertised = listing_identity.get("price_eur")
     delta_percent = (
@@ -1274,7 +1280,13 @@ def build_market_benchmark(
         if stage_name == "EXPANDED_YEAR"
         else 22
     )
-    advertised = _number(market.get("advertised_price_eur"))
+    advertised = (
+        _number(listing_facts.get("asking_price_gross_eur"))
+        if isinstance(listing_facts, dict)
+        else None
+    )
+    if advertised is None:
+        advertised = _number(market.get("advertised_price_eur"))
     if advertised is None:
         advertised = listing_identity.get("price_eur")
     delta_percent = (

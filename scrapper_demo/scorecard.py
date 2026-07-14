@@ -80,11 +80,23 @@ def _market_score(research: dict[str, Any]) -> int | None:
         item for item in _list(research.get("market_comparables"))
         if isinstance(item, dict) and item.get("verified_url") is True and _text(item.get("source_url"))
     ]
-    if (
-        market.get("available") is not True
-        or market.get("benchmark_available") is False
-        or not comparables
-    ):
+    benchmark_count = market.get("benchmark_comparable_count")
+    benchmark_median = market.get("benchmark_median_eur") or market.get(
+        "observed_market_average_eur"
+    )
+    backend_benchmark = (
+        market.get("benchmark_available") is True
+        and isinstance(benchmark_count, (int, float))
+        and int(benchmark_count) >= 3
+        and isinstance(benchmark_median, (int, float))
+    )
+    # Foreign search cards stay hidden from customers, but their verified
+    # aggregate benchmark may still power the price-position score.
+    if "benchmark_available" in market:
+        usable_market = backend_benchmark
+    else:
+        usable_market = bool(comparables)
+    if market.get("available") is not True or not usable_market:
         return None
     price_view = _fold(market.get("price_view"))
     base = {
@@ -94,7 +106,7 @@ def _market_score(research: dict[str, Any]) -> int | None:
         "unclear": 50,
         "requires_manual_verification": 42,
     }.get(price_view, 58)
-    sample_size = market.get("benchmark_comparable_count")
+    sample_size = benchmark_count
     if not isinstance(sample_size, int):
         sample_size = len(comparables)
     base += min(8, max(0, sample_size - 1) * 3)

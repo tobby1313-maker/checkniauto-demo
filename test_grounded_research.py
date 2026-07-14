@@ -205,6 +205,24 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("automat", context["transmission"].lower())
         self.assertEqual(context["drive"], "4x4")
 
+    def test_listing_context_repairs_stale_troc_mileage_and_inventory_alternatives(self):
+        context = web_server._listing_context_object(
+            "# VW T-Roc 2023, 1.5TSi, DSG\n\n"
+            "## Specifications\n\n"
+            "| Parameter | Value |\n|---|---|\n"
+            "| Mileage | 159 km |\n| Drivetrain | 4x4 |\n"
+            "| Transmission | DSG 7-stupňov (máme aj manuál) |\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "Predám Volkswagen T-Roc s pohonom FWD (máme aj 4x4), "
+            "prevodovka DSG 7-stupňov (máme aj manuál), najazdené 159tis.km. "
+            "Cena 15.439 EUR + DPH = 18.990 EUR s DPH."
+        )
+
+        self.assertEqual(context["mileage_km"], 159000)
+        self.assertEqual(context["drive"], "Predný")
+        self.assertEqual(context["transmission"], "DSG 7-stupňov")
+        self.assertEqual(context["asking_price_gross_eur"], 18990)
+
     def test_final_compaction_preserves_expanded_research_limits(self):
         payload = {
             "knowledge_base_findings": [{"component": "must be omitted"}],

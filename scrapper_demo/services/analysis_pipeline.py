@@ -122,6 +122,19 @@ def _selected_key_label(entry: GeminiKeyEntry | None) -> str:
     return entry["label"] if entry else ""
 
 
+def _promote_selected_key(
+    entries: list[GeminiKeyEntry], selected: GeminiKeyEntry | None
+) -> None:
+    """Reuse the key that just succeeded before probing a known-limited key."""
+    if selected is None:
+        return
+    for index, entry in enumerate(entries):
+        if entry.get("key") == selected.get("key"):
+            if index:
+                entries.insert(0, entries.pop(index))
+            return
+
+
 def _research_parse_failed(value: Any) -> bool:
     return (
         not isinstance(value, dict)
@@ -225,6 +238,7 @@ def _merge_backend_evidence(
     canonical = {
         "title": listing_context.get("title"),
         "price": listing_context.get("price"),
+        "asking_price_gross_eur": listing_context.get("asking_price_gross_eur"),
         "vin": listing_context.get("vin"),
         "mileage": listing_context.get("mileage"),
         "year": listing_context.get("year"),
@@ -583,6 +597,93 @@ def _lock_report_evidence_claims(
             rewritten.append(line)
         text = "\n".join(rewritten).rstrip() + "\n"
 
+    else:
+        raw_market = research.get("market_assessment")
+        market = raw_market if isinstance(raw_market, dict) else {}
+
+        def eur_label(value: Any) -> str:
+            try:
+                return f"{int(round(float(value))):,} EUR".replace(",", " ")
+            except (TypeError, ValueError):
+                return "neuvedené" if language == "sk" else "unavailable"
+
+        advertised_label = eur_label(market.get("advertised_price_eur"))
+        median_label = eur_label(
+            market.get("benchmark_median_eur")
+            or market.get("observed_market_average_eur")
+        )
+        sample_count = int(market.get("benchmark_comparable_count") or 0)
+        delta = market.get("price_delta_percent")
+        try:
+            delta_label = f"{float(str(delta)):+.1f} %"
+        except (TypeError, ValueError):
+            delta_label = "—"
+        price_view = str(market.get("price_view") or "").strip().lower()
+        view_labels = {
+            "rather_cheap": ("skôr pod trhom", "rather below market"),
+            "fair": ("v rámci trhu", "within the market range"),
+            "rather_expensive": ("skôr nad trhom", "rather above market"),
+        }
+        sk_view, en_view = view_labels.get(
+            price_view, ("bez jasného zaradenia", "without a clear classification")
+        )
+        view_label = en_view if language == "en" else sk_view
+
+        public_links: list[str] = []
+        for item in research.get("market_comparables", []) if isinstance(research.get("market_comparables"), list) else []:
+            if not isinstance(item, dict) or not is_customer_facing_market_comparable(item):
+                continue
+            url = str(item.get("source_url") or "").strip()
+            label = str(item.get("description") or item.get("title") or "Porovnateľný inzerát").strip()
+            price_display = str(item.get("price_display") or "").strip()
+            public_links.append(
+                f"- [{label}]({url})" + (f" — {price_display}" if price_display else "")
+            )
+            if len(public_links) >= 5:
+                break
+
+        if language == "en":
+            market_lines = [
+                f"The backend benchmark classifies the advertised price as **{view_label}**.",
+                "",
+                "| Comparison | Value |",
+                "| --- | ---: |",
+                f"| Advertised price | {advertised_label} |",
+                f"| Weighted market median | {median_label} |",
+                f"| Difference from median | {delta_label} |",
+                f"| Benchmark sample | {sample_count} offers |",
+            ]
+            if public_links:
+                market_lines.extend(("", "Verified SK/CZ offers:", *public_links))
+            quick_price = f"- **Price:** {view_label} — {advertised_label} versus a market median of {median_label}."
+        else:
+            market_lines = [
+                f"Backendový benchmark zaraďuje inzerovanú cenu ako **{view_label}**.",
+                "",
+                "| Porovnanie | Hodnota |",
+                "| --- | ---: |",
+                f"| Cena inzerátu | {advertised_label} |",
+                f"| Vážený medián trhu | {median_label} |",
+                f"| Rozdiel oproti mediánu | {delta_label} |",
+                f"| Vzorka benchmarku | {sample_count} ponúk |",
+            ]
+            if public_links:
+                market_lines.extend(("", "Overené SK/CZ ponuky:", *public_links))
+            quick_price = f"- **Cena:** {view_label} — {advertised_label} oproti trhovému mediánu {median_label}."
+
+        text = _replace_report_section(
+            text,
+            ("cena a vyjednavanie", "price and negotiation"),
+            market_lines,
+        )
+        rewritten = []
+        for line in text.splitlines():
+            if re.match(r"^\s*-\s*\*\*(?:Cena|Price):\*\*", line, re.IGNORECASE):
+                rewritten.append(quick_price)
+            else:
+                rewritten.append(line)
+        text = "\n".join(rewritten).rstrip() + "\n"
+
     raw_facts = research.get("listing_facts")
     raw_vin_check = research.get("vin_check")
     listing_facts: dict[str, Any] = raw_facts if isinstance(raw_facts, dict) else {}
@@ -877,6 +978,7 @@ def multi_model_analysis_events(
             same_key_retries=1,
             same_key_retry_exceptions=(GroundingTransientError,),
         )
+        _promote_selected_key(gemini_key_entries, _identity_key)
         repository.write_text(
             slug, "component_identity_research.md", identity_grounded
         )
@@ -935,6 +1037,7 @@ def multi_model_analysis_events(
             same_key_retries=1,
             same_key_retry_exceptions=(GroundingTransientError,),
         )
+        _promote_selected_key(gemini_key_entries, _grounding_key)
         if grounded:
             web_research_text = grounded
             repository.write_text(slug, "reliability_research.md", grounded)
@@ -967,6 +1070,12 @@ def multi_model_analysis_events(
         }
         save_diagnostics()
 
+    # Market passes have their own deterministic parser and are merged after
+    # structured research. Do not resend their raw prose/JSON to the text
+    # model; that only adds tokens and gives a second model a chance to alter
+    # the provenance-locked candidates.
+    text_research_web_context = web_research_text
+
     # Market discovery is deliberately split into independent portal/language
     # passes. The text synthesis model is not the authority for the resulting
     # URLs or candidate list; every item is reconciled here against citations.
@@ -995,6 +1104,7 @@ def multi_model_analysis_events(
                 retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
                 same_key_retries=0,
             )
+            _promote_selected_key(gemini_key_entries, selected_market_key)
             pass_result = extract_grounded_market_search_pass(
                 market_grounded, pass_id
             )
@@ -1085,7 +1195,7 @@ def multi_model_analysis_events(
     text_research_content = dependencies.build_text_research_context(
         model_listing_context,
         output_language,
-        web_research_text,
+        text_research_web_context,
         component_identity,
     )
     input_tokens = dependencies.estimate_request_tokens(text_research_system_prompt, text_research_content)

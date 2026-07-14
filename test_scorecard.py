@@ -147,6 +147,21 @@ class BuyerScorecardTests(unittest.TestCase):
 
         self.assertIsNone(card["scores"]["market_position"])
 
+    def test_verified_european_background_benchmark_is_scored_without_public_links(self):
+        research = dict(self.research)
+        research["market_comparables"] = []
+        research["market_assessment"] = {
+            "available": True,
+            "benchmark_available": True,
+            "benchmark_comparable_count": 4,
+            "benchmark_median_eur": 18000,
+            "price_view": "fair",
+        }
+
+        card = build_buyer_scorecard(research, self.vision, self.risk)
+
+        self.assertIsNotNone(card["scores"]["market_position"])
+
     def test_only_vehicle_specific_component_evidence_reduces_profile(self):
         baseline = build_buyer_scorecard(self.research, self.vision, self.risk)
         research = dict(self.research)

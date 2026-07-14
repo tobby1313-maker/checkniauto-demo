@@ -9,6 +9,7 @@ from scrapper_demo.providers.errors import (
     GrokApiKeyError,
     ModelOutputLimitError,
     OpenRouterApiKeyError,
+    RateLimitError,
 )
 
 
@@ -69,6 +70,44 @@ class ProviderAdapterTest(unittest.TestCase):
 
         self.assertNotIn(redirect_url, resolved)
         self.assertIn("Dacia Duster (URL citacia nie je overitelna)", resolved)
+
+    def test_grounding_redirect_is_replaced_in_json_evidence_and_citation(self):
+        redirect_url = (
+            "https://vertexaisearch.cloud.google.com/grounding-api-redirect/card123"
+        )
+        results_url = "https://www.otomoto.pl/osobowe/volkswagen/t-roc"
+        research = (
+            '{"candidates":[{"evidence_url":"' + redirect_url + '"}]}\n\n'
+            "### Citacie z Google Search\n"
+            f"- [Otomoto]({redirect_url})"
+        )
+
+        with patch.object(gemini.requests, "head") as head:
+            head.return_value.status_code = 200
+            head.return_value.url = results_url
+            resolved = gemini._resolve_annotation_redirects(research)
+
+        self.assertEqual(resolved.count(results_url), 2)
+        self.assertNotIn(redirect_url, resolved)
+
+    def test_grounding_rate_limit_stops_model_chain_for_outer_key_fallback(self):
+        response = FakeResponse(429, text="Resource exhausted: quota")
+        with (
+            patch.object(gemini.requests, "post", return_value=response) as post,
+            patch.object(gemini.default_tracker, "record_request"),
+            patch.object(gemini.time, "sleep"),
+        ):
+            with self.assertRaises(RateLimitError):
+                gemini.run_grounded_web_research(
+                    "limited-key",
+                    "VW T-Roc 2023 1.5 TSI DSG FWD 159000 km",
+                    model="gemini-2.5-flash",
+                    research_mode="market_sk_cz",
+                )
+
+        self.assertEqual(post.call_count, 1)
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["response_format"]["mime_type"], "application/json")
 
     def test_facade_reexports_provider_implementations_and_shared_errors(self):
         self.assertIs(llm_client.analyze_with_llm, gemini.analyze_with_llm)

@@ -15,6 +15,7 @@ import sys
 import re
 import time
 import json
+import unicodedata
 import urllib.parse
 import requests
 from bs4 import BeautifulSoup
@@ -28,6 +29,68 @@ HEADERS = {
     "Accept-Language": "sk-SK,sk;q=0.9,en-US;q=0.8,en;q=0.7",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
 }
+
+
+def _fold_text(value):
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+
+
+def _without_inventory_alternatives(value):
+    """Drop parenthetical dealer alternatives such as 'máme aj 4x4'."""
+    text = str(value or "")
+    return re.sub(
+        r"\([^)]*\)",
+        lambda match: "" if "mame aj" in _fold_text(match.group(0)) else match.group(0),
+        text,
+    )
+
+
+def _bazos_mileage_km(value):
+    text = str(value or "").replace("\u00a0", " ")
+    folded = _fold_text(text)
+    thousands = re.search(
+        r"(?:najazd(?:ene|enych)?(?:\s*km)?[^\d]{0,20})?(\d{2,3})\s*tis(?:\.|ic)?\s*\.?\s*km\b",
+        folded,
+        re.IGNORECASE,
+    )
+    if thousands:
+        return int(thousands.group(1)) * 1000
+    labelled = re.search(
+        r"(?:najazd(?:ene|enych)?\s*km|najazd|mileage)\s*:?\s*([\d\s.]+)(?:\s*km)?",
+        folded,
+        re.IGNORECASE,
+    )
+    conventional = re.search(r"(\d{2,3}(?:[\s.]\d{3})+)\s*km\b", text, re.IGNORECASE)
+    match = labelled or conventional
+    if not match:
+        return None
+    digits = re.sub(r"\D", "", match.group(1))
+    return int(digits) if digits else None
+
+
+def _advertised_drivetrain(title, description):
+    description = _without_inventory_alternatives(description)
+    combined = _fold_text(f"{title}\n{description}")
+    explicit = re.search(
+        r"(?:s\s+pohonom|pohon(?:om)?|drive)\s*:?\s*(fwd|4x4|4wd|awd|quattro|allrad|rwd)",
+        combined,
+        re.IGNORECASE,
+    )
+    token = explicit.group(1).lower() if explicit else ""
+    if token == "fwd":
+        return "Predný"
+    if token == "rwd":
+        return "Zadný"
+    if token:
+        return "4x4"
+    if re.search(r"\b(?:4x4|quattro|awd|4wd|allrad)\b", combined, re.IGNORECASE):
+        return "4x4"
+    if re.search(r"\b(?:predny\s+pohon|fwd|predokolka)\b", combined, re.IGNORECASE):
+        return "Predný"
+    if re.search(r"\b(?:zadny\s+pohon|rwd)\b", combined, re.IGNORECASE):
+        return "Zadný"
+    return ""
 
 
 def get_page(url):
@@ -124,17 +187,9 @@ def extract_car_info(soup, url):
     
     # Mileage: Bazos descriptions commonly use either "Najazdene km: 161949"
     # or the conventional "161 949 km" order.
-    mileage_match = re.search(
-        r'(?:najazden[eé]\s*km|najazd|mileage)\s*:?\s*([\d\s.]+)(?:\s*km)?',
-        desc_text,
-        re.I,
-    )
-    if not mileage_match:
-        mileage_match = re.search(r'(\d{2,3}(?:[\s.]\d{3})+)\s*km\b', desc_text, re.I)
-    if mileage_match:
-        mileage_digits = re.sub(r'\D', '', mileage_match.group(1))
-        if mileage_digits:
-            info["parameters"]["Mileage"] = f"{mileage_digits} km"
+    mileage_km = _bazos_mileage_km(desc_text)
+    if mileage_km:
+        info["parameters"]["Mileage"] = f"{mileage_km} km"
 
     # Year
     year_match = re.search(
@@ -183,7 +238,8 @@ def extract_car_info(soup, url):
         re.I,
     )
     if transmission_match:
-        info["parameters"]["Transmission"] = transmission_match.group(1).strip()
+        transmission = _without_inventory_alternatives(transmission_match.group(1))
+        info["parameters"]["Transmission"] = transmission.strip()
     # First check for explicit manual transmission mentions (e.g. "manualnou prevodovkou", "Manual 6 rýchlostný")
     elif re.search(r'(?:manuálna\s+prevodovka|manualnou\s+prevodovkou|manual\s+\d+\s*rýchlost|manuál\s+\d+\s*stupňov)', desc_text, re.I):
         info["parameters"]["Transmission"] = "Manuálna"
@@ -200,13 +256,9 @@ def extract_car_info(soup, url):
         info["parameters"]["Transmission"] = "Manuálna"
 
     # Drivetrain is often present only in the ad title.
-    drivetrain_text = f'{info.get("title", "")}\n{desc_text}'
-    if re.search(r'\b(?:4x4|quattro|pohon\s*4x4|awd|4wd|allrad)\b', drivetrain_text, re.I):
-        info["parameters"]["Drivetrain"] = "4x4"
-    elif re.search(r'\b(?:predn[ýi]\s*pohon|fwd|predokolka)\b', drivetrain_text, re.I):
-        info["parameters"]["Drivetrain"] = "Predný"
-    elif re.search(r'\b(?:zadn[Aa-z]\s*pohon|rwd)\b', drivetrain_text, re.I):
-        info["parameters"]["Drivetrain"] = "Zadna"
+    advertised_drive = _advertised_drivetrain(info.get("title", ""), desc_text)
+    if advertised_drive:
+        info["parameters"]["Drivetrain"] = advertised_drive
 
     # --- VIN Extraction (scan description for VIN pattern) ---
     if info.get("description"):

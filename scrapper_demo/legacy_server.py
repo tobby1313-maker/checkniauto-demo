@@ -17,6 +17,7 @@ import time
 import urllib.parse
 import html
 import hmac
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -2184,6 +2185,22 @@ def _mileage_km_value(value):
         return None
 
 
+def _fold_listing_text(value):
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+
+
+def _explicit_gross_price_eur(value):
+    text = str(value or "").replace("\u00a0", " ")
+    matches = re.findall(
+        r"(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*(?:€|eur)\s*(?:s\s*dph|vratane\s*dph|brutto)",
+        _fold_listing_text(text),
+        re.IGNORECASE,
+    )
+    amounts = [int(re.sub(r"\D", "", match)) for match in matches]
+    return max(amounts) if amounts else None
+
+
 def _description_capture(description, patterns):
     text = str(description or "").replace("\u00a0", " ")
     for pattern in patterns:
@@ -2195,15 +2212,25 @@ def _description_capture(description, patterns):
 
 def _description_listing_facts(description, title=""):
     text = str(description or "")
-    mileage = _description_capture(
-        text,
-        (
-            r"(?:najazden(?:e|é|ých)?(?:\s*km)?|najazd|mileage)\s*:?\s*(?:len\s*)?([\d\s.]+)(?:\s*km)?",
-            r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
-            r"\b(\d{4,6})\s*km\b",
-        ),
+    folded_text = _fold_listing_text(text)
+    abbreviated_mileage = re.search(
+        r"(?:najazd(?:ene|enych)?(?:\s*km)?[^\d]{0,20})?(\d{2,3})\s*tis(?:\.|ic)?\s*\.?\s*km\b",
+        folded_text,
+        re.IGNORECASE,
     )
-    mileage_km = _mileage_km_value(mileage)
+    if abbreviated_mileage:
+        mileage_km = int(abbreviated_mileage.group(1)) * 1000
+        mileage = f"{mileage_km} km"
+    else:
+        mileage = _description_capture(
+            text,
+            (
+                r"(?:najazden(?:e|é|ých)?(?:\s*km)?|najazd|mileage)\s*:?\s*(?:len\s*)?([\d\s.]+)(?:\s*km)?",
+                r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
+                r"\b(\d{4,6})\s*km\b",
+            ),
+        )
+        mileage_km = _mileage_km_value(mileage)
     if mileage_km:
         mileage = f"{mileage_km} km"
 
@@ -2233,18 +2260,36 @@ def _description_listing_facts(description, title=""):
             r"\b((?:automatick(?:á|a|ou)|automat|automatic|manuáln(?:a|ou)|manualn(?:a|ou)|manual|CVT|DCT|DSG)(?:\s+prevodovk(?:a|ou))?)\b",
         ),
     )
+    transmission = re.sub(
+        r"\([^)]*\)",
+        lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
+        transmission,
+    ).strip()
     power = _description_capture(
         text,
         (r"(?:v[ýy]kon|power)\s*:?\s*(\d{2,4}\s*kW)",),
     )
-    combined = f"{title}\n{text}"
+    cleaned_text = re.sub(
+        r"\([^)]*\)",
+        lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
+        text,
+    )
+    combined = _fold_listing_text(f"{title}\n{cleaned_text}")
+    explicit_drive = re.search(
+        r"(?:s\s+pohonom|pohon(?:om)?|drive)\s*:?\s*(fwd|4x4|4wd|awd|quattro|allrad|rwd)",
+        combined,
+        re.IGNORECASE,
+    )
+    drive_token = explicit_drive.group(1).lower() if explicit_drive else ""
     drive = (
-        "4x4"
-        if re.search(
-            r"\b(?:4x4|4wd|awd|quattro|allrad|štvorkol(?:ka|kou|ky)|stvorkol(?:ka|kou|ky)|pohon\s+všetkých\s+kolies)\b",
-            combined,
-            re.IGNORECASE,
-        )
+        "Predný"
+        if drive_token == "fwd"
+        else "Zadný"
+        if drive_token == "rwd"
+        else "4x4"
+        if drive_token or re.search(r"\b(?:4x4|4wd|awd|quattro|allrad|stvorkol(?:ka|kou|ky))\b", combined)
+        else "Predný"
+        if re.search(r"\b(?:fwd|predny\s+pohon|predokolka)\b", combined)
         else ""
     )
     return {
@@ -2265,18 +2310,40 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
     description_facts = _description_listing_facts(
         parsed.get("description"), parsed.get("title")
     )
-    mileage = (
+    specification_mileage = (
         specs.get("Mileage")
         or specs.get("Nájazd")
         or specs.get("Najazd")
-        or description_facts["mileage"]
         or ""
     )
+    specification_mileage_km = _mileage_km_value(specification_mileage)
+    description_mileage_km = description_facts.get("mileage_km")
+    mileage = specification_mileage or description_facts["mileage"] or ""
+    if (
+        isinstance(description_mileage_km, int)
+        and description_mileage_km >= 10000
+        and isinstance(specification_mileage_km, int)
+        and specification_mileage_km < 1000
+    ):
+        mileage = description_facts["mileage"]
+    transmission = (
+        specs.get("Transmission")
+        or specs.get("Prevodovka")
+        or description_facts["transmission"]
+        or ""
+    )
+    transmission = re.sub(
+        r"\([^)]*\)",
+        lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
+        str(transmission),
+    ).strip()
     fuel = specs.get("Fuel") or specs.get("Palivo") or description_facts["fuel"] or ""
     color = specs.get("Color") or specs.get("Farba") or ""
+    gross_price_eur = _explicit_gross_price_eur(parsed.get("description"))
     return {
         "title": parsed.get("title"),
         "price": parsed.get("price"),
+        "asking_price_gross_eur": gross_price_eur,
         "currency": parsed.get("currency"),
         "vin": parsed.get("vin"),
         "mileage": mileage,
@@ -2286,8 +2353,8 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
         "power": specs.get("Engine Power") or specs.get("Výkon") or description_facts["power"] or "",
         "fuel": fuel,
         "color": color,
-        "transmission": specs.get("Transmission") or specs.get("Prevodovka") or description_facts["transmission"] or "",
-        "drive": specs.get("Drivetrain") or specs.get("Pohon") or description_facts["drive"] or "",
+        "transmission": transmission,
+        "drive": description_facts["drive"] or specs.get("Drivetrain") or specs.get("Pohon") or "",
         "source_url": parsed.get("source_url"),
         "scraped_at": parsed.get("scraped_at"),
         "photos_count": parsed.get("photos_count"),

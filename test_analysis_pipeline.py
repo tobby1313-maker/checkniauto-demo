@@ -8,6 +8,7 @@ from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     _lock_report_evidence_claims,
     _merge_backend_evidence,
+    _promote_selected_key,
     _research_parse_failed,
     _unavailable_vision_payload,
     _valid_vision_payload,
@@ -44,6 +45,16 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_successful_backup_key_is_reused_first_for_later_phases(self):
+        entries = [
+            {"key": "limited", "label": "primary"},
+            {"key": "working", "label": "backup"},
+        ]
+
+        _promote_selected_key(entries, entries[1])
+
+        self.assertEqual([entry["key"] for entry in entries], ["working", "limited"])
+
     def test_unavailable_vision_preserves_that_photos_exist(self):
         payload = _unavailable_vision_payload(
             {
@@ -129,6 +140,37 @@ Nenašli sa porovnateľné vozidlá.
 
         self.assertIn(message, locked)
         self.assertNotIn("Nenašli sa porovnateľné vozidlá", locked)
+
+    def test_usable_background_benchmark_restores_deterministic_price_table(self):
+        report = """# VW T-Roc
+
+## 📋 Rýchle zhrnutie
+- **Cena:** nejasná.
+
+## 💰 Cena a vyjednávanie
+Bez porovnania.
+"""
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "market_assessment": {
+                    "available": True,
+                    "benchmark_available": True,
+                    "benchmark_comparable_count": 4,
+                    "benchmark_median_eur": 18100,
+                    "advertised_price_eur": 18990,
+                    "price_delta_percent": 4.9,
+                    "price_view": "fair",
+                },
+                "market_comparables": [],
+            },
+            {},
+            output_language="sk",
+        )
+
+        self.assertIn("| Vážený medián trhu | 18 100 EUR |", locked)
+        self.assertIn("| Vzorka benchmarku | 4 ponúk |", locked)
+        self.assertIn("**Cena:** v rámci trhu", locked)
 
     def test_public_report_drops_stray_numeric_or_calibration_score_text(self):
         locked = _lock_report_evidence_claims(
