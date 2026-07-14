@@ -107,7 +107,10 @@ class ProviderAdapterTest(unittest.TestCase):
 
         self.assertEqual(post.call_count, 1)
         payload = post.call_args.kwargs["json"]
-        self.assertEqual(payload["response_format"]["mime_type"], "application/json")
+        self.assertNotIn("response_format", payload)
+        self.assertEqual(
+            post.call_args.kwargs["headers"]["Api-Revision"], "2026-05-20"
+        )
 
     def test_facade_reexports_provider_implementations_and_shared_errors(self):
         self.assertIs(llm_client.analyze_with_llm, gemini.analyze_with_llm)

@@ -79,62 +79,6 @@ GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 GROUNDING_RESOLVE_TIMEOUT = 6     # seconds per redirect resolution (HEAD request)
 GROUNDING_RESOLVE_MAX_REDIRECTS = 5
 
-MARKET_RESPONSE_FORMAT = {
-    "type": "text",
-    "mime_type": "application/json",
-    "schema": {
-        "type": "object",
-        "properties": {
-            "search_pass": {"type": "string"},
-            "candidates": {
-                "type": "array",
-                "maxItems": 6,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "description": {"type": "string"},
-                        "year": {"type": ["integer", "null"]},
-                        "mileage_km": {"type": ["integer", "null"]},
-                        "engine": {"type": "string"},
-                        "transmission": {"type": "string"},
-                        "drivetrain": {"type": "string"},
-                        "price_display": {"type": "string"},
-                        "price_eur": {"type": ["number", "null"]},
-                        "price_basis": {"type": "string"},
-                        "source_country": {"type": "string"},
-                        "market_scope": {"type": "string"},
-                        "similarity_tier": {"type": "string"},
-                        "material_difference": {"type": "string"},
-                        "detail_url": {"type": "string"},
-                        "evidence_url": {"type": "string"},
-                        "url_kind": {"type": "string"},
-                    },
-                    "required": [
-                        "description",
-                        "year",
-                        "mileage_km",
-                        "engine",
-                        "transmission",
-                        "drivetrain",
-                        "price_display",
-                        "price_eur",
-                        "price_basis",
-                        "source_country",
-                        "market_scope",
-                        "similarity_tier",
-                        "material_difference",
-                        "detail_url",
-                        "evidence_url",
-                        "url_kind",
-                    ],
-                },
-            },
-        },
-        "required": ["search_pass", "candidates"],
-    },
-}
-
-
 def _emit_provider_diagnostics(
     callback: Callable[[dict[str, Any]], None] | None,
     event: dict[str, Any],
@@ -520,12 +464,18 @@ Najazd moze byt odlisny. Vrat aj polozky mimo povodneho rozsahu; backend ich
 deterministicky zaradi do strict/expanded-year/expanded-mileage alebo vyradi.
 Najprv vsak hladaj ponuky s najazdom co najblizsim cielovemu vozidlu. Ak je
 cielovy najazd vysoky, nezapln vystup iba novymi alebo nizko najazdenymi autami.
+Pouzi postupne dopyty pre cielovy najazd +/-50 000 km a potom samostatne dopyty
+s hranicami 100 000 km, 150 000 km a 200 000 km podla veku vozidla. Aspoň prve
+styri vysledky sa pokus najst s rovnakym motorom a prevodovkou. TSI a eTSI nie
+su rovnaka motorizacia; eTSI moze byt nanajvys tier B s jasnym rozdielom.
 
 Pravidla proveniencie:
 - URL nikdy nevytvaraj ani nedoplnaj podla sablony.
 - `detail_url` skopiruj iba ak je presne totozny s realnou grounding citaciou
   detailu konkretneho inzeratu.
 - `evidence_url` musi byt presna grounding citacia z tohto passu.
+- Kandidata bez realnej `evidence_url` vobec nevracaj. Prazdne `evidence_url`
+  znamena, ze polozka nie je overitelny search vysledok a nepatri do vystupu.
 - Pre scope {scope} moze byt vysledkova alebo kategoriova stranka iba v
   `evidence_url`, nie ako overeny detail URL.
 - Pri zahranicnom passe vrat aj search kartu bez detail URL, ak karta priamo
@@ -693,9 +643,6 @@ def run_grounded_web_research(
             "tools": [{"type": "google_search"}],
             "store": False,
         }
-        if market_only:
-            payload["response_format"] = MARKET_RESPONSE_FORMAT
-
         try:
             response = requests.post(
                 GEMINI_INTERACTIONS_API_URL,
@@ -703,6 +650,9 @@ def run_grounded_web_research(
                 headers={
                     "Content-Type": "application/json",
                     "x-goog-api-key": api_key.strip(),
+                    # Pin the post-May-2026 steps/inline-annotation response
+                    # contract used by the parser below.
+                    "Api-Revision": "2026-05-20",
                 },
                 timeout=120,
             )

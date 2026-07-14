@@ -705,7 +705,7 @@ def _remove_supported_mileage_false_negatives(text: str) -> str:
     patterns = (
         r"(?i)\bch[yý]baj[úu]ci [^.!\n;]*(?:n[aá]jazd|kilomet)[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
         r"(?i)\babsencia [^.!\n;]*(?:n[aá]jazd|kilomet)[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
-        r"(?i)\bn[aá]jazd [^.!\n;]*(?:ch[yý]ba|nie je uveden[yý]|neuveden[yý])[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
+        r"(?i)\bn[aá]jazd [^.!\n;]*(?:ch[yý]ba\b|nie je uveden[yý]|neuveden[yý])[^.!\n;]*(?:popise|inzer[aá]t)[^.!\n;]*[.!]?",
     )
     return _clean_lines_with_patterns(text, patterns)
 

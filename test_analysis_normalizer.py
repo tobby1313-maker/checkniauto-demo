@@ -366,6 +366,22 @@ class AnalysisNormalizerTest(unittest.TestCase):
         self.assertIn("150 195 km", cleaned)
         self.assertIn("Potenciálne drahé opravy motora", cleaned)
 
+    def test_does_not_truncate_mileage_risk_when_vin_is_missing(self):
+        markdown = (
+            "## Rýchle zhrnutie\n\n"
+            "- **Najväčšie riziko:** Extrémne vysoký nájazd kilometrov "
+            "(159 000 km) za necelé 3 roky prevádzky v kombinácii s "
+            "chýbajúcim VIN číslom v inzeráte, čo znemožňuje predbežné "
+            "overenie histórie.\n"
+        )
+        car_info = "- **Nájazd:** 159 000 km\n- **VIN:** neuvedené\n"
+
+        cleaned = normalize_analysis_markdown(markdown, car_info)
+
+        self.assertIn("Extrémne vysoký nájazd kilometrov", cleaned)
+        self.assertIn("159 000 km", cleaned)
+        self.assertIn("chýbajúcim VIN číslom", cleaned)
+
     def test_neutralizes_public_vin_history_when_vin_is_present(self):
         cleaned = normalize_analysis_markdown(SUZUKI_FALSE_NEGATIVE_MARKDOWN, SUZUKI_CAR_INFO)
         self.assertNotIn("Neoveriteľná história vozidla cez VIN číslo", cleaned)
