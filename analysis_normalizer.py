@@ -33,6 +33,8 @@ _SUPPORTED_COMPARABLE_LINK_HOSTS = {
     "autobazar.sk",
     "bazos.sk",
     "bazos.cz",
+    "sauto.cz",
+    "tipcars.com",
 }
 
 

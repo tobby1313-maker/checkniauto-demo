@@ -115,7 +115,7 @@ class RiskScorerTest(unittest.TestCase):
         self.assertNotIn("missing_or_weak_photos", _rules(result))
         self.assertNotIn("photos", result["missing_data_flags"])
 
-    def test_listing_contradiction_caps_verdict_as_risky(self):
+    def test_unsourced_consistency_concern_is_an_action_not_a_penalty(self):
         result = calculate_risk_score(
             _json(
                 {
@@ -134,8 +134,41 @@ class RiskScorerTest(unittest.TestCase):
             _json({"photos_provided": True, "photo_limitations": [], "visual_verdict": "Vyzerá vizuálne dobre"}),
         )
 
-        self.assertIn("obvious_listing_conflict", _rules(result))
-        self.assertIn("major listing contradiction", _overrides(result))
+        self.assertNotIn("obvious_listing_conflict", _rules(result))
+        self.assertNotIn("major listing contradiction", _overrides(result))
+        self.assertEqual(result["decision_status"], "WORTH_INSPECTING")
+        self.assertIn("listing_consistency", result["missing_data_flags"])
+
+    def test_sourced_material_conflict_can_lower_verdict(self):
+        result = calculate_risk_score(
+            _json(
+                {
+                    "listing_facts": {
+                        "vin": "JMBXNGA1WBZ019167",
+                        "service_history": "full",
+                        "origin_or_country": "SK",
+                        "seller": "dealer",
+                    },
+                    "vin_check": {"vin_present": True, "format_check": "ok"},
+                    "market_assessment": {"price_view": "fair"},
+                    "consistency_checks": [],
+                    "data_conflicts": [
+                        {
+                            "issue": "Listing mileage differs from photographed odometer",
+                            "importance": "HIGH",
+                            "source_a": "listing mileage field",
+                            "source_b": "photo 4 odometer",
+                        }
+                    ],
+                    "knowledge_base_findings": [],
+                }
+            ),
+            _json({"photos_provided": True, "photo_limitations": []}),
+        )
+
+        self.assertIn("sourced_listing_conflict_high", _rules(result))
+        self.assertIn("sourced material listing conflict", _overrides(result))
+        self.assertEqual(result["decision_status"], "RESOLVE_BEFORE_PROCEEDING")
 
     def test_suspicious_cheap_price_with_missing_vin_does_not_force_risky_verdict(self):
         result = calculate_risk_score(
@@ -265,6 +298,82 @@ class RiskScorerTest(unittest.TestCase):
 
         self.assertNotIn("high_confidence_expensive_known_risk", _rules(result))
         self.assertTrue(any("modelove rizika" in item for item in result["buyer_priority_checks"]))
+
+    def test_hyundai_optional_vin_checks_do_not_create_false_red(self):
+        result = calculate_risk_score(
+            _json(
+                {
+                    "listing_facts": {
+                        "vin": "TMAJ3812HHJ268187",
+                        "year": "2016",
+                        "mileage": "161949 km",
+                        "service_history": "full service history claimed",
+                        "origin_or_country": "Germany claimed",
+                        "seller": "dealer",
+                    },
+                    "vin_check": {"vin_present": True, "format_check": "ok"},
+                    "market_assessment": {"price_view": "requires_manual_verification"},
+                    "consistency_checks": [
+                        {
+                            "result": "concern",
+                            "check": "VIN check digit validity",
+                            "explanation": "Optional ROW check digit does not match.",
+                        },
+                        {
+                            "result": "concern",
+                            "check": "VIN model year consistency",
+                            "explanation": "Code H can be 1987 or 2017 for a 09/2016 registration.",
+                        },
+                    ],
+                    "data_conflicts": [],
+                    "technical_risks": [
+                        {
+                            "component": "7DCT",
+                            "issue": "Clutch judder is a model-level inspection point.",
+                            "evidence_category": "MODEL_LEVEL_RISK",
+                        }
+                    ],
+                }
+            ),
+            _json(
+                {
+                    "photos_provided": True,
+                    "photo_limitations": [],
+                    "exterior_observations": [
+                        {"assessment": "reassuring", "severity": "none"}
+                    ],
+                    "visible_red_flags": [],
+                }
+            ),
+        )
+
+        self.assertEqual(result["decision_status"], "WORTH_INSPECTING")
+        self.assertEqual(result["risk_score"], 0)
+        self.assertNotIn("major listing contradiction", _overrides(result))
+
+    def test_uncertain_or_legacy_red_flag_is_not_scored_as_serious_damage(self):
+        result = calculate_risk_score(
+            _json(
+                {
+                    "listing_facts": {
+                        "vin": "TMAJ3812HHJ268187",
+                        "service_history": "full",
+                    },
+                    "vin_check": {"vin_present": True, "format_check": "ok"},
+                }
+            ),
+            _json(
+                {
+                    "photos_provided": True,
+                    "photo_limitations": [],
+                    "visible_red_flags": [
+                        {"assessment": "uncertain", "severity": "unknown"}
+                    ],
+                }
+            ),
+        )
+
+        self.assertNotIn("visible_serious_damage_or_red_flags", _rules(result))
 
     def test_v2_missing_vin_is_action_only(self):
         result = calculate_risk_score_v2(

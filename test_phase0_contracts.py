@@ -114,9 +114,11 @@ class Phase0ContractTest(unittest.TestCase):
                 "analysis_request.md",
                 "vin_decoded.json",
                 "listing_facts.json",
+                "component_identity_research.md",
                 "component_identity.json",
                 "reliability_research.md",
                 "market_research.md",
+                "market_benchmark.json",
                 "web_research.md",
                 "grok_research.json",
                 "gemini_vision.json",
@@ -130,6 +132,7 @@ class Phase0ContractTest(unittest.TestCase):
         fixture_path = Path(web_server.AUTA_DIR) / "phase0-success"
         for artifact_name, schema_name in (
             ("component_identity.json", "component_identity.schema.json"),
+            ("market_benchmark.json", "market_benchmark.schema.json"),
             ("grok_research.json", "grok_research.schema.json"),
             ("gemini_vision.json", "gemini_vision.schema.json"),
             ("risk_score.json", "risk_score.schema.json"),

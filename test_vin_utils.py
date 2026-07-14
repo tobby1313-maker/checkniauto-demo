@@ -32,6 +32,16 @@ class VinLightDecodeTests(unittest.TestCase):
         self.assertEqual(decoded["manufacturer"], "Volkswagen")
         self.assertEqual(decoded["plant_hint"], "Bratislava, Slovakia")
 
+    def test_tma_hyundai_uses_czech_wmi_and_optional_row_check_digit(self):
+        decoded = validate_vin("TMAJ3812HHJ268187")
+
+        self.assertTrue(decoded["valid"])
+        self.assertEqual(decoded["manufacturer"], "Hyundai Motor Manufacturing Czech")
+        self.assertEqual(decoded["region"], "Czech Republic")
+        self.assertIsNone(decoded["model_year_hint"])
+        self.assertEqual(decoded["check_digit_policy"], "optional_row")
+        self.assertEqual(decoded["check_digit_severity"], "info")
+
 
 if __name__ == "__main__":
     unittest.main()

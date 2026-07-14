@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
+    _merge_backend_evidence,
     _research_parse_failed,
     multi_model_analysis_events,
 )
@@ -40,6 +41,53 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_local_european_vin_metadata_removes_refuted_model_concerns(self):
+        merged = _merge_backend_evidence(
+            {
+                "listing_facts": {"vin": "TMAJ3812HHJ268187"},
+                "vin_check": {
+                    "vin_present": True,
+                    "format_check": "ok",
+                    "decoded_information": "Model claimed invalid check digit.",
+                },
+                "consistency_checks": [
+                    {
+                        "check": "VIN check digit validity",
+                        "result": "concern",
+                        "explanation": "The check digit is invalid.",
+                    },
+                    {
+                        "check": "VIN model year consistency",
+                        "result": "concern",
+                        "explanation": "Model year code may mean 1987 or 2017.",
+                    },
+                ],
+                "data_conflicts": [
+                    {
+                        "issue": "Conflicting VINs between listing and photographed document",
+                        "importance": "HIGH",
+                        "source_a": "listing VIN TMAJ3812HHJ268187",
+                        "source_b": "document VIN TMAJ3812HHJ268188",
+                    }
+                ],
+            },
+            {"vin": "TMAJ3812HHJ268187"},
+            {},
+            {
+                "vin": "TMAJ3812HHJ268187",
+                "valid": True,
+                "validation_message": "Valid ROW VIN; checksum is optional.",
+                "model_year_hint": None,
+                "check_digit_policy": "optional_row",
+                "check_digit_severity": "info",
+            },
+        )
+
+        self.assertEqual(merged["vin_check"]["format_check"], "ok")
+        self.assertEqual(len(merged["consistency_checks"]), 1)
+        self.assertEqual(merged["consistency_checks"][0]["result"], "ok")
+        self.assertEqual(len(merged["data_conflicts"]), 1)
+
     def test_incomplete_structured_research_is_detected_before_final_synthesis(self):
         self.assertTrue(_research_parse_failed({"_parse_error": True, "raw_preview": "{"}))
         self.assertTrue(_research_parse_failed({"raw_preview": "partial"}))
@@ -171,6 +219,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
                 ],
             )
             self.assertTrue(repository.read_text("sample", "listing_facts.json"))
+            self.assertTrue(repository.read_text("sample", "component_identity_research.md"))
             self.assertTrue(repository.read_text("sample", "component_identity.json"))
             self.assertTrue(repository.read_text("sample", "reliability_research.md"))
             self.assertTrue(repository.read_text("sample", "market_research.md"))

@@ -45,6 +45,9 @@ Important rules:
 - ADAC Pannenstatistik is model/year breakdown context, not engine/transmission proof and not evidence of a defect on this vehicle.
 - TÜV Report is model/age inspection context, not powertrain identification and not evidence of a defect on this vehicle.
 - CarSurvey and owner forums may only contribute recurring inspection hypotheses. Keep `specific_vehicle_evidence` empty unless the listing, supplied documents, diagnostics, or photos independently support the issue on this car.
+- A source for another generation, engine, transmission, drivetrain, or market is background only. Do not use a 2.0 diesel source to support a 1.6 petrol risk, or a newer MHEV generation to support an older TL vehicle. Omit the finding when no matching source remains.
+- Use manufacturer manuals or matching OEM/regulatory technical documents for fixed fluid/service intervals. A generic repair-shop page may create a neutral service question, but must not establish a fixed interval, expected replacement, flush/filter procedure, or likely cost. Never call a Hyundai AWD system "Haldex" unless a matching OEM source explicitly identifies that hardware.
+- A foreign-market TSB or recall is MODEL_LEVEL_RISK/NEEDS_VERIFICATION when its applicability is restricted by market, plant, production range, or VIN prefix. It is not an open campaign on this vehicle until a VIN-specific official result confirms it.
 - Do not diagnose timing chains, DPF, turbo, injectors, clutch, four-wheel drive, corrosion, accident history, or tyre condition from mileage alone.
 - If something is missing, set it to null, [], or mark it as "Neuvedene".
 - If something requires verification, say "Vyžaduje manualne online overenie."
@@ -52,22 +55,25 @@ Important rules:
 - Do not add mileage as missing, uncertain, inconsistent, or risky when mileage exists anywhere in structured listing data, scraper output, or visible odometer evidence and there is no conflict. Add mileage risk only when mileage is absent everywhere, conflicts across sources, or clearly contradicts photo wear.
 - If VIN is missing from the listing, treat it as a required pre-viewing verification step, not as evidence that the car is bad.
 - Do not add missing VIN as a risk flag unless the seller refuses to provide VIN, the provided VIN is invalid, or VIN-related data conflicts.
-- If VIN is present, use the supplied `VIN_LIGHT_CHECK` metadata for a short prefix/WMI/year-code/plant decoding note and cross-check it against the listing and grounded research; do not infer exact trim or engine from the VIN alone. Public Google/web search is a separate exact-VIN light check: record a concrete indexed auction, insurance, service, theft, or other public mention when found; if none is found, set `online_history` to `not_available` and note that this is only the result of this public search, never a vehicle risk. Keep official/paid history verification as a neutral next step unless there is an actual invalid VIN, conflict, refusal, theft/accident record, or other concrete negative evidence.
+- If VIN is present, treat supplied `VIN_LIGHT_CHECK.valid`, `check_digit_policy`, `check_digit_severity`, and `model_year_hint` as authoritative deterministic metadata. An `optional_row`/`info` check-digit mismatch is not a concern. Candidate model years are not a conflict when `model_year_hint` is null; first registration can precede the following model year. Never reinterpret either case as invalid VIN. Use the metadata for a short prefix/WMI/year-code/plant note, but do not infer exact trim or engine from the VIN alone. Public Google/web search is a separate exact-VIN light check: record a concrete indexed auction, insurance, service, theft, or other public mention when found; if none is found, set `online_history` to `not_available` and note that this is only the result of this public search, never a vehicle risk. Keep official/paid history verification as a neutral next step unless there is an actual invalid VIN, conflict, refusal, theft/accident record, or other concrete negative evidence.
 - If SPZ/ECV/registration plate data is missing or looks wrong, treat it as a document/identity check unless it conflicts with VIN, model, year, mileage, origin, or documents.
 - Public URLs must be strict: copy only real non-redirect URLs from provided research. Do not output Google/Vertex redirect URLs as verified URLs.
 - For market comparables, treat the URLs in `Citacie z Google Search` / `Google Search citations` as authoritative. Grounding narrative can repeat an expired marketplace ID; never mark a narrative-only ad URL verified when it is absent from the citation block. When the same marketplace/title has an updated citation URL, use the cited canonical URL.
 - If a source is named but its URL is missing, suspicious, or marked "URL citacia nie je overitelna", keep source_name, set source_url to "", and set verified_url to false.
 - Leave `knowledge_base_findings` empty; this stateless demo does not receive a knowledge-base cache.
+- Seller statements such as origin, no-accident history, full service history, and no-investment-needed remain LISTING_CLAIM unless supplied documents or an authoritative vehicle-specific record confirms them. When service history is advertised, do not call it missing; request the book/invoices as verification instead.
 - Cost ranges may be practical estimates when supported by web research, common service logic, age/mileage, or the listing. Mark the basis honestly.
 - Repair-cost ranges must be conditional when they depend on inspection findings. Separate initial service, diagnostics, conditional repairs, and major downside risks.
 - Populate `expected_costs.cost_type` carefully: only `initial_service` and justified `diagnostic` rows belong in a likely near-term total; `conditional_repair` and `major_downside` are exposure scenarios and must not be summed as expected spending.
 - Price comparisons must use supplied or discovered comparable listings only. Prefer same generation, engine, drivetrain, transmission, year band, mileage band, and market. A comparable counts as discovered only when grounded research contains a direct public detail-page URL for that exact advertisement. Never turn an unlinked search snippet, general market estimate, category/search page, or model knowledge into a comparable. For every accepted comparable copy its exact direct URL to `source_url` and set `verified_url` true. Otherwise omit it from `market_comparables`. If no directly linked comparable remains, return `market_comparables: []`, set `market_assessment.available` false, `comparable_count` 0, observed bounds and negotiation anchor null, and `price_view` to `requires_manual_verification`; do not describe specific cars as market offers.
-- Keep all relevant unique SK/CZ/EU comparable ads in `market_comparables` so they can support aggregate market bounds, average, price view, and negotiation context. However, only concrete Slovak ads and then Czech ads from `bazos.sk`, `bazos.cz`, `autobazar.eu`, or `autobazar.sk` may be shown or linked to customers. Set `source_country` to the advertisement market (`SK`, `CZ`, `PL`, `DE`, etc.) when known. Set `display_in_report` true only for those supported SK/CZ ads; foreign and unsupported-portal ads are background evidence with `display_in_report` false and must never be described individually in the public report.
+- Keep all relevant unique SK/CZ/EU comparable ads in `market_comparables`. Concrete SK/CZ detail ads from `bazos.sk`, `bazos.cz`, `autobazar.eu`, `autobazar.sk`, `sauto.cz`, or `tipcars.com` use `market_scope: PUBLIC_SK_CZ`; foreign ads use `market_scope: BACKGROUND_EU` and must never be described individually in the public report. Set `source_country` to the advertisement market (`SK`, `CZ`, `PL`, `DE`, etc.) when known. Set `display_in_report` true only for PUBLIC_SK_CZ ads. The backend, not this model, computes normalized market statistics and the final `price_view`.
 - For every accepted comparable copy the visible price and original currency exactly into `price_display` (for example `359 900 CZK`). Set `price_eur` only when the advertisement itself shows EUR; do not invent an exchange-rate conversion. A valid direct comparable with a non-EUR price still counts toward `comparable_count`.
+- Classify each comparable as `similarity_tier: A`, `B`, or `C`: A means same generation, engine, transmission and drivetrain within +/-2 years; B means same generation, engine and transmission with drivetrain/power allowed to differ; C is only a fallback with same generation, similar year, fuel and transmission. Set `price_basis` to `gross_asking`, `net`, `auction`, `damaged`, `export_only`, or `unknown`. Omit auction, damaged, export-only and net-only offers when normal retail alternatives exist.
+- Copy year and mileage from every comparable detail page. The backend excludes offers missing either field, more than three model years away, or outside the mileage tolerance; never infer these values.
 - Deduplicate cross-posted ads before returning `market_comparables`. The same VIN is always one vehicle; otherwise treat matching exact mileage, year, version and seller/location or a near-identical price as likely the same vehicle and keep only the strongest direct URL. Never include the analyzed listing itself or its cross-post on another portal. Copy `year`, a visible `vin`, and `seller_or_location` when supplied by the detail page; never infer them.
 - VAT/DPH is opt-in evidence, not a missing-data finding. Populate `vat_context`, `asking_price_net_eur`, or a gross/net distinction only when the advertisement explicitly mentions DPH/VAT, tax-inclusive/exclusive pricing, net/brutto pricing, or VAT deduction. If the ad says nothing about this, leave `vat_context` empty and the VAT-specific numeric fields null; do not write that DPH is "not mentioned" and do not infer private-versus-business tax consequences.
 - Recalls affecting the production window are NEEDS_VERIFICATION unless exact VIN status confirms applicability or completion.
-- Cap arrays unless there is a serious vehicle-specific conflict: seller_claims <= 5, missing_or_uncertain_data <= 5, data_conflicts <= 3, consistency_checks <= 4, knowledge_base_findings = 0, web_research_findings <= 6, technical_risks <= 6, market_comparables <= 5, expected_costs <= 8, text_research_risk_flags <= 5, sources_used <= 10. Use one short sentence per explanatory string, keep most strings under 30 words, and omit optional or duplicate notes.
+- Cap arrays unless there is a serious vehicle-specific conflict: seller_claims <= 5, missing_or_uncertain_data <= 5, data_conflicts <= 3, consistency_checks <= 4, knowledge_base_findings = 0, web_research_findings <= 6, technical_risks <= 6, market_comparables <= 8, expected_costs <= 8, text_research_risk_flags <= 5, sources_used <= 10. Use one short sentence per explanatory string, keep most strings under 30 words, and omit optional or duplicate notes.
 - Keep equipment to the most buyer-relevant 10 items or [].
 
 Return strict JSON matching this schema:
@@ -211,6 +217,14 @@ Return strict JSON matching this schema:
     "comparable_count": null,
     "public_comparable_count": null,
     "eur_priced_comparable_count": null,
+    "benchmark_comparable_count": null,
+    "benchmark_available": false,
+    "benchmark_confidence": "LOW",
+    "benchmark_scope": "EU_MIXED_BACKGROUND",
+    "benchmark_median_eur": null,
+    "local_market_median_eur": null,
+    "foreign_background_median_eur": null,
+    "price_delta_percent": null,
     "summary": "Aktualne porovnanie trhu vyzaduje manualne online overenie.",
     "limitations": "",
     "negotiation_anchor_eur": null,
@@ -224,6 +238,9 @@ Return strict JSON matching this schema:
       "vin": "",
       "seller_or_location": "",
       "source_country": "",
+      "market_scope": "PUBLIC_SK_CZ | BACKGROUND_EU",
+      "similarity_tier": "A | B | C",
+      "price_basis": "gross_asking | net | auction | damaged | export_only | unknown",
       "price_eur": null,
       "price_display": "",
       "mileage_km": null,

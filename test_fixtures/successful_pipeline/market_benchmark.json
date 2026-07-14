@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "method": "MEDIAN_OF_VERIFIED_TIER_A_B_ASKING_PRICES",
+  "minimum_sample_size": 3,
+  "available": false,
+  "confidence": "LOW",
+  "benchmark_scope": "EU_MIXED_BACKGROUND",
+  "classification_threshold_percent": 15,
+  "advertised_price_eur": 18900,
+  "median_eur": null,
+  "local_market_median_eur": null,
+  "foreign_background_median_eur": null,
+  "price_delta_percent": null,
+  "price_view": "requires_manual_verification",
+  "exchange_rates": {
+    "source": "",
+    "source_url": "",
+    "rate_date": "",
+    "rate_details": {}
+  },
+  "accepted_comparables": [],
+  "rejected_comparables": [],
+  "limitations": [
+    "Asking prices are not completed transaction prices.",
+    "No deterministic adjustment is made for equipment, condition, import costs, or warranty.",
+    "Tier C, net, auction, damaged, export-only, and non-normalizable offers are excluded.",
+    "Offers outside +/-3 model years or the mileage tolerance are excluded."
+  ]
+}

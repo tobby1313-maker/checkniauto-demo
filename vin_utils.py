@@ -10,7 +10,14 @@ Provides:
 This module has ZERO external dependencies — only Python standard library.
 """
 import re
-from vin_data import WMI_MAP, MODEL_YEAR_MAP, MODEL_YEAR_MAP_LEGACY, REGION_MAP, PLANT_MAP
+from vin_data import (
+    MODEL_YEAR_MAP,
+    MODEL_YEAR_MAP_LEGACY,
+    PLANT_MAP,
+    REGION_MAP,
+    WMI_MAP,
+    WMI_REGION_MAP,
+)
 
 VIN_REGEX = re.compile(r'\b[A-HJ-NPR-Z0-9]{17}\b')
 
@@ -58,7 +65,7 @@ def validate_vin(vin: str) -> dict:
     vis = cleaned[9:17]
     manufacturer = WMI_MAP.get(wmi, "Unknown/Unmapped")
 
-    region = REGION_MAP.get(wmi[0], "Unknown")
+    region = WMI_REGION_MAP.get(wmi, REGION_MAP.get(wmi[0], "Unknown"))
     # Volkswagen WVG Touareg VINs encode the assembly plant at position 11;
     # older generic mappings in this utility use position 4 as a fallback.
     plant_key = wmi + (cleaned[10] if wmi == "WVG" else cleaned[3])

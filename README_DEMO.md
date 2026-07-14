@@ -27,24 +27,37 @@ The analysis pipeline is:
    are `VERIFIED` only when VIN/document/OEM evidence supports them;
    specification matching alone remains `PROBABLE`, and unresolved variants
    remain `AMBIGUOUS` or `UNKNOWN`. The result is saved independently in
-   `component_identity.json`, so a later long model response cannot erase it.
+   `component_identity.json`, while the raw grounded response and its resolved
+   citations remain in `component_identity_research.md`. A later long model
+   response therefore cannot erase the identity or its source trail.
 3. Run stateless Gemini grounded reliability research using that component
    identity, followed by close market comparables when available. ADAC and
    TÜV findings are model/year context, while owner surveys and forums are
    recurring-problem hypotheses. Neither source type proves a defect on the
-   listed vehicle or directly lowers its score. If the broad pass returns no directly linked
-   comparable ad, a short market-only grounded fallback searches relevant
-   SK/CZ/EU marketplaces with tiered A/B/C similarity and engine/drivetrain
-   aliases; it is skipped when the broad pass already found a link and is
-   tracked separately as `market_grounding`. Its output is retained for the
+   listed vehicle or directly lowers its score. If the broad pass has fewer
+   than three directly linked ads or no customer-linkable SK/CZ ad, a short
+   market-only grounded pass searches relevant SK/CZ/EU marketplaces with
+   tiered A/B/C similarity and engine/drivetrain aliases. It is tracked
+   separately as `market_grounding`. Its output is retained for the
    structured extraction phase even when links arrive in a citation block.
    Structured comparables are then deduplicated across portals by VIN or a
    conservative year/mileage/version/price/seller fingerprint, and cross-posts
    of the analyzed listing are removed before scoring and final synthesis.
-   Customer-facing links use unique Slovak ads first and Czech ads second, only
-   from `bazos.sk`, `bazos.cz`, `autobazar.eu`, or `autobazar.sk`. Other EU ads
-   remain background evidence for aggregate market pricing and are not listed
-   or linked individually in the public report.
+   Customer-facing links use unique Slovak ads first and Czech ads second from
+   Bazos, Autobazar, Sauto, or TipCars, and appear only in `Cena a
+   vyjednávanie`. Foreign ads from sources such as Mobile.de, AutoScout24, and
+   Otomoto remain background evidence and are never listed or linked
+   individually in the public report. Non-EUR prices are normalized by the
+   ECB reference rates; CZK uses the average of available ECB observations
+   from the latest 30-calendar-day window, while other currencies use the
+   latest available reference rate. A local SK/CZ median takes priority;
+   the mixed EU background is used only when fewer than three local A/B ads
+   exist and then uses a wider price-classification tolerance. A deterministic
+   median requires at least three verified A/B retail asking prices; C-tier, net, auction,
+   damaged, export-only, duplicate, and non-normalizable offers are excluded.
+   The full decision trail is stored in `market_benchmark.json`. Asking prices
+   are not transaction prices, so market price never changes the technical
+   risk verdict.
    Comparable URLs must also be backed by the current Google Search citation
    block. Stale IDs repeated only in grounded narrative are replaced by a
    matching cited canonical detail URL or dropped without loading the ad site.
@@ -83,7 +96,7 @@ scrapper_demo/
   contracts.py                        shared typed boundary contracts
   legacy_server.py                    compatibility composition and local handlers
   logging.py                          Unicode-safe console logging
-  market_comparables.py              cross-portal comparable deduplication
+  market_comparables.py              public-link selection and EU price benchmark
   progress.py                         process-local progress/rate/job state
   scorecard.py                        deterministic buyer-facing scorecard
   providers/                          Gemini, Grok, OpenRouter, retry, and errors
@@ -335,9 +348,11 @@ Lists available intermediate analysis files for a completed job. Administrator l
 Possible artifacts include:
 
 - `listing_facts.json`
+- `component_identity_research.md`
 - `component_identity.json`
 - `reliability_research.md`
 - `market_research.md`
+- `market_benchmark.json`
 - `web_research.md`
 - `grok_research.json`
 - `gemini_vision.json`
@@ -433,9 +448,11 @@ raw_data.json
 vin_decoded.json
 analysis_request.md
 listing_facts.json
+component_identity_research.md
 component_identity.json
 reliability_research.md
 market_research.md
+market_benchmark.json
 web_research.md
 grok_research.json
 gemini_vision.json

@@ -45,7 +45,9 @@ from scrapper_demo.component_identity import (
     unknown_component_identity,
 )
 from scrapper_demo.market_comparables import (
+    build_market_benchmark,
     deduplicate_market_comparables,
+    fetch_ecb_reference_rates,
     reconcile_market_comparable_urls,
 )
 from scrapper_demo.validation import (
@@ -125,6 +127,7 @@ def _merge_backend_evidence(
     research: dict[str, Any],
     listing_context: dict[str, Any],
     component_identity: dict[str, Any],
+    vin_light_decode: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Lock deterministic listing facts and grounded identity into model output."""
     merged = dict(research)
@@ -157,6 +160,81 @@ def _merge_backend_evidence(
         if not facts.get("mileage"):
             facts["mileage"] = f"{int(mileage_km)} km"
     merged["listing_facts"] = facts
+
+    local_vin = vin_light_decode if isinstance(vin_light_decode, dict) else {}
+    local_vin_value = str(local_vin.get("vin") or "").strip().upper()
+    facts_vin_value = str(facts.get("vin") or "").strip().upper()
+    local_vin_applies = bool(local_vin_value) and (
+        not facts_vin_value or local_vin_value == facts_vin_value
+    )
+    if local_vin_applies:
+        vin_check = merged.get("vin_check")
+        vin_check = dict(vin_check) if isinstance(vin_check, dict) else {}
+        local_valid = local_vin.get("valid") is True
+        vin_check["vin_present"] = True
+        vin_check["format_check"] = "ok" if local_valid else "problem"
+        vin_check["decoded_information"] = str(
+            local_vin.get("validation_message") or "Local VIN format check completed."
+        )
+        vin_check["local_validation"] = local_vin
+        merged["vin_check"] = vin_check
+
+        local_check_is_info = (
+            str(local_vin.get("check_digit_severity") or "").lower() == "info"
+        )
+        local_year_is_ambiguous = local_vin.get("model_year_hint") is None
+
+        def locally_refuted_vin_interpretation(item: Any) -> bool:
+            if not isinstance(item, dict):
+                return False
+            text = _fold_market_text(
+                " ".join(
+                    str(item.get(key) or "")
+                    for key in (
+                        "check",
+                        "issue",
+                        "explanation",
+                        "source_a",
+                        "source_b",
+                    )
+                )
+            )
+            vin_related = "vin" in text or "check digit" in text or "kontroln" in text
+            check_digit_related = "check digit" in text or "kontroln" in text
+            model_year_related = (
+                "model year" in text
+                or "modelovy rok" in text
+                or "year code" in text
+                or "kod roku" in text
+            )
+            if local_valid and vin_related and (
+                check_digit_related or "format" in text
+            ) and any(term in text for term in ("invalid", "neplat", "problem")):
+                return True
+            if local_check_is_info and check_digit_related:
+                return True
+            return local_year_is_ambiguous and model_year_related and vin_related
+
+        for field in ("consistency_checks", "data_conflicts"):
+            values = merged.get(field)
+            if isinstance(values, list):
+                merged[field] = [
+                    item
+                    for item in values
+                    if not locally_refuted_vin_interpretation(item)
+                ]
+
+        checks = merged.get("consistency_checks")
+        if not isinstance(checks, list):
+            checks = []
+        checks.append(
+            {
+                "check": "Deterministic local VIN format validation",
+                "result": "ok" if local_valid else "concern",
+                "explanation": vin_check["decoded_information"],
+            }
+        )
+        merged["consistency_checks"] = checks
 
     known_missing_terms: set[str] = set()
     if facts.get("mileage") or facts.get("advertised_mileage_km"):
@@ -203,7 +281,18 @@ def _probable_market_detail_url(value: str) -> bool:
     path = parsed.path.lower()
     if any(fragment in path for fragment in ("/vysledky", "/inzeraty/", "/search", "/category", "/katalog", "/filter")):
         return False
-    direct_markers = ("/detail", "/inzerat/", "/offer/", "/offers/", "/auto-inserat/")
+    direct_markers = (
+        "/detail",
+        "/inzerat/",
+        "/offer/",
+        "/offers/",
+        "/angebote/",
+        "/offres/",
+        "/annunci/",
+        "/auto-inserat/",
+        "/fahrzeuge/details.html",
+        "/osobowe/oferta/",
+    )
     if any(marker in path for marker in direct_markers):
         return True
     marketplace_hosts = (
@@ -215,6 +304,12 @@ def _probable_market_detail_url(value: str) -> bool:
         "tipcars.sk",
         "mobile.de",
         "autoscout24.com",
+        "autoscout24.de",
+        "autoscout24.at",
+        "autoscout24.be",
+        "autoscout24.fr",
+        "autoscout24.it",
+        "otomoto.pl",
     )
     return any(host == item or host.endswith(f".{item}") for item in marketplace_hosts) and bool(path.strip("/"))
 
@@ -224,7 +319,14 @@ def _supported_customer_market_url(value: str) -> bool:
         host = (urlparse(str(value or "").strip()).hostname or "").lower()
     except ValueError:
         return False
-    supported = ("autobazar.eu", "autobazar.sk", "bazos.sk", "bazos.cz")
+    supported = (
+        "autobazar.eu",
+        "autobazar.sk",
+        "bazos.sk",
+        "bazos.cz",
+        "sauto.cz",
+        "tipcars.com",
+    )
     return any(host == item or host.endswith(f".{item}") for item in supported)
 
 
@@ -235,8 +337,23 @@ def _has_linked_market_comparable(
     customer_facing_only: bool = False,
 ) -> bool:
     """Return True when grounded output contains a probable direct ad URL."""
+    return _linked_market_comparable_count(
+        research_text,
+        market_only=market_only,
+        customer_facing_only=customer_facing_only,
+    ) > 0
+
+
+def _linked_market_comparable_count(
+    research_text: str,
+    *,
+    market_only: bool = False,
+    customer_facing_only: bool = False,
+) -> int:
+    """Count unique direct-ad citations, excluding narrative-only stale URLs."""
     in_market_section = False
     in_citation_section = False
+    found: set[str] = set()
     for line in str(research_text or "").splitlines():
         stripped = line.strip()
         if re.match(r"^#{2,4}\s+", stripped):
@@ -253,17 +370,17 @@ def _has_linked_market_comparable(
                 or "citacie z google search" in heading
             )
             continue
-        if not market_only and not in_market_section:
-            continue
-        if customer_facing_only and not in_citation_section:
+        # Only the grounding citation block is authoritative. Narrative links
+        # can contain an expired marketplace ID and are reconciled later.
+        if not in_citation_section:
             continue
         for match in re.finditer(r"\[[^\]\n]+\]\((https?://[^\s)]+(?:\([^\s)]*\)[^\s)]*)*)\)", line, re.IGNORECASE):
             url = match.group(1)
             if _probable_market_detail_url(url) and (
                 not customer_facing_only or _supported_customer_market_url(url)
             ):
-                return True
-    return False
+                found.add(url)
+    return len(found)
 
 
 def _text_event(chunk: str) -> str:
@@ -380,6 +497,9 @@ def multi_model_analysis_events(
             same_key_retries=1,
             same_key_retry_exceptions=(GroundingTransientError,),
         )
+        repository.write_text(
+            slug, "component_identity_research.md", identity_grounded
+        )
         component_identity = normalize_component_identity(identity_grounded)
         status = component_identity.get("identification_status", "UNKNOWN")
         yield _status_event(f"Component identification saved: {status}.")
@@ -427,8 +547,15 @@ def multi_model_analysis_events(
         if grounded:
             web_research_text = grounded
             repository.write_text(slug, "reliability_research.md", grounded)
-            if not _has_linked_market_comparable(grounded, customer_facing_only=True):
-                yield _status_event("No supported SK/CZ comparable links found; running targeted market search...")
+            linked_count = _linked_market_comparable_count(grounded, market_only=True)
+            public_link_count = _linked_market_comparable_count(
+                grounded, customer_facing_only=True
+            )
+            background_link_count = linked_count - public_link_count
+            if linked_count < 3 or public_link_count == 0 or background_link_count == 0:
+                yield _status_event(
+                    "Building a broader SK/CZ and background EU market sample..."
+                )
                 try:
                     market_grounded, _market_key = yield from dependencies.collect_gemini(
                         gemini_key_entries,
@@ -573,12 +700,31 @@ def multi_model_analysis_events(
         research_data,
         listing_context_data,
         component_identity,
+        vin_light_decode,
     )
     try:
         if isinstance(research_data.get("market_comparables"), list):
             comparable_count_before = len(research_data["market_comparables"])
             research_data = reconcile_market_comparable_urls(research_data, web_research_text)
             research_data = deduplicate_market_comparables(research_data, car_info_text)
+            try:
+                exchange_rates = fetch_ecb_reference_rates()
+            except Exception as rate_exc:
+                dependencies.log(f"ECB exchange-rate warning: {rate_exc}")
+                exchange_rates = {}
+            market_benchmark = build_market_benchmark(
+                research_data,
+                car_info_text,
+                exchange_rates=exchange_rates,
+            )
+            repository.write_json(slug, "market_benchmark.json", market_benchmark)
+            validation_warnings.extend(
+                dependencies.validate_json_contract(
+                    "market_benchmark.json",
+                    json.dumps(market_benchmark, ensure_ascii=False),
+                    "market_benchmark.schema.json",
+                )
+            )
             comparable_count_after = len(research_data.get("market_comparables") or [])
             text_research_json_text = dependencies.compact_json_for_prompt(research_data)
             if comparable_count_after < comparable_count_before:

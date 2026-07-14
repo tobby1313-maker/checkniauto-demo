@@ -115,9 +115,11 @@ class AnalysisPipelineInput:
 class AnalysisArtifacts:
     car_info: str = "car_info.md"
     listing_facts: str = "listing_facts.json"
+    component_identity_research: str = "component_identity_research.md"
     component_identity: str = "component_identity.json"
     reliability_research: str = "reliability_research.md"
     market_research: str = "market_research.md"
+    market_benchmark: str = "market_benchmark.json"
     web_research: str = "web_research.md"
     text_research: str = "grok_research.json"
     vision: str = "gemini_vision.json"

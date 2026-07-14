@@ -134,6 +134,19 @@ class BuyerScorecardTests(unittest.TestCase):
         )
         self.assertIsNone(unavailable["scores"]["market_position"])
 
+    def test_thin_market_sample_is_unscored_not_negative(self):
+        research = dict(self.research)
+        research["market_assessment"] = {
+            "available": True,
+            "benchmark_available": False,
+            "benchmark_comparable_count": 2,
+            "price_view": "requires_manual_verification",
+        }
+
+        card = build_buyer_scorecard(research, self.vision, self.risk)
+
+        self.assertIsNone(card["scores"]["market_position"])
+
     def test_only_vehicle_specific_component_evidence_reduces_profile(self):
         baseline = build_buyer_scorecard(self.research, self.vision, self.risk)
         research = dict(self.research)

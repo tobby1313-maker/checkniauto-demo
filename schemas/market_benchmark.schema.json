@@ -1,0 +1,52 @@
+{
+  "title": "Deterministic Market Benchmark",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "method",
+    "minimum_sample_size",
+    "available",
+    "confidence",
+    "benchmark_scope",
+    "classification_threshold_percent",
+    "advertised_price_eur",
+    "median_eur",
+    "price_delta_percent",
+    "price_view",
+    "exchange_rates",
+    "accepted_comparables",
+    "rejected_comparables",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "enum": [1] },
+    "method": { "type": "string", "enum": ["MEDIAN_OF_VERIFIED_TIER_A_B_ASKING_PRICES"] },
+    "minimum_sample_size": { "type": "integer", "minimum": 3 },
+    "available": { "type": "boolean" },
+    "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+    "benchmark_scope": { "type": "string", "enum": ["SK_CZ", "EU_MIXED_BACKGROUND"] },
+    "classification_threshold_percent": { "type": "integer", "enum": [12, 15] },
+    "advertised_price_eur": { "type": ["integer", "null"] },
+    "median_eur": { "type": ["integer", "null"] },
+    "local_market_median_eur": { "type": ["integer", "null"] },
+    "foreign_background_median_eur": { "type": ["integer", "null"] },
+    "price_delta_percent": { "type": ["integer", "number", "null"] },
+    "price_view": {
+      "type": "string",
+      "enum": ["fair", "rather_expensive", "rather_cheap", "requires_manual_verification"]
+    },
+    "exchange_rates": {
+      "type": "object",
+      "required": ["source", "source_url", "rate_date", "rate_details"],
+      "properties": {
+        "source": { "type": "string" },
+        "source_url": { "type": "string" },
+        "rate_date": { "type": "string" },
+        "rate_details": { "type": "object" }
+      }
+    },
+    "accepted_comparables": { "type": "array", "items": { "type": "object" } },
+    "rejected_comparables": { "type": "array", "items": { "type": "object" } },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

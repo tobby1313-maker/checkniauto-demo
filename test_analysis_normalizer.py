@@ -206,7 +206,7 @@ class AnalysisNormalizerTest(unittest.TestCase):
 
         linked = add_verified_comparable_links(markdown, comparables)
 
-        self.assertNotIn("https://www.sauto.cz", linked)
+        self.assertIn("https://www.sauto.cz", linked)
         self.assertIn(
             "[Suzuki Grand Vitara 2.4 automat (r.v. 2011, 100 000 km)]"
             "(https://auto.bazos.sk/inzerat/2/grand-vitara.php)",

@@ -103,8 +103,50 @@ def calculate_hotfixed_risk_score(
         )
         priority_checks.append("Overit SPZ/ECV s dokladmi a predajcom pri komunikacii alebo obhliadke.")
     if concern_checks:
-        _add_rule(applied_rules, "obvious_listing_conflict", 2, "Textova analyza nasla rozpor v udajoch inzeratu.")
-        priority_checks.append("Nechat predajcu vysvetlit rozpory v udajoch pred rezervaciou auta.")
+        missing_flags.add("listing_consistency")
+        priority_checks.append(
+            "Preverit modelom oznacene otazniky v udajoch; bez dvoch konkretnych zdrojov nejde o dokaz rozporu."
+        )
+
+    material_conflicts: list[dict[str, Any]] = []
+    for raw in _as_list(research.get("data_conflicts")):
+        conflict = _as_dict(raw)
+        importance = _clean(conflict.get("importance")).upper()
+        if (
+            importance in {"HIGH", "MEDIUM"}
+            and _clean(conflict.get("source_a"))
+            and _clean(conflict.get("source_b"))
+        ):
+            material_conflicts.append(conflict)
+    high_conflicts = [
+        item
+        for item in material_conflicts
+        if _clean(item.get("importance")).upper() == "HIGH"
+    ]
+    medium_conflicts = [
+        item
+        for item in material_conflicts
+        if _clean(item.get("importance")).upper() == "MEDIUM"
+    ]
+    vin_conflicts = [
+        item for item in high_conflicts if "vin" in _clean(item.get("issue")).lower()
+    ]
+    if high_conflicts:
+        _add_rule(
+            applied_rules,
+            "sourced_listing_conflict_high",
+            4,
+            "Dva konkretne zdroje si odporuju v materialnom udaji inzeratu.",
+        )
+        priority_checks.append("Pred dalsim krokom vyriesit zdrojmi podlozeny rozpor v inzerate.")
+    elif medium_conflicts:
+        _add_rule(
+            applied_rules,
+            "sourced_listing_conflict_medium",
+            2,
+            "Dva konkretne zdroje si odporuju v udaji, ktory treba preverit.",
+        )
+        priority_checks.append("Pred cestou preverit zdrojmi podlozeny rozpor v inzerate.")
 
     year = _extract_int(facts.get("year")) or _extract_year(listing_text)
     mileage = _extract_int(facts.get("mileage")) or _extract_mileage(listing_text)
@@ -137,7 +179,9 @@ def calculate_hotfixed_risk_score(
         priority_checks.append("Doplnit fotky karoserie, interieru, pneu, podvozku a pristrojovky.")
 
     minor_damage = _has_visual_severity(vision_data, {"minor", "medium"})
-    serious_damage = _has_visual_severity(vision_data, {"serious"}) or bool(_as_list(vision_data.get("visible_red_flags")))
+    serious_damage = _has_visual_severity(
+        vision_data, {"serious"}
+    ) or _has_concern_red_flag(vision_data)
     if minor_damage:
         _add_rule(applied_rules, "visible_minor_damage", 1, "Fotografie ukazuju mensie alebo stredne viditelne nedostatky.")
     if serious_damage:
@@ -190,9 +234,20 @@ def calculate_hotfixed_risk_score(
     if serious_damage:
         verdict_status = _cap_verdict(verdict_status, "RESOLVE_BEFORE_PROCEEDING")
         _add_override(overrides, "serious visible red flags", "Serious visible concerns must be resolved before proceeding.")
-    if concern_checks:
+    if high_conflicts:
+        verdict_status = _cap_verdict(verdict_status, "RESOLVE_BEFORE_PROCEEDING")
+        _add_override(
+            overrides,
+            "sourced material listing conflict",
+            "A material conflict supported by two sources must be resolved before proceeding.",
+        )
+    if vin_conflicts:
         verdict_status = _cap_verdict(verdict_status, "HIGH_RISK")
-        _add_override(overrides, "major listing contradiction", "Major listing contradiction makes the listing unsuitable under current conditions.")
+        _add_override(
+            overrides,
+            "sourced VIN identity conflict",
+            "A material VIN conflict supported by two sources requires identity resolution.",
+        )
     if not photos_provided:
         verdict_status = _cap_verdict(verdict_status, "INSPECT_WITH_RESERVATIONS")
         _add_override(overrides, "no photos", "Missing visual evidence requires verification before travelling.")
@@ -241,14 +296,14 @@ def calculate_risk_score(
             vision,
             listing_text,
             output_language=output_language,
-        )  # type: ignore[return-value]
+        )
     except Exception as exc:
         safe_log(f"Risk scorer v2 failed; using safe yellow fallback: {exc}")
         from risk_scorer_v2 import safe_yellow_fallback
 
         return safe_yellow_fallback(
             str(exc), output_language=output_language
-        )  # type: ignore[return-value]
+        )
 
 
 def _add_rule(rules: list[RiskRule], rule: str, points: int, reason: str) -> None:
@@ -354,6 +409,14 @@ def _has_visual_severity(vision: dict[str, Any], severities: set[str]) -> bool:
             severity = _clean(observation.get("severity")).lower()
             if severity in severities:
                 return True
+    return False
+
+
+def _has_concern_red_flag(vision: dict[str, Any]) -> bool:
+    for item in _as_list(vision.get("visible_red_flags")):
+        observation = _as_dict(item)
+        if _clean(observation.get("assessment")).lower() == "concern":
+            return True
     return False
 
 

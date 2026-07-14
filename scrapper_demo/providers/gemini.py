@@ -264,11 +264,12 @@ Postup researchu:
 8. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Rozlis bezny vstupny servis,
    diagnostiku, podmienene opravy a drahy downside; podmienene opravy nikdy
    neprezentuj ako ocakavany sucet.
-9. Najdi najviac 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka
+9. Najdi najviac 3-6 co najblizsich aktualnych porovnatelnych ponuk: rovnaka
    generacia, motor, pohon, prevodovka, podobny rok a najazd. Za najdenu ponuku
    sa povazuje iba konkretny inzerat, ku ktoremu mas priamy verejny URL detailu.
-   Najprv hladaj na Bazos.SK, Autobazar.EU/Autobazar.SK a potom Bazos.CZ.
-   Ponuky z inych CZ/EU portalov pouzi iba ako doplnkovu vzorku trhu.
+   Najprv hladaj na Bazos.SK, Autobazar.EU/Autobazar.SK, Bazos.CZ, Sauto a
+   TipCars. Potom najdi aspon jednu zahranicnu background ponuku na Mobile.de,
+   AutoScout24 alebo Otomoto, ak existuje porovnatelny detail.
    Pri kazdej uved materialny rozdiel. Ponuku bez priameho URL vynechaj; cenu,
    rok, najazd ani vybavu nerekonstruuj zo vseobecnej znalosti alebo zo search
    snippetu bez otvoritelneho detailu. Ak nenajdes ani jednu taku ponuku, napis
@@ -282,6 +283,17 @@ Postup researchu:
 
 Pravidla:
 - Nevymyslaj zdroje ani odkazy.
+- Zdroj o inej generacii, inom motore, prevodovke alebo trhu moze byt nanajvys
+  background. Nepouzivaj ho na interval, naklad ani typicku poruchu analyzovanej
+  kombinacie. Napriklad 2.0 CRDi nepodporuje tvrdenie o 1.6 T-GDi a novsi MHEV
+  Tucson nepodporuje starsiu generaciu TL.
+- Servisny interval pre kvapaliny preber iba z manualu vyrobcu alebo technickeho
+  dokumentu pre rovnaku generaciu, prevodovku, pohon a trh. Vseobecna servisna
+  stranka smie vytvorit iba otazku pre servis, nie pevny interval ani ocakavany
+  naklad. Nepouzivaj slovo Haldex pre Hyundai AWD, ak to nepotvrdzuje OEM zdroj.
+- Zahranicny TSB alebo recall je iba modelovy bod na VIN kontrolu, ak dokument
+  obmedzuje platnost podla trhu, vyrobneho zavodu alebo VIN prefixu. Neoznacuj ho
+  ako otvorenu kampan konkretneho auta bez VIN vysledku.
 - Ak nenajdes spolahlive zdroje, napis "Nenasiel som spolahlivy webovy zdroj".
 - Neanalyzuj fotografie, tento pass je iba textovy web research.
 - Daj prednost praktickym zisteniam pre kupujuceho.
@@ -320,7 +332,7 @@ Format:
 - kampan alebo jasne uved, ze spolahlivy zdroj nebol najdeny - potrebna VIN kontrola - URL
 
 ### Orientacna cena / trh
-- najviac 3-5 najblizsich konkretnych inzeratov; kazdy musi mat cenu, najazd,
+- najviac 3-6 najblizsich konkretnych inzeratov; kazdy musi mat cenu, najazd,
   podstatny rozdiel a priamy Markdown URL detailu; bez priameho URL ponuku vynechaj
 
 ### Naklady: pravdepodobne vs. podmienene
@@ -362,7 +374,10 @@ Pravidla istoty:
 - AMBIGUOUS pouzi, ked zostavaju aspon dva realne varianty.
 - UNKNOWN pouzi, ked zdroje nestacia.
 - Marketingovy nazov ako 7DCT, DSG, Steptronic alebo automat nie je automaticky
-  vyrobny kod prevodovky.
+  vyrobny kod prevodovky. Hodnoty 7DCT, DCT, DSG, automat, HTRAC, AWD a 4x4
+  nikdy nevkladaj do pola `code`; patria do marketing_name, family alebo type.
+- Ak zdroj uvadza viac kodov, napriklad D7UF1/D7GF1, pole `code` nechaj prazdne
+  a oba vloz do candidate_variants. Nevyberaj jeden bez priameho dokazu.
 - VIN prefix alebo modelovy rok sam o sebe nepotvrdzuje presny motor ani prevodovku.
 - Nevymyslaj kod. Pri neistote vrat kandidatov a sposob manualneho overenia.
 - verification_basis musi byt VIN_RECORD, VEHICLE_DOCUMENT alebo PHYSICAL_LABEL
@@ -405,34 +420,42 @@ Najprv z kontextu vytiahni znacku, model, generaciu, motor, vykon, prevodovku,
 pohon, rok a najazd. Potom skutocne vykonaj viac roznych search dopytov; po
 jednom prazdnom dopyte sa nevzdavaj. Pouzi aj bezne aliasy: desatinnu bodku aj
 ciarku v objeme, TCe/TDI/dCi a podobne oznacenia, vykon v kW, 4x4/4WD/AWD.
-Najprv vykonaj site-specific dopyty pre podporovane portaly v tomto poradi:
-auto.bazos.sk, autobazar.eu/autobazar.sk a auto.bazos.cz. Az potom skus Sauto,
-TipCars, polske alebo nemecke portaly ako doplnkovu vzorku trhu. Nehladaj iba
-celu presnu vetu z nazvu inzeratu.
+Najprv vykonaj site-specific dopyty pre SK/CZ portaly v tomto poradi:
+auto.bazos.sk, autobazar.eu/autobazar.sk, auto.bazos.cz, Sauto a TipCars.
+Potom povinne skus rozsirit vzorku o mobile.de, AutoScout24 a Otomoto. Nehladaj
+iba celu presnu vetu z nazvu inzeratu. Cielom su dve oddelene skupiny: konkretne
+SK/CZ ponuky vhodne na odkaz v reporte a zahranicne ponuky iba pre background
+cenovy benchmark.
 
 Pouzi tento rebricek podobnosti:
 - A: rovnaka generacia, motor, prevodovka a pohon; rocnik +/- 2 roky.
 - B: rovnaka generacia, motor a prevodovka; pohon alebo vykon sa moze lisit.
 - C: rovnaka generacia, podobny rocnik, palivo a prevodovka; iny motor iba ked
   sa nenasla ziadna ponuka A/B.
-Najazd moze byt odlisny; rozdiel vzdy napis. Uprednostni ponuky A, potom B, C.
+Najazd moze byt odlisny; rozdiel vzdy napis a uprednostni rozdiel do 35 % alebo
+40 000 km. Uprednostni ponuky A, potom B, C.
 
 Prisne pravidla:
-- Vrat najviac 5 ponuk iba vtedy, ked mas priamy verejny URL detailu konkretneho
-  inzeratu. Stacia aj nedavno indexovane ponuky, ak detail stale zobrazuje cenu
-  a parametre; oznac ich ako nedavno indexovane.
+- Vrat najviac 8 ponuk: najviac 4 SK/CZ a najviac 4 zahranicne. Ponuku vrat iba
+  vtedy, ked mas priamy verejny URL detailu konkretneho inzeratu. Stacia aj
+  nedavno indexovane ponuky, ak detail stale zobrazuje cenu a parametre; oznac
+  ich ako nedavno indexovane.
 - Nepouzivaj domovsku stranku, kategoriu, zoznam vysledkov, vyhladavaci URL,
   technicky clanok ani Google/Vertex redirect ako URL porovnania.
 - Nevymyslaj cenu, rok, najazd, vybavu ani URL zo search snippetu bez
   otvoritelneho detailu.
 - Nevynechaj CZ/PL ponuku iba preto, ze cena nie je v EUR; zachovaj povodnu menu
-  a nevymyslaj prepocet. Ponuky z PL/DE a nepodporovanych portalov oznac jasne
-  ako background pre statistiku trhu, nie ako ponuky na zobrazenie zakaznikovi.
+  a nevymyslaj prepocet. Backend ju neskor prepocita kurzom ECB; pre CZK pouzije
+  30-dnovy priemer dostupnych referencnych pozorovani.
+  Ponuky mimo SK/CZ oznac jasne ako BACKGROUND_EU, nikdy PUBLIC_SK_CZ.
+- Vyluc poskodene/salvage auta, aukcie, export-only ponuky a ceny uvedene iba
+  netto alebo bez DPH. Neznamu DPH nevymyslaj; beznu zobrazenu koncovu cenu
+  zachovaj ako neznamy retailovy zaklad.
 - Ak najdes rovnake vozidlo na viac portaloch, vrat ho iba raz. Zhodny VIN je
   definitivny duplikat; inak porovnaj presny najazd, rok, verziu, cenu a
   predajcu/lokalitu. Nevracaj ani cross-post povodneho analyzovaneho inzeratu.
-- Kazdy platny riadok musi byt presne v tvare:
-  `- [model/verzia (rok, najazd)](priamy-url-detailu) — cena mena — A/B/C: materialny rozdiel.`
+- Kazdy platny riadok musi obsahovat Markdown odkaz, cenu v povodnej mene,
+  triedu podobnosti A/B/C, scope PUBLIC_SK_CZ/BACKGROUND_EU a materialny rozdiel.
 - Ak nenajdes ani jeden priamy detail inzeratu, vrat iba vetu:
   `Presne porovnatelne inzeraty s priamym URL neboli najdene.`
 - Nevypisuj technicke rizika, servis, VIN, zvolavacie akcie ani vseobecne ceny.

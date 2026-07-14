@@ -31,6 +31,7 @@ WMI_MAP = {
     "ZLA": "Lancia",
     # Spain/Czech/Sweden/UK
     "VSS": "Seat", "VS1": "Seat",
+    "TMA": "Hyundai Motor Manufacturing Czech",
     "TMB": "Skoda", "TMP": "Skoda", "TM9": "Skoda",
     "VX1": "Skoda", "VXK": "Skoda",
     "YV1": "Volvo", "YV4": "Volvo", "YVK": "Volvo",
@@ -125,6 +126,16 @@ REGION_MAP = {
     'X': 'Russia/Eastern Europe',
     'Y': 'Sweden/Scandinavia',
     'Z': 'Italy',
+}
+
+# First-character regions are broad ISO zones and are not precise enough for
+# several Central-European WMIs beginning with "T".
+WMI_REGION_MAP = {
+    "TMA": "Czech Republic",
+    "TMB": "Czech Republic",
+    "TMP": "Czech Republic",
+    "TM9": "Czech Republic",
+    "TRU": "Hungary",
 }
 
 PLANT_MAP = {

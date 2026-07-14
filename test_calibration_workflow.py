@@ -49,6 +49,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
             "drivetrain": {"type": "FWD", "resolution": "PROBABLE"},
         }
         (job / "listing_facts.json").write_text(json.dumps(listing_facts), encoding="utf-8")
+        (job / "component_identity_research.md").write_text("# Identity grounding\n", encoding="utf-8")
         (job / "component_identity.json").write_text(json.dumps(component_identity), encoding="utf-8")
         (job / "reliability_research.md").write_text("# Reliability\n", encoding="utf-8")
         (job / "market_research.md").write_text("# Market\n", encoding="utf-8")
@@ -98,6 +99,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("images/01.jpg", names)
             self.assertIn("analysis_images/overview.jpg", names)
             self.assertIn("listing_facts.json", names)
+            self.assertIn("component_identity_research.md", names)
             self.assertIn("component_identity.json", names)
             self.assertIn("reliability_research.md", names)
             self.assertIn("market_research.md", names)

@@ -80,7 +80,11 @@ def _market_score(research: dict[str, Any]) -> int | None:
         item for item in _list(research.get("market_comparables"))
         if isinstance(item, dict) and item.get("verified_url") is True and _text(item.get("source_url"))
     ]
-    if market.get("available") is not True or not comparables:
+    if (
+        market.get("available") is not True
+        or market.get("benchmark_available") is False
+        or not comparables
+    ):
         return None
     price_view = _fold(market.get("price_view"))
     base = {
@@ -90,7 +94,10 @@ def _market_score(research: dict[str, Any]) -> int | None:
         "unclear": 50,
         "requires_manual_verification": 42,
     }.get(price_view, 58)
-    base += min(8, max(0, len(comparables) - 1) * 3)
+    sample_size = market.get("benchmark_comparable_count")
+    if not isinstance(sample_size, int):
+        sample_size = len(comparables)
+    base += min(8, max(0, sample_size - 1) * 3)
     return _clamp(base)
 
 

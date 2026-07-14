@@ -106,6 +106,48 @@ class ComponentIdentityTests(unittest.TestCase):
 
         self.assertEqual(identity["sources"][0]["source_url"], "")
 
+    def test_generic_marketing_labels_are_not_kept_as_exact_codes(self):
+        identity = normalize_component_identity(
+            {
+                "identification_status": "PROBABLE",
+                "generation": {"name": "Tucson TL", "resolution": "PROBABLE"},
+                "engine": {"code": "G4FJ", "resolution": "PROBABLE"},
+                "transmission": {
+                    "marketing_name": "7-speed DCT",
+                    "code": "7DCT",
+                    "resolution": "PROBABLE",
+                },
+                "drivetrain": {
+                    "type": "AWD",
+                    "code": "HTRAC",
+                    "resolution": "PROBABLE",
+                },
+            }
+        )
+
+        self.assertEqual(identity["engine"]["code"], "G4FJ")
+        self.assertEqual(identity["transmission"]["code"], "")
+        self.assertEqual(identity["drivetrain"]["code"], "")
+
+    def test_grounding_citations_restore_source_urls_and_refs_do_not_dangle(self):
+        identity = normalize_component_identity(
+            '{"identification_status":"PROBABLE",'
+            '"generation":{"name":"Tucson TL","resolution":"PROBABLE","evidence_refs":["src_20"]},'
+            '"engine":{"code":"G4FJ","resolution":"PROBABLE","evidence_refs":["src_20"]},'
+            '"transmission":{"marketing_name":"7DCT","resolution":"PROBABLE"},'
+            '"sources":[{"source_id":"src_20","source_name":"Official Hyundai Tucson technical bulletin","source_url":"https://vertexaisearch.cloud.google.com/redirect/x"}]}'
+            '\n\n### Citacie z Google Search\n'
+            '- [Official Hyundai Tucson technical bulletin](https://example.test/hyundai-tsb)'
+        )
+
+        self.assertEqual(identity["sources"][0]["source_id"], "src_20")
+        self.assertEqual(
+            identity["sources"][0]["source_url"],
+            "https://example.test/hyundai-tsb",
+        )
+        preserved = {item["source_id"] for item in identity["sources"]}
+        self.assertTrue(set(identity["engine"]["evidence_refs"]) <= preserved)
+
 
 if __name__ == "__main__":
     unittest.main()
