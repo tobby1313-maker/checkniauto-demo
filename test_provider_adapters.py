@@ -159,6 +159,37 @@ class ProviderAdapterTest(unittest.TestCase):
             "application/json",
         )
 
+    def test_gemini_exposes_sanitized_model_finish_and_usage_diagnostics(self):
+        response = FakeResponse(
+            200,
+            lines=[
+                b'data: {"candidates":[{"content":{"parts":[{"text":"complete"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":4,"thoughtsTokenCount":2,"totalTokenCount":18}}',
+                b"data: [DONE]",
+            ],
+        )
+        events = []
+        with (
+            patch.object(gemini.requests, "post", return_value=response),
+            patch.object(gemini.default_tracker, "record_request"),
+            patch.object(gemini, "safe_log"),
+        ):
+            chunks = list(
+                gemini.stream_generate(
+                    "secret-key",
+                    "system",
+                    "user",
+                    model="model/vision",
+                    phase="vision",
+                    diagnostics_callback=events.append,
+                )
+            )
+
+        self.assertEqual(chunks, ["complete"])
+        self.assertEqual(events[-1]["model"], "model/vision")
+        self.assertEqual(events[-1]["finish_reason"], "STOP")
+        self.assertEqual(events[-1]["actual_total_tokens"], 18)
+        self.assertNotIn("api_key", events[-1])
+
     def test_generation_profile_sets_phase_specific_limits_and_legacy_rollback(self):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
             self.assertEqual(
@@ -240,15 +271,27 @@ class ProviderAdapterTest(unittest.TestCase):
                 b"data: [DONE]",
             ],
         )
+        events = []
         with (
             patch.object(gemini.requests, "post", return_value=response),
             patch.object(gemini.default_tracker, "record_request") as record_request,
             patch.object(gemini, "safe_log"),
         ):
             with self.assertRaises(ModelOutputLimitError):
-                list(gemini.stream_generate("key", "system", "user", phase="vision"))
+                list(
+                    gemini.stream_generate(
+                        "key",
+                        "system",
+                        "user",
+                        phase="vision",
+                        diagnostics_callback=events.append,
+                    )
+                )
 
         self.assertEqual(record_request.call_args.kwargs["status"], "truncated")
+        self.assertEqual(events[-1]["status"], "truncated")
+        self.assertEqual(events[-1]["finish_reason"], "MAX_TOKENS")
+        self.assertEqual(events[-1]["output"], '{"partial": true')
 
     def test_grok_auth_error_is_not_reported_as_generic_api_error(self):
         response = FakeResponse(401, text="invalid key")

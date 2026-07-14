@@ -10,7 +10,7 @@ import json
 import os
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from scrapper_demo.contracts import RiskOverride, RiskRule, RiskScoreResult
 from scrapper_demo.logging import safe_log
@@ -159,7 +159,19 @@ def calculate_hotfixed_risk_score(
     if service_missing:
         priority_checks.append("Vyziadat servisnu historiu, faktury a intervaly vymen.")
 
-    photos_provided = _truthy(vision_data.get("photos_provided"))
+    vision_parse_error = vision_data.get("_parse_error") is True
+    photos_listed = bool(
+        re.search(
+            r"(?:downloaded|stiahnut[eé]|fotograf(?:ie|ií)|photos?)\D{0,16}([1-9]\d*)",
+            listing_text,
+            re.IGNORECASE,
+        )
+    )
+    vision_analysis_unavailable = (
+        _clean(vision_data.get("analysis_status")).lower() == "unavailable"
+        or (vision_parse_error and photos_listed)
+    )
+    photos_provided = _truthy(vision_data.get("photos_provided")) or vision_analysis_unavailable
     visual_verdict = _clean(vision_data.get("visual_verdict")).lower()
     photo_limitations = _as_list(vision_data.get("photo_limitations"))
     material_photo_limitations = [
@@ -167,13 +179,24 @@ def calculate_hotfixed_risk_score(
         for limitation in photo_limitations
         if not _is_benign_photo_limitation(limitation)
     ]
-    weak_photos = (
+    weak_photos = not vision_analysis_unavailable and (
         not photos_provided
         or bool(material_photo_limitations)
         or "nedost" in visual_verdict
         or "insufficient" in visual_verdict
     )
-    if weak_photos:
+    if vision_analysis_unavailable:
+        missing_flags.add("vision_analysis")
+        _add_rule(
+            applied_rules,
+            "vision_analysis_unavailable",
+            0,
+            "Fotografie boli poskytnute, ale automaticka vizualna analyza nebola spolahlivo dokoncena.",
+        )
+        priority_checks.append(
+            "Fotografie su v inzerate dostupne; zopakovat automaticku analyzu alebo ich preverit manualne."
+        )
+    elif weak_photos:
         missing_flags.add("photos")
         _add_rule(applied_rules, "missing_or_weak_photos", 1, "Fotografie chybaju alebo maju obmedzenu vypovednu hodnotu.")
         priority_checks.append("Doplnit fotky karoserie, interieru, pneu, podvozku a pristrojovky.")
@@ -248,14 +271,21 @@ def calculate_hotfixed_risk_score(
             "sourced VIN identity conflict",
             "A material VIN conflict supported by two sources requires identity resolution.",
         )
-    if not photos_provided:
+    if vision_analysis_unavailable:
+        verdict_status = _cap_verdict(verdict_status, "INSPECT_WITH_RESERVATIONS")
+        _add_override(
+            overrides,
+            "vision analysis unavailable",
+            "Unavailable automated visual evidence prevents a green result but is not a vehicle defect.",
+        )
+    elif not photos_provided:
         verdict_status = _cap_verdict(verdict_status, "INSPECT_WITH_RESERVATIONS")
         _add_override(overrides, "no photos", "Missing visual evidence requires verification before travelling.")
 
     if research.get("_parse_error"):
         missing_flags.add("text_research_json")
         priority_checks.append("Textova analyza nevratila validny JSON; vysledok brat konzervativne.")
-    if vision_data.get("_parse_error"):
+    if vision_parse_error and not vision_analysis_unavailable:
         missing_flags.add("vision_json")
         priority_checks.append("Vizuálna analyza nevratila validny JSON; fotografie overit manualne.")
 
@@ -291,18 +321,22 @@ def calculate_risk_score(
     try:
         from risk_scorer_v2 import calculate_risk_score_v2
 
-        return calculate_risk_score_v2(
-            text_research,
-            vision,
-            listing_text,
-            output_language=output_language,
+        return cast(
+            RiskScoreResult,
+            calculate_risk_score_v2(
+                text_research,
+                vision,
+                listing_text,
+                output_language=output_language,
+            ),
         )
     except Exception as exc:
         safe_log(f"Risk scorer v2 failed; using safe yellow fallback: {exc}")
         from risk_scorer_v2 import safe_yellow_fallback
 
-        return safe_yellow_fallback(
-            str(exc), output_language=output_language
+        return cast(
+            RiskScoreResult,
+            safe_yellow_fallback(str(exc), output_language=output_language),
         )
 
 

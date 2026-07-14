@@ -15,6 +15,7 @@
   ],
   "properties": {
     "source_role": { "type": "string", "pattern": "vision" },
+    "analysis_status": { "type": "string", "enum": ["completed", "unavailable", "not_provided"] },
     "photos_provided": { "type": "boolean" },
     "photo_coverage": {
       "type": "object",

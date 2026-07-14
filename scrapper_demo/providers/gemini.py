@@ -6,7 +6,8 @@ import json
 import os
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import requests
 
@@ -77,6 +78,19 @@ GROUNDING_CONTEXT_MAX_CHARS = 6000
 GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 GROUNDING_RESOLVE_TIMEOUT = 6     # seconds per redirect resolution (HEAD request)
 GROUNDING_RESOLVE_MAX_REDIRECTS = 5
+
+
+def _emit_provider_diagnostics(
+    callback: Callable[[dict[str, Any]], None] | None,
+    event: dict[str, Any],
+) -> None:
+    if not callback:
+        return
+    try:
+        callback(event)
+    except Exception:
+        # Diagnostics must never change provider behavior.
+        pass
 
 
 def _generation_settings(
@@ -378,6 +392,15 @@ Pravidla istoty:
   nikdy nevkladaj do pola `code`; patria do marketing_name, family alebo type.
 - Ak zdroj uvadza viac kodov, napriklad D7UF1/D7GF1, pole `code` nechaj prazdne
   a oba vloz do candidate_variants. Nevyberaj jeden bez priameho dokazu.
+- Presny kod prevodovky musi byt explicitne kompatibilny aj s uvedenym pohonom.
+  Zdroj pre 2WD/FWD variant nesmie potvrdit prevodovku pre AWD/4x4 a naopak.
+- Kazdy neprazdny presny kod motora alebo prevodovky musi mat v `evidence_refs`
+  aspon jeden source_id zdroja, ktory priamo podporuje presnu kombinaciu motora,
+  prevodovky a pohonu. Bez takeho zdroja kod presun do candidate_variants a
+  pole `code` nechaj prazdne.
+- HIGH confidence pre presny kod pouzi iba pri oficialnom/OEM katalogu,
+  dielenskej prirucke alebo rovnocennom technickom dokumente s presnou
+  kombinaciou. Recenzie, bazarove katalogy a Scribd samy o sebe nestacia.
 - VIN prefix alebo modelovy rok sam o sebe nepotvrdzuje presny motor ani prevodovku.
 - Nevymyslaj kod. Pri neistote vrat kandidatov a sposob manualneho overenia.
 - verification_basis musi byt VIN_RECORD, VEHICLE_DOCUMENT alebo PHYSICAL_LABEL
@@ -469,14 +492,14 @@ Kontext analyzovaneho vozidla:
 """
 
 
-def _extract_interaction_text_and_citations(data: dict) -> str:
+def _extract_interaction_text_and_citations(data: dict[str, Any]) -> str:
     """Extract model text and URL citations from an Interactions API response."""
-    text_blocks = []
-    seen_texts = set()
-    citations = []
-    seen_urls = set()
+    text_blocks: list[str] = []
+    seen_texts: set[str] = set()
+    citations: list[str] = []
+    seen_urls: set[str] = set()
 
-    def add_text(value):
+    def add_text(value: Any) -> None:
         if not isinstance(value, str) or not value.strip():
             return
         text = value.strip()
@@ -485,7 +508,7 @@ def _extract_interaction_text_and_citations(data: dict) -> str:
         seen_texts.add(text)
         text_blocks.append(text)
 
-    def add_annotations(annotations):
+    def add_annotations(annotations: Any) -> None:
         if not isinstance(annotations, list):
             return
         for annotation in annotations:
@@ -748,6 +771,7 @@ def _call_gemini(
     phase: str | None = None,
     max_output_tokens: int | None = None,
     temperature: float | None = None,
+    diagnostics_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> Iterator[str]:
     """Call Google Gemini API with proper system_instruction support.
     
@@ -766,7 +790,7 @@ def _call_gemini(
     model_candidates = _ordered_unique_models(model_to_use, fallback_models or GEMINI_FALLBACK_MODELS)
 
     # Build content parts - start with text
-    content_parts = [{"text": user_content}]
+    content_parts: list[dict[str, Any]] = [{"text": user_content}]
     
     # Add images if provided (multimodal input)
     if image_data_list:
@@ -783,7 +807,7 @@ def _call_gemini(
         max_output_tokens=max_output_tokens,
         temperature=temperature,
     )
-    generation_config = {
+    generation_config: dict[str, Any] = {
         "temperature": generation_settings["temperature"],
         "topP": 0.95,
         "topK": 40,
@@ -791,7 +815,7 @@ def _call_gemini(
     }
     if phase in {"text_research", "vision"}:
         generation_config["responseMimeType"] = "application/json"
-    payload = {
+    payload: dict[str, Any] = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]
         },
@@ -847,6 +871,15 @@ def _call_gemini(
                 f"DEBUG: Gemini API model {candidate_model} status {response.status_code}, "
                 f"response preview: {error_text[:200] if error_text else '(streaming response)'}"
             )
+            if response.status_code != 200:
+                _emit_provider_diagnostics(
+                    diagnostics_callback,
+                    {
+                        "model": candidate_model,
+                        "status": f"http_{response.status_code}",
+                        "http_status": response.status_code,
+                    },
+                )
 
             if not (
                 _is_retryable_gemini_model_error(response.status_code, error_text)
@@ -922,6 +955,7 @@ def _call_gemini(
                     phase=phase,
                     max_output_tokens=max_output_tokens,
                     temperature=temperature,
+                    diagnostics_callback=diagnostics_callback,
                 )
                 return
 
@@ -944,6 +978,9 @@ def _call_gemini(
                 "Skus znova o par minut alebo pouzi zalozny Gemini kluc."
                 + (f"\n\nDetail Gemini: {detail}" if detail else "")
             )
+
+        if response is None:
+            raise ConnectionError("Google Gemini did not return an HTTP response.")
 
         if response.status_code == 429:
             # Check if it's actually a quota/rate limit or something else
@@ -982,6 +1019,7 @@ def _call_gemini(
                         phase=phase,
                         max_output_tokens=max_output_tokens,
                         temperature=temperature,
+                        diagnostics_callback=diagnostics_callback,
                     )
                     return
 
@@ -1141,6 +1179,23 @@ def _call_gemini(
             actual_total_tokens=actual_total_tokens,
             status="truncated" if finish_reason_seen else "success",
             duration_ms=round((time.perf_counter() - started_at) * 1000),
+        )
+        _emit_provider_diagnostics(
+            diagnostics_callback,
+            {
+                "model": request_model,
+                "status": "truncated" if finish_reason_seen else "success",
+                "http_status": response.status_code,
+                "finish_reason": finish_reason_seen or "STOP",
+                "actual_input_tokens": actual_prompt_tokens,
+                "actual_output_tokens": actual_output_tokens,
+                "actual_thinking_tokens": actual_thinking_tokens,
+                "actual_total_tokens": actual_total_tokens,
+                "output_chars": len(full_text),
+                # The caller may retain this only in a protected debugging
+                # artifact. It is never written to telemetry or public output.
+                "output": full_text,
+            },
         )
         if finish_reason_seen:
             raise ModelOutputLimitError(

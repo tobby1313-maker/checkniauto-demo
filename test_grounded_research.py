@@ -171,6 +171,24 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(context["year"], "2016")
         self.assertEqual(context["transmission"], "7-st. automatická")
         self.assertEqual(context["power"], "130 kW")
+
+    def test_listing_context_extracts_unlabelled_bazos_toyota_facts(self):
+        context = web_server._listing_context_object(
+            "# TOYOTA RAV4 122 000km\n\n"
+            "**Source:** https://auto.bazos.sk/inzerat/191944776/example.php\n"
+            "**Scraped:** 2026-07-14 15:24\n\n"
+            "## Specifications\n\n"
+            "| Parameter | Value |\n|---|---|\n"
+            "| Engine Power | 112 kW |\n| Fuel | Benzín |\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "Predám Toyotu RAV4 2008 2.0l benzin 112 kw s automatickou "
+            "prevodovkou a štvorkolkou, najazdené len 122000 km"
+        )
+
+        self.assertEqual(context["year"], "2008")
+        self.assertEqual(context["mileage_km"], 122000)
+        self.assertEqual(context["engine"], "2.0l")
+        self.assertIn("automat", context["transmission"].lower())
         self.assertEqual(context["drive"], "4x4")
 
     def test_final_compaction_preserves_expanded_research_limits(self):

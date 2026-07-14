@@ -289,17 +289,6 @@ def normalize_component_identity(value: Any) -> dict[str, Any]:
                 f"{component_name} downgraded to PROBABLE: no direct vehicle-specific verification basis."
             )
 
-    substantive = (result["generation"], result["engine"], result["transmission"])
-    resolutions = [component["resolution"] for component in substantive]
-    if all(resolution == "UNKNOWN" for resolution in resolutions):
-        result["identification_status"] = "UNKNOWN"
-    elif "AMBIGUOUS" in resolutions or "UNKNOWN" in resolutions:
-        result["identification_status"] = "AMBIGUOUS"
-    elif all(resolution == "VERIFIED" for resolution in resolutions):
-        result["identification_status"] = "VERIFIED"
-    else:
-        result["identification_status"] = "PROBABLE"
-
     referenced_ids = list(
         dict.fromkeys(
             reference
@@ -346,6 +335,56 @@ def normalize_component_identity(value: Any) -> dict[str, Any]:
             for reference in result[component_name]["evidence_refs"]
             if reference in preserved_ids
         ]
+
+    # Do this only after dangling source references have been removed. A precise
+    # manufacturing code without a real component-level source is an unverified
+    # candidate, not the selected identity used by reliability research.
+    for component_name, candidate_key in (
+        ("engine", "engine_code"),
+        ("transmission", "transmission_code"),
+    ):
+        component = result[component_name]
+        exact_code = _text(component.get("code"), 120)
+        if (
+            not exact_code
+            or component.get("verification_basis") in DIRECT_VERIFICATION_BASES
+            or component.get("evidence_refs")
+        ):
+            continue
+        candidate = {
+            "engine_code": exact_code if candidate_key == "engine_code" else "",
+            "transmission_code": exact_code if candidate_key == "transmission_code" else "",
+            "reason": f"Unreferenced {component_name} code; verify against the exact drivetrain/application.",
+        }
+        if not any(
+            item.get(candidate_key) == exact_code
+            for item in result["candidate_variants"]
+        ):
+            result["candidate_variants"].append(candidate)
+        component["code"] = ""
+        if not any(
+            _text(component.get(key))
+            for key in ("name", "marketing_name", "family", "type")
+        ):
+            component["resolution"] = "AMBIGUOUS"
+            component["confidence"] = "LOW"
+        elif component["confidence"] == "HIGH":
+            component["confidence"] = "MEDIUM"
+        result["notes"].append(
+            f"{component_name} code {exact_code} moved to candidates: no valid evidence_refs support the exact application."
+        )
+
+    substantive = (result["generation"], result["engine"], result["transmission"])
+    resolutions = [component["resolution"] for component in substantive]
+    if all(resolution == "UNKNOWN" for resolution in resolutions):
+        result["identification_status"] = "UNKNOWN"
+    elif "AMBIGUOUS" in resolutions or "UNKNOWN" in resolutions:
+        result["identification_status"] = "AMBIGUOUS"
+    elif all(resolution == "VERIFIED" for resolution in resolutions):
+        result["identification_status"] = "VERIFIED"
+    else:
+        result["identification_status"] = "PROBABLE"
+    result["candidate_variants"] = result["candidate_variants"][:5]
     result["notes"] = result["notes"][:6]
     return result
 

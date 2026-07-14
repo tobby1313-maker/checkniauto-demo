@@ -123,6 +123,7 @@ class AnalysisArtifacts:
     web_research: str = "web_research.md"
     text_research: str = "grok_research.json"
     vision: str = "gemini_vision.json"
+    vision_provider_attempts: str = "vision_provider_attempts.json"
     risk_score: str = "risk_score.json"
     diagnostics: str = "analysis_diagnostics.json"
     raw_report: str = "analysis_result_raw.md"

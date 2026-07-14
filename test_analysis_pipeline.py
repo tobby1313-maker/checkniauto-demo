@@ -6,8 +6,11 @@ from pathlib import Path
 
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
+    _lock_report_evidence_claims,
     _merge_backend_evidence,
     _research_parse_failed,
+    _unavailable_vision_payload,
+    _valid_vision_payload,
     multi_model_analysis_events,
 )
 from scrapper_demo.storage import ListingJobRepository
@@ -41,6 +44,110 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_unavailable_vision_preserves_that_photos_exist(self):
+        payload = _unavailable_vision_payload(
+            {
+                "coverage_mode": "detail_all",
+                "original_count": 7,
+                "selected_count": 7,
+                "full_gallery_included": True,
+            },
+            output_language="sk",
+            reason="JSONDecodeError",
+        )
+
+        self.assertTrue(payload["photos_provided"])
+        self.assertEqual(payload["analysis_status"], "unavailable")
+        self.assertEqual(payload["photo_coverage"]["original_count"], 7)
+        self.assertTrue(_valid_vision_payload(payload))
+
+    def test_unverified_market_and_missing_vin_claims_are_locked(self):
+        report = """# Toyota RAV4
+
+## 📋 Rýchle zhrnutie
+- **Cena:** podozrivo nízka - môže skrývať poruchu.
+- **Najväčšie riziko:** Chýbajúci VIN.
+
+### Skóre analýzy
+| Oblasť | Skóre |
+|---|---:|
+| Celkové skóre | 75/100 |
+
+## 💰 Cena a vyjednávanie
+Cena 6 900 EUR je podozrivo lacná a na spodnej hranici trhu.
+
+## ❌ Zápory / riziká
+- **Podozrivo nízka cena:** Môže indikovať skrytú vadu.
+"""
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "listing_facts": {"price": "6900", "vin": ""},
+                "vin_check": {"vin_present": False},
+                "market_assessment": {
+                    "benchmark_available": False,
+                    "benchmark_comparable_count": 0,
+                    "advertised_price_eur": 6900,
+                },
+                "market_comparables": [],
+            },
+            {"applied_rules": [{"rule": "vin_missing_request_before_viewing", "points": 0}]},
+            output_language="sk",
+        )
+
+        self.assertNotIn("75/100", locked)
+        self.assertNotIn("podozrivo nízka", locked.lower())
+        self.assertNotIn("chýbajúci vin", locked.lower())
+        self.assertIn("nemožno označiť za lacnú", locked)
+    def test_public_report_drops_stray_numeric_or_calibration_score_text(self):
+        locked = _lock_report_evidence_claims(
+            "# Report\n\nOverall score: 74/100.\n\nThe scorer is UNCALIBRATED.\n",
+            {
+                "market_assessment": {
+                    "benchmark_available": True,
+                    "benchmark_comparable_count": 3,
+                    "benchmark_median_eur": 10000,
+                }
+            },
+            {},
+            output_language="en",
+        )
+
+        self.assertNotIn("74/100", locked)
+        self.assertNotIn("UNCALIBRATED", locked)
+
+    def test_unsourced_model_risk_cannot_claim_this_car_has_the_defect(self):
+        merged = _merge_backend_evidence(
+            {
+                "listing_facts": {"year": "2008", "mileage": "122000 km"},
+                "technical_risks": [
+                    {
+                        "component": "1AZ-FE",
+                        "issue": "Oil consumption",
+                        "evidence_category": "MODEL_LEVEL_RISK",
+                        "specific_vehicle_evidence": "Age and mileage make failure likely.",
+                        "confidence": "HIGH",
+                        "source_url": "https://example.test/owner-blog",
+                        "typical_trigger_or_interval": "Usually fails after 130000 km",
+                    }
+                ],
+                "sources_used": [
+                    {
+                        "source_url": "https://example.test/owner-blog",
+                        "source_type": "OWNER_FORUM",
+                    }
+                ],
+            },
+            {"year": "2008", "mileage": "122000 km"},
+            {},
+            {},
+        )
+
+        risk = merged["technical_risks"][0]
+        self.assertEqual(risk["specific_vehicle_evidence"], "")
+        self.assertEqual(risk["confidence"], "Stredna")
+        self.assertNotIn("130000", risk["typical_trigger_or_interval"])
+
     def test_missing_vin_overrides_model_invalid_vin_hallucination(self):
         merged = _merge_backend_evidence(
             {
@@ -252,6 +359,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             self.assertTrue(repository.read_text("sample", "market_research.md"))
             self.assertTrue(repository.read_text("sample", "grok_research.json"))
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
+            self.assertTrue(repository.read_text("sample", "vision_provider_attempts.json"))
             self.assertTrue(repository.read_text("sample", "risk_score.json"))
             self.assertIn(
                 "buyer_scorecard",

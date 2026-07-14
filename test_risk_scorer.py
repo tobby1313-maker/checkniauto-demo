@@ -418,6 +418,51 @@ class RiskScorerTest(unittest.TestCase):
         self.assertEqual(result["evidence_quality"], "LOW")
         self.assertLessEqual(result["screening_score"], 89)
 
+    def test_truncated_vision_with_listing_photos_is_provider_failure_not_missing_photos(self):
+        research = _json(
+            {
+                "listing_facts": {"vin": "TESTVIN123456789", "service_history": "full"},
+                "vin_check": {"vin_present": True, "format_check": "ok"},
+            }
+        )
+
+        result = calculate_risk_score(
+            research,
+            '{"photos_provided": true, "confidence": "HIGH',
+            "Downloaded images: 7",
+        )
+
+        self.assertIn("vision_analysis_unavailable", _rules(result))
+        self.assertNotIn("missing_or_weak_photos", _rules(result))
+        self.assertNotIn("photos", result["missing_data_flags"])
+        self.assertIn("vision_analysis", result["missing_data_flags"])
+        self.assertEqual(result["decision_status"], "INSPECT_WITH_RESERVATIONS")
+        self.assertTrue(any("manualne" in action for action in result["buyer_priority_checks"]))
+        self.assertFalse(any("Doplnit fotky" in action for action in result["buyer_priority_checks"]))
+
+    def test_v2_unavailable_vision_does_not_claim_photos_are_missing(self):
+        result = calculate_risk_score_v2(
+            _json(
+                {
+                    "listing_facts": {"vin": "TESTVIN123456789", "service_history": "full"},
+                    "vin_check": {"vin_present": True, "format_check": "ok"},
+                }
+            ),
+            _json(
+                {
+                    "analysis_status": "unavailable",
+                    "photos_provided": True,
+                    "photo_limitations": ["Provider output was truncated."],
+                }
+            ),
+        )
+
+        codes = {item["code"] for item in result["missing_information"]}
+        self.assertIn("VISION_ANALYSIS_UNAVAILABLE", codes)
+        self.assertNotIn("NO_USABLE_PHOTOS", codes)
+        self.assertEqual(result["evidence_quality"], "LOW")
+        self.assertEqual(result["decision_status"], "INSPECT_WITH_RESERVATIONS")
+
     def test_v2_model_level_risks_do_not_escalate(self):
         result = calculate_risk_score_v2(
             _json({

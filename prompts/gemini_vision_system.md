@@ -77,6 +77,7 @@ Return strict JSON matching this schema:
 ```json
 {
   "source_role": "vision",
+  "analysis_status": "completed",
   "photos_provided": true,
   "photo_coverage": {
     "coverage_mode": "detail_all | full_gallery_overview | detail_limited | raw_limited | none",

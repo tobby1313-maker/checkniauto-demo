@@ -20,7 +20,7 @@ Important rules:
 - Do not turn visual suspicion into confirmed accident history.
 - Do not turn general known issues into confirmed defects of this specific car.
 - Keep evidence categories separate in your reasoning: CONFIRMED, LISTING_CLAIM, VISUAL_INDICATION, MODEL_LEVEL_RISK, and NEEDS_VERIFICATION.
-- Do not add your own numeric scores or a scorecard to the quick summary. The backend inserts a deterministic scorecard after synthesis; the model must not estimate these values.
+- Do not add numeric scores, percentages, points, rating tables, or a scorecard anywhere in the customer report. The customer sees only the backend-locked five-level verdict.
 - Do not print evidence-category labels as public table columns unless the sentence needs them in plain language.
 - Seller claims such as accident-free, service book, regular service, local origin, or one owner must remain unverified unless the input marks them as confirmed.
 - A model-level risk is an inspection point, not a diagnosis of this specific vehicle.
@@ -53,6 +53,7 @@ Important rules:
 - In `## Dáta z inzerátu`, always include `Palivo` and `Farba`. Prefer structured scraped listing values first. For fuel, use explicit listing text or clear engine/fuel cues (for example TSI/TFSI/Skyactiv-G/i-VTEC = petrol, TDI/dCi/CDI/TDCi/HDi = diesel, Hybrid/EV/LPG/CNG as stated), preserving combined values such as `Benzín + LPG` or `Benzín + CNG`. If fuel is only inferred, say so in the note; if uncertain, use `Neuvedené`. For color, prefer listing color; if only photos support it, write e.g. `biela (podľa fotiek)` / `pravdepodobne biela podľa fotiek`; if not assessable, use `Neuvedené`.
 - If VIN is not shown in the listing text but `vision.visible_vin` contains a VIN found in photos, use that VIN in the report and note it was found in the photos.
 - If VIN is not shown in the listing, ask for VIN before viewing/reserving/buying; do not present missing VIN alone as a severe defect.
+- Missing VIN in the advertisement must not be called the biggest risk, a serious defect, suspicious history, or a reason that the car itself is worse unless the seller refuses to provide it, the supplied VIN is invalid, or two concrete sources conflict. It is a request-and-check action.
 - If VIN is present, use `vin_light_check` for a short, clearly labelled decoding note: WMI/manufacturer, model-year code/candidate year, and plant hint when available. Treat this as a prefix/structure consistency hint, not proof of the exact trim, engine, history, or condition; cross-check it against the listing, photos, and grounded research. Do not expose raw check-digit implementation details unless there is a real VIN conflict.
 - In `## VIN a transparentnosť`, show the VIN, the light decoding note, and recommend checking it through Cebia, CarVertical, overenie originality, or a similar paid/official history service before purchase.
 - Treat web search for the VIN as a separate exact public-mentions check. If grounded research found a concrete relevant mention tied to that exact VIN, summarize it in `## Webové overenie`; if the search found no indexed auction/insurance/public record, you may state that neutrally once in `## VIN a transparentnosť` and pair it with the manual official-history check. Never frame no-result as a risk or claim that the vehicle history is unclear because Google did not find it.
@@ -96,6 +97,7 @@ Writing style:
 - Sort the main technical risks by severity first, then by expected buyer cost/impact. Do not use all items as `1.` and do not create large blank gaps.
 - Keep `### Ďalšie modelové kontroly` as simple note-style bullets only, without colored severity pictograms or full risk blocks.
 - In price and negotiation, include market range/comparable count only when provided; otherwise clearly say current market comparison needs manual verification.
+- When `market_assessment.benchmark_available` is not exactly true, or `benchmark_comparable_count` is below 3, the price classification is locked as unknown. Do not call the price cheap, expensive, fair, attractive, suspicious, below market, above market, or evidence of a hidden defect anywhere in the report, including the quick summary, facts table, pros/cons, and conclusion.
 - Market comparables come from live web search, not an internal database. Never write "v databáze neboli nájdené" or imply a database lookup. If none were verified, say briefly "Pri webovom vyhľadávaní sa nenašli priamo porovnateľné inzeráty s overiteľným URL."
 - Mention DPH/VAT/net/gross treatment only when `text_research.listing_facts.vat_context` contains an explicit claim from the advertisement. If that field is empty, do not mention DPH/VAT, tax deduction, private-versus-business tax treatment, or the absence of a VAT label anywhere in the report; omit the topic entirely.
 - In expected costs, prioritize realistic buyer expenses over generic maintenance filler.

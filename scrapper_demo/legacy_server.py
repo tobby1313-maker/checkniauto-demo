@@ -2198,8 +2198,9 @@ def _description_listing_facts(description, title=""):
     mileage = _description_capture(
         text,
         (
-            r"(?:najazden[eé]\s*km|najazd|mileage)\s*:?\s*([\d\s.]+)(?:\s*km)?",
+            r"(?:najazden(?:e|é|ých)?(?:\s*km)?|najazd|mileage)\s*:?\s*(?:len\s*)?([\d\s.]+)(?:\s*km)?",
             r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
+            r"\b(\d{4,6})\s*km\b",
         ),
     )
     mileage_km = _mileage_km_value(mileage)
@@ -2211,11 +2212,15 @@ def _description_listing_facts(description, title=""):
         (
             r"(?:mesiac\s*/\s*rok|rok(?:\s*v[ýy]roby)?|year)\s*:?\s*(?:\d{1,2}\s*/\s*)?((?:19|20)\d{2})",
             r"\b(?:0?[1-9]|1[0-2])\s*/\s*((?:19|20)\d{2})\b",
+            r"\b((?:19|20)\d{2})\b",
         ),
     )
     engine = _description_capture(
         text,
-        (r"(?:typ\s+motora|motor|engine)\s*:?\s*([^\r\n,;]{2,80})",),
+        (
+            r"(?:typ\s+motora|motor|engine)\s*:?\s*([^\r\n,;]{2,80})",
+            r"\b(\d(?:[.,]\d)\s*(?:l|lit(?:er|re|ra|rov)?))\b",
+        ),
     )
     fuel = _description_capture(
         text,
@@ -2223,7 +2228,10 @@ def _description_listing_facts(description, title=""):
     )
     transmission = _description_capture(
         text,
-        (r"(?:prevodovka|transmission|gearbox)\s*:?\s*([^\r\n,;]{2,80})",),
+        (
+            r"(?:prevodovka|transmission|gearbox)\s*:?\s*([^\r\n,;]{2,80})",
+            r"\b((?:automatick(?:á|a|ou)|automat|automatic|manuáln(?:a|ou)|manualn(?:a|ou)|manual|CVT|DCT|DSG)(?:\s+prevodovk(?:a|ou))?)\b",
+        ),
     )
     power = _description_capture(
         text,
@@ -2233,7 +2241,9 @@ def _description_listing_facts(description, title=""):
     drive = (
         "4x4"
         if re.search(
-            r"\b(?:4x4|4wd|awd|quattro|allrad)\b", combined, re.IGNORECASE
+            r"\b(?:4x4|4wd|awd|quattro|allrad|štvorkol(?:ka|kou|ky)|stvorkol(?:ka|kou|ky)|pohon\s+všetkých\s+kolies)\b",
+            combined,
+            re.IGNORECASE,
         )
         else ""
     )
@@ -2445,6 +2455,12 @@ def _is_useful_photo_limitation(value):
 def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
     data = _safe_model_json(vision_result_json)
     language = _demo_output_language(output_language)
+    if str(data.get("analysis_status") or "").strip().lower() == "unavailable":
+        return [
+            "- Fotografie boli v inzeráte poskytnuté, ale automatická vizuálna analýza nebola spoľahlivo dokončená. Nejde o chýbajúce fotografie ani o negatívne zistenie o stave auta; zábery treba vyhodnotiť manuálne alebo analýzu zopakovať."
+            if language == "sk"
+            else "- Listing photos were provided, but automatic visual analysis did not complete reliably. This is neither missing-photo evidence nor a negative finding about the car; review the images manually or retry the analysis."
+        ]
     if not data.get("photos_provided"):
         return [
             "- Fotografie neboli poskytnuté alebo neboli spoľahlivo analyzovateľné."
@@ -2972,6 +2988,7 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
     return json.dumps(
         {
             "source_role": "vision",
+            "analysis_status": "not_provided",
             "photos_provided": False,
             "photo_coverage": {
                 "coverage_mode": "none",
@@ -3005,7 +3022,7 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
             "mileage_wear_consistency": {
                 "assessment": "cannot_assess",
                 "explanation": message,
-                "confidence": "Nizka",
+                "confidence": "Nízka",
             },
             "visual_verdict": "Nedostatocne fotografie",
             "visible_vin": "",

@@ -145,12 +145,16 @@ def calculate_risk_score_v2(
         missing_information.append({"code": "SERVICE_HISTORY_MISSING", "material": True})
         buyer_actions.append("Vyžiadať servisnú históriu a faktúry.")
 
+    vision_analysis_unavailable = _text(vision_data.get("analysis_status")).lower() == "unavailable"
     photos_provided = _truthy(vision_data.get("photos_provided"))
     limitations = [
         item for item in _list(vision_data.get("photo_limitations"))
         if _material_photo_limitation(item)
     ]
-    if not photos_provided:
+    if vision_analysis_unavailable:
+        missing_information.append({"code": "VISION_ANALYSIS_UNAVAILABLE", "material": True})
+        buyer_actions.append("Fotografie sú dostupné; zopakovať automatickú analýzu alebo ich preveriť manuálne.")
+    elif not photos_provided:
         missing_information.append({"code": "NO_USABLE_PHOTOS", "material": True})
         buyer_actions.append("Vyžiadať použiteľné fotografie vozidla pred rozhodnutím o obhliadke.")
     elif limitations:
@@ -236,7 +240,7 @@ def calculate_risk_score_v2(
 
     material_gaps = sum(1 for item in missing_information if item.get("material"))
     parse_failed = bool(research.get("_parse_error") or vision_data.get("_parse_error"))
-    if parse_failed or not photos_provided or material_gaps >= 2:
+    if parse_failed or vision_analysis_unavailable or not photos_provided or material_gaps >= 2:
         evidence_quality = "LOW"
     elif material_gaps == 1:
         evidence_quality = "MEDIUM"

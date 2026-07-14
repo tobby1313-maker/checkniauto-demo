@@ -75,6 +75,20 @@ class CalibrationWorkflowTest(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        (job / "vision_provider_attempts.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "attempt_count": 2,
+                    "recovery_attempted": True,
+                    "provider_events": [
+                        {"model": "test-model", "finish_reason": "MAX_TOKENS"}
+                    ],
+                    "attempts": [],
+                }
+            ),
+            encoding="utf-8",
+        )
         return job
 
     def _login(self):
@@ -126,6 +140,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("market_research.md", names)
             self.assertIn("analysis_diagnostics.json", names)
             self.assertIn("validation_warnings.json", names)
+            self.assertNotIn("vision_provider_attempts.json", names)
             self.assertIn("reproducibility/risk_policy_v2.json", names)
             self.assertIn(
                 "reproducibility/prompts/grok_final_synthesis_system.md", names
@@ -151,6 +166,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("analysis_request.md", names)
             self.assertIn("analysis_diagnostics.json", names)
             self.assertIn("validation_warnings.json", names)
+            self.assertIn("vision_provider_attempts.json", names)
             self.assertNotIn("expert_label.json", names)
             manifest = json.loads(archive.read("manifest.json"))
             self.assertEqual(manifest["bundle_type"], "debugging")

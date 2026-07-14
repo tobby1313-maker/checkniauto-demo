@@ -48,6 +48,7 @@ from scrapper_demo.market_comparables import (
     build_market_benchmark,
     deduplicate_market_comparables,
     fetch_ecb_reference_rates,
+    is_customer_facing_market_comparable,
     reconcile_market_comparable_urls,
 )
 from scrapper_demo.validation import (
@@ -125,6 +126,83 @@ def _research_parse_failed(value: Any) -> bool:
         or value.get("_parse_error") is True
         or ("raw_preview" in value and "source_role" not in value)
     )
+
+
+VISION_REQUIRED_FIELDS = {
+    "source_role",
+    "photos_provided",
+    "photo_limitations",
+    "exterior_observations",
+    "interior_observations",
+    "dashboard_or_warning_lights",
+    "visible_red_flags",
+    "mileage_wear_consistency",
+    "visual_verdict",
+    "must_not_infer",
+}
+
+
+def _valid_vision_payload(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("_parse_error") is not True
+        and VISION_REQUIRED_FIELDS <= set(value)
+    )
+
+
+def _unavailable_vision_payload(
+    image_meta: Any,
+    *,
+    output_language: str = "sk",
+    reason: str = "Automatic visual analysis did not return valid structured data.",
+) -> dict[str, Any]:
+    """Represent provider failure without pretending that listing photos are absent."""
+    meta = image_meta if isinstance(image_meta, dict) else {}
+    original_count = int(meta.get("original_count") or 0)
+    analyzed_count = int(meta.get("selected_count") or original_count)
+    message = (
+        "Fotografie boli poskytnuté, ale automatická vizuálna analýza nevrátila platné štruktúrované dáta."
+        if output_language == "sk"
+        else "Photos were provided, but automatic visual analysis did not return valid structured data."
+    )
+    return {
+        "source_role": "vision",
+        "analysis_status": "unavailable",
+        "photos_provided": True,
+        "photo_coverage": {
+            "coverage_mode": str(meta.get("coverage_mode") or "detail_limited"),
+            "original_count": original_count,
+            "analyzed_count": analyzed_count,
+            "full_gallery_overview": bool(meta.get("full_gallery_included")),
+            "notes": [message, str(reason)[:300]],
+        },
+        "view_coverage": {
+            key: "unknown"
+            for key in ("exterior", "interior", "dashboard", "engine_bay", "tires", "underbody")
+        },
+        "supported_observations": [],
+        "missing_views": [],
+        "photo_limitations": [message],
+        "exterior_observations": [],
+        "interior_observations": [],
+        "dashboard_or_warning_lights": [],
+        "visible_red_flags": [],
+        "mileage_wear_consistency": {
+            "assessment": "cannot_assess",
+            "explanation": message,
+            "confidence": "Nízka",
+        },
+        "visual_verdict": message,
+        "visible_vin": "",
+        "must_not_infer": [
+            "accident history",
+            "service history",
+            "hidden defects",
+            "odometer fraud",
+            "market price",
+            "overall buying verdict",
+        ],
+    }
 
 
 def _merge_backend_evidence(
@@ -291,12 +369,233 @@ def _merge_backend_evidence(
                 continue
             filtered.append(item)
         merged["missing_or_uncertain_data"] = filtered
+
+    sources = merged.get("sources_used")
+    authoritative_urls = {
+        str(item.get("source_url") or "").strip()
+        for item in (sources if isinstance(sources, list) else []) if isinstance(item, dict)
+        if str(item.get("source_type") or "").upper() in {"OFFICIAL", "REGULATORY", "VEHICLE_HISTORY"}
+        and str(item.get("source_url") or "").strip()
+    }
+    risks = merged.get("technical_risks")
+    if isinstance(risks, list):
+        sanitized_risks: list[Any] = []
+        for raw in risks:
+            if not isinstance(raw, dict):
+                sanitized_risks.append(raw)
+                continue
+            item = dict(raw)
+            if str(item.get("evidence_category") or "").upper() == "MODEL_LEVEL_RISK":
+                # Age, mileage, and missing service records make a check more
+                # relevant, but they are not evidence that this car has the
+                # model-level defect.
+                item["specific_vehicle_evidence"] = ""
+                source_url = str(item.get("source_url") or "").strip()
+                authoritative = source_url in authoritative_urls
+                if not authoritative and _fold_market_text(item.get("confidence", "")) in {
+                    "high", "vysoka"
+                }:
+                    item["confidence"] = "Stredna"
+                trigger = str(item.get("typical_trigger_or_interval") or "")
+                if not authoritative and re.search(r"\d", trigger):
+                    item["typical_trigger_or_interval"] = "Vyžaduje overenie pre presný komponent a aplikáciu."
+            sanitized_risks.append(item)
+        merged["technical_risks"] = sanitized_risks
     return merged
 
 
 def _fold_market_text(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+
+
+def _remove_public_scorecard(report_text: str) -> str:
+    """Remove provider- or backend-emitted numeric scorecards from customer output."""
+    lines = str(report_text or "").splitlines()
+    output: list[str] = []
+    skipping = False
+    for line in lines:
+        heading = re.match(r"^\s*(#{2,6})\s+(.+?)\s*$", line)
+        if heading:
+            key = _fold_market_text(heading.group(2))
+            if len(heading.group(1)) >= 3 and (
+                "skore analyzy" in key or "analysis score" in key
+            ):
+                skipping = True
+                continue
+            if skipping:
+                skipping = False
+        if skipping:
+            continue
+        folded = _fold_market_text(line)
+        numeric_score = re.search(r"\b\d{1,3}\s*(?:/|z|of)\s*100\b", folded)
+        if numeric_score and any(
+            term in folded
+            for term in ("skore", "score", "hodnotenie", "rating")
+        ):
+            continue
+        if any(
+            term in folded
+            for term in ("uncalibrated", "nekalibrovane skore", "nekalibrovany skorer")
+        ):
+            continue
+        output.append(line)
+    return "\n".join(output).rstrip() + "\n"
+
+
+def _market_benchmark_is_usable(research: dict[str, Any]) -> bool:
+    market = research.get("market_assessment")
+    if not isinstance(market, dict):
+        return False
+    count = market.get("benchmark_comparable_count")
+    if not isinstance(count, (int, float)):
+        count = market.get("comparable_count")
+    return (
+        market.get("benchmark_available") is True
+        and isinstance(count, (int, float))
+        and int(count) >= 3
+        and isinstance(market.get("benchmark_median_eur") or market.get("observed_market_average_eur"), (int, float))
+    )
+
+
+def _replace_report_section(
+    report_text: str,
+    section_terms: tuple[str, ...],
+    body_lines: list[str],
+) -> str:
+    lines = str(report_text or "").splitlines()
+    starts = [index for index, line in enumerate(lines) if re.match(r"^\s*##\s+", line)]
+    for position, start in enumerate(starts):
+        key = _fold_market_text(re.sub(r"^\s*##\s+", "", lines[start]))
+        if not any(term in key for term in section_terms):
+            continue
+        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        replacement = [lines[start], "", *body_lines, ""]
+        return "\n".join(lines[:start] + replacement + lines[end:]).rstrip() + "\n"
+    return report_text
+
+
+def _lock_report_evidence_claims(
+    report_text: str,
+    text_research: Any,
+    risk_score: Any,
+    *,
+    output_language: str = "sk",
+) -> str:
+    """Deterministically block unsupported market and missing-VIN narratives."""
+    research = text_research if isinstance(text_research, dict) else {}
+    risk = risk_score if isinstance(risk_score, dict) else {}
+    text = _remove_public_scorecard(report_text)
+    language = "en" if str(output_language).lower().startswith("en") else "sk"
+
+    if not _market_benchmark_is_usable(research):
+        raw_market = research.get("market_assessment")
+        raw_facts = research.get("listing_facts")
+        market: dict[str, Any] = raw_market if isinstance(raw_market, dict) else {}
+        facts: dict[str, Any] = raw_facts if isinstance(raw_facts, dict) else {}
+        price = market.get("advertised_price_eur") or facts.get("asking_price_gross_eur") or facts.get("price")
+        try:
+            price_label = f"{int(float(str(price))):,} EUR".replace(",", " ")
+        except (TypeError, ValueError):
+            price_label = "the advertised price" if language == "en" else "inzerovaná cena"
+
+        comparable_lines: list[str] = []
+        for item in research.get("market_comparables", []) if isinstance(research.get("market_comparables"), list) else []:
+            if not isinstance(item, dict) or not is_customer_facing_market_comparable(item):
+                continue
+            url = str(item.get("source_url") or "").strip()
+            label = str(item.get("title") or "Porovnateľný inzerát").strip()
+            price_display = str(item.get("price_display") or "").strip()
+            difference = str(item.get("material_difference") or "").strip()
+            suffix = " — ".join(value for value in (price_display, difference) if value)
+            comparable_lines.append(f"- [{label}]({url})" + (f" — {suffix}" if suffix else ""))
+            if len(comparable_lines) >= 5:
+                break
+
+        if language == "en":
+            neutral = [
+                f"The advertised price is **{price_label}**.",
+                "There are not enough verified comparable listings to classify it as cheap, expensive, fair, or suspicious. Price position requires manual market verification and must not be treated as evidence of a hidden defect.",
+            ]
+            quick_price = "- **Price:** unclear — there are not enough verified comparable listings for a market classification."
+            neutral_line = "Price position is unverified; insufficient comparable data cannot support a positive or negative claim about the car."
+        else:
+            neutral = [
+                f"Inzerovaná cena je **{price_label}**.",
+                "Nie je k dispozícii dostatok overených porovnateľných inzerátov, preto ju nemožno označiť za lacnú, drahú, férovú ani podozrivú. Pozíciu ceny treba overiť manuálne a nemožno ju používať ako dôkaz skrytej vady.",
+            ]
+            quick_price = "- **Cena:** nejasná — nie je dostatok overených porovnateľných inzerátov na trhové zaradenie."
+            neutral_line = "Pozícia ceny nie je overená; nedostatok porovnateľných dát nepodporuje pozitívny ani negatívny záver o aute."
+        if comparable_lines:
+            neutral.extend(("", "Overené blízke ponuky:" if language == "sk" else "Verified nearby offers:", *comparable_lines))
+        text = _replace_report_section(
+            text,
+            ("cena a vyjednavanie", "price and negotiation"),
+            neutral,
+        )
+
+        rewritten: list[str] = []
+        evaluative_terms = (
+            "podozriv", "lacn", "drah", "spodnej hranici", "vyhodn",
+            "cheap", "expensive", "underpriced", "overpriced", "below market", "above market", "suspicious",
+        )
+        for line in text.splitlines():
+            folded = _fold_market_text(line)
+            if re.match(r"^\s*-\s*\*\*(?:cena|price):\*\*", folded):
+                rewritten.append(quick_price)
+                continue
+            if re.match(r"^\s*\|\s*(?:cena|price)\s*\|", folded):
+                cells = line.split("|")
+                if len(cells) >= 4:
+                    cells[3] = " Cena bez overeného benchmarku " if language == "sk" else " No verified benchmark "
+                    line = "|".join(cells)
+                rewritten.append(line)
+                continue
+            price_context = "cena" in folded or "price" in folded
+            if price_context and any(term in folded for term in evaluative_terms):
+                if line.lstrip().startswith(("-", "*")):
+                    rewritten.append(f"- **{'Cena bez benchmarku' if language == 'sk' else 'Price without a benchmark'}:** {neutral_line}")
+                else:
+                    rewritten.append(neutral_line)
+                continue
+            rewritten.append(line)
+        text = "\n".join(rewritten).rstrip() + "\n"
+
+    raw_facts = research.get("listing_facts")
+    raw_vin_check = research.get("vin_check")
+    listing_facts: dict[str, Any] = raw_facts if isinstance(raw_facts, dict) else {}
+    vin_check: dict[str, Any] = raw_vin_check if isinstance(raw_vin_check, dict) else {}
+    vin_missing = not str(listing_facts.get("vin") or "").strip() and vin_check.get("vin_present") is not True
+    vehicle_findings = risk.get("vehicle_specific_findings") if isinstance(risk.get("vehicle_specific_findings"), list) else []
+    raw_rules = risk.get("applied_rules")
+    positive_rules = [
+        item
+        for item in (raw_rules if isinstance(raw_rules, list) else [])
+        if isinstance(item, dict)
+        and int(item.get("points") or 0) > 0
+        and item.get("rule") not in {"missing_or_weak_photos"}
+    ]
+    if vin_missing and not vehicle_findings and not positive_rules:
+        rewritten = []
+        for line in text.splitlines():
+            folded = _fold_market_text(line)
+            if ("najvacsie riziko" in folded or "biggest risk" in folded) and "vin" in folded:
+                rewritten.append(
+                    "- **Najväčšie riziko:** Z dostupných údajov nie je potvrdená konkrétna zásadná vada; VIN treba vyžiadať a históriu následne štandardne preveriť."
+                    if language == "sk"
+                    else "- **Biggest risk:** The available evidence does not confirm a material vehicle defect; request the VIN and perform the standard history check."
+                )
+                continue
+            if line.lstrip().startswith(("-", "*")) and "vin" in folded and any(term in folded for term in ("zavaz", "major risk", "serious defect", "negative history")):
+                rewritten.append(
+                    "- **VIN na vyžiadanie:** VIN nie je v texte inzerátu; požiadajte oň pred obhliadkou a následne preverte históriu. Samotné chýbanie VIN v inzeráte nie je dôkazom negatívnej histórie."
+                    if language == "sk"
+                    else "- **Request the VIN:** It is absent from the listing text; ask for it before viewing and then check history. Its absence from the ad is not evidence of negative history."
+                )
+                continue
+            rewritten.append(line)
+        text = "\n".join(rewritten).rstrip() + "\n"
+    return text
 
 
 def _probable_market_detail_url(value: str) -> bool:
@@ -886,6 +1185,36 @@ def multi_model_analysis_events(
 
     vision_result_json = ""
     _vision_key: GeminiKeyEntry | None = None
+    vision_attempts: list[dict[str, Any]] = []
+    vision_provider_events: list[dict[str, Any]] = []
+    vision_recovery_attempted = False
+    current_vision_partial_output = ""
+
+    def record_vision_provider_event(event: Any) -> None:
+        nonlocal current_vision_partial_output
+        if not isinstance(event, dict):
+            return
+        partial_output = event.get("output")
+        if isinstance(partial_output, str) and partial_output:
+            current_vision_partial_output = partial_output
+        allowed = {
+            key: event.get(key)
+            for key in (
+                "model",
+                "status",
+                "http_status",
+                "finish_reason",
+                "actual_input_tokens",
+                "actual_output_tokens",
+                "actual_thinking_tokens",
+                "actual_total_tokens",
+                "output_chars",
+            )
+            if event.get(key) not in (None, "")
+        }
+        if allowed:
+            vision_provider_events.append(allowed)
+
     image_data_list, _image_meta = dependencies.prepare_images(slug_dir)
     if image_data_list:
         image_payload_context = dependencies.compact_json_for_prompt(_image_meta)
@@ -900,6 +1229,8 @@ def multi_model_analysis_events(
             f"IMAGE_PAYLOAD_METADATA:\n{image_payload_context}\n\n"
             f"{model_listing_context}"
         )
+        initial_error = ""
+        current_vision_partial_output = ""
         try:
             vision_result_json, _vision_key = yield from dependencies.collect_gemini(
                 gemini_key_entries,
@@ -913,16 +1244,124 @@ def multi_model_analysis_events(
                     listing_slug=slug,
                     allow_image_text_fallback=False,
                     phase="vision",
+                    diagnostics_callback=record_vision_provider_event,
                 ),
             )
         except Exception as exc:
             dependencies.log(f"Gemini vision error: {exc}")
-            vision_result_json = dependencies.no_photos_vision_result("Fotografie sa nepodarilo spolahlivo analyzovat.")
-            yield _status_event("Gemini vision failed; continuing without reliable photo analysis.")
+            initial_error = f"{type(exc).__name__}: {exc}"[:500]
+            if not vision_result_json and current_vision_partial_output:
+                vision_result_json = current_vision_partial_output
+
+        vision_attempts.append(
+            {
+                "attempt": "initial",
+                "valid_json": False,
+                "error": initial_error,
+                "output": vision_result_json,
+            }
+        )
+        try:
+            initial_parsed = dependencies.safe_model_json(vision_result_json)
+        except Exception:
+            initial_parsed = {"_parse_error": True}
+        initial_valid = _valid_vision_payload(initial_parsed)
+        vision_attempts[-1]["valid_json"] = initial_valid
+
+        if not initial_valid:
+            vision_recovery_attempted = True
+            yield _status_event("Vision JSON was incomplete; retrying a compact structured response...")
+            recovery_content = (
+                vision_content
+                + "\n\nRECOVERY REQUIREMENT: Return one complete compact JSON object. "
+                "Close every string, array, and object. Keep at most 2 exterior observations, "
+                "2 interior observations, 2 dashboard observations, and 2 visible red flags. "
+                "Do not omit required fields. Use analysis_status=completed."
+            )
+            recovery_result = ""
+            recovery_error = ""
+            current_vision_partial_output = ""
+            try:
+                recovery_result, recovery_key = yield from dependencies.collect_gemini(
+                    gemini_key_entries,
+                    "vision JSON recovery",
+                    lambda key: dependencies.call_gemini(
+                        key,
+                        vision_system_prompt,
+                        recovery_content,
+                        image_data_list=image_data_list,
+                        model=GEMINI_VISION_MODEL,
+                        listing_slug=slug,
+                        allow_image_text_fallback=False,
+                        phase="vision",
+                        max_output_tokens=6000,
+                        temperature=0.0,
+                        diagnostics_callback=record_vision_provider_event,
+                    ),
+                )
+                if recovery_key:
+                    _vision_key = recovery_key
+            except Exception as exc:
+                recovery_error = f"{type(exc).__name__}: {exc}"[:500]
+                dependencies.log(f"Gemini vision recovery error: {exc}")
+                if not recovery_result and current_vision_partial_output:
+                    recovery_result = current_vision_partial_output
+            try:
+                recovery_parsed = dependencies.safe_model_json(recovery_result)
+            except Exception:
+                recovery_parsed = {"_parse_error": True}
+            recovery_valid = _valid_vision_payload(recovery_parsed)
+            vision_attempts.append(
+                {
+                    "attempt": "recovery",
+                    "valid_json": recovery_valid,
+                    "error": recovery_error,
+                    "output": recovery_result,
+                }
+            )
+            if recovery_valid:
+                vision_result_json = recovery_result
+                validation_warnings.append(
+                    {
+                        "artifact": "gemini_vision.json",
+                        "type": "provider_output_recovered",
+                        "message": "Initial vision output was invalid; a compact retry produced valid JSON.",
+                    }
+                )
+            else:
+                failure_reason = recovery_error or initial_error or "Both provider responses contained invalid JSON."
+                vision_result_json = json.dumps(
+                    _unavailable_vision_payload(
+                        _image_meta,
+                        output_language=dependencies.output_language(output_language),
+                        reason=failure_reason,
+                    ),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                validation_warnings.append(
+                    {
+                        "artifact": "gemini_vision.json",
+                        "type": "provider_output_invalid",
+                        "message": "Vision provider did not return valid JSON after a compact retry; a schema-valid unavailable-evidence fallback was saved.",
+                    }
+                )
+                yield _status_event("Vision analysis remained unavailable; preserving the fact that listing photos were provided.")
     else:
         vision_result_json = dependencies.no_photos_vision_result()
         yield _status_event("No photos available for Gemini vision.")
 
+    repository.write_json(
+        slug,
+        "vision_provider_attempts.json",
+        {
+            "schema_version": 1,
+            "attempt_count": len(vision_attempts),
+            "recovery_attempted": vision_recovery_attempted,
+            "provider_events": vision_provider_events,
+            "attempts": vision_attempts,
+        },
+    )
     repository.write_text(slug, "gemini_vision.json", vision_result_json)
     validation_warnings.extend(
         dependencies.validate_json_contract(
@@ -934,9 +1373,14 @@ def multi_model_analysis_events(
     vision_diagnostics = dependencies.safe_model_json(vision_result_json)
     diagnostics["phases"]["vision"] = {
         "status": "completed",
+        "analysis_status": vision_diagnostics.get("analysis_status") or "completed",
         "photos_provided": vision_diagnostics.get("photos_provided") is True,
         "parse_error": vision_diagnostics.get("_parse_error") is True,
         "selected_key_label": _selected_key_label(_vision_key),
+        "attempt_count": len(vision_attempts),
+        "recovery_attempted": vision_recovery_attempted,
+        "recovered": bool(vision_attempts and vision_attempts[-1].get("valid_json") and vision_recovery_attempted),
+        "provider_events": vision_provider_events,
     }
     save_diagnostics()
     yield _status_event("Gemini vision JSON saved.")
@@ -1117,7 +1561,12 @@ def multi_model_analysis_events(
         )
     )
     public_text = dependencies.replace_photo_analysis_section(public_text, vision_result_json, output_language)
-    public_text = dependencies.replace_quick_summary_scorecard(public_text, risk_score_json, output_language)
+    public_text = _lock_report_evidence_claims(
+        public_text,
+        research_data,
+        risk_score,
+        output_language=dependencies.output_language(output_language),
+    )
     public_text = dependencies.move_pros_cons_after_quick_summary(public_text)
     repository.write_text(slug, "analysis_result.md", public_text)
     validation_warnings.extend(dependencies.validate_final_report(public_text, verdict))

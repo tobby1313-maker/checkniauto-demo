@@ -67,11 +67,10 @@ The analysis pipeline is:
 4. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
    optional provider branches if their keys are explicitly configured.
 5. Run Gemini vision analysis on representative uploaded or scraped photos.
-6. Calculate a deterministic backend listing-screening status and buyer
-   scorecard. Every score uses the same direction: `100` is more favorable;
-   areas without enough evidence remain unscored and are excluded from the
-   weighted scorecard average. Generic model risks create inspection actions;
-   only evidence tied to this specific car can worsen component scores.
+6. Calculate a deterministic backend listing-screening status. Numeric scores
+   and score breakdowns remain private implementation artifacts. Customers see
+   only the five-level screening verdict. Generic model risks create inspection
+   actions; only evidence tied to this specific car can worsen the verdict.
 7. Generate the final buyer-facing report. Gemini defaults to a stronger Flash
    model for this phase.
 8. Save the public report and intermediate artifacts for the dashboard. When
@@ -98,7 +97,7 @@ scrapper_demo/
   logging.py                          Unicode-safe console logging
   market_comparables.py              public-link selection and EU price benchmark
   progress.py                         process-local progress/rate/job state
-  scorecard.py                        deterministic buyer-facing scorecard
+  scorecard.py                        private diagnostic score breakdown
   providers/                          Gemini, Grok, OpenRouter, retry, and errors
   routes/                             public/demo and private Flask blueprints
   services/analysis_pipeline.py       provider-neutral analysis orchestration
@@ -258,7 +257,7 @@ It provides:
 - Manual mode for unsupported marketplaces.
 - Streaming progress overlay with cancel support.
 - Final report view with reference photos.
-- Responsive quick-summary scorecard with visual bars and analysis confidence.
+- Five-level customer verdict without a numeric scorecard or calibration text.
 - Pros and cons moved directly below the quick summary and displayed side by
   side on wider screens, without duplicating the original report sections.
 - Copy text and export-to-PDF actions.
@@ -397,8 +396,10 @@ has two administrator-only exports:
   snapshots under `reproducibility/`.
 - **Download debugging bundle** includes the complete artifact chain, including
   `analysis_request.md`, `risk_score.json`, raw final model output, and the
-  public report. It has no expert label and must not be shown to a reviewer
-  before independent labelling.
+  public report. It also includes `vision_provider_attempts.json`, which records
+  sanitized model/finish/token diagnostics and the raw initial/recovery outputs
+  needed to debug truncated provider JSON. It has no expert label and must not
+  be shown to a reviewer before independent labelling.
 
 Diagnostic artifact routes, raw results, telemetry, and both exports share the
 same signed administrator session. The endpoints are
@@ -471,6 +472,7 @@ market_benchmark.json
 web_research.md
 grok_research.json
 gemini_vision.json
+vision_provider_attempts.json
 risk_score.json
 validation_warnings.json
 analysis_diagnostics.json

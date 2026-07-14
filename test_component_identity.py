@@ -31,12 +31,14 @@ class ComponentIdentityTests(unittest.TestCase):
                     "code": "G4FJ",
                     "resolution": "PROBABLE",
                     "confidence": "HIGH",
+                    "evidence_refs": ["src_spec"],
                 },
                 "transmission": {
                     "marketing_name": "7-speed dry DCT",
                     "code": "D7UF1",
                     "resolution": "PROBABLE",
                     "confidence": "MEDIUM",
+                    "evidence_refs": ["src_spec"],
                 },
                 "drivetrain": {
                     "type": "AWD",
@@ -44,7 +46,15 @@ class ComponentIdentityTests(unittest.TestCase):
                     "confidence": "HIGH",
                 },
                 "candidate_variants": [],
-                "sources": [],
+                "sources": [
+                    {
+                        "source_id": "src_spec",
+                        "source_name": "OEM application catalog",
+                        "source_url": "https://example.test/oem-catalog",
+                        "source_type": "OEM_CATALOG",
+                        "used_for": "engine, transmission, drivetrain",
+                    }
+                ],
                 "notes": [],
             }
         )
@@ -66,9 +76,17 @@ class ComponentIdentityTests(unittest.TestCase):
             {
                 "identification_status": "VERIFIED",
                 "generation": {"name": "Tucson TL", "resolution": "VERIFIED"},
-                "engine": {"code": "G4FJ", "resolution": "VERIFIED"},
-                "transmission": {"code": "D7UF1", "resolution": "VERIFIED"},
+                "engine": {"code": "G4FJ", "resolution": "VERIFIED", "evidence_refs": ["src_spec"]},
+                "transmission": {"code": "D7UF1", "resolution": "VERIFIED", "evidence_refs": ["src_spec"]},
                 "drivetrain": {"type": "AWD", "resolution": "VERIFIED"},
+                "sources": [
+                    {
+                        "source_id": "src_spec",
+                        "source_name": "Application catalog",
+                        "source_url": "https://example.test/catalog",
+                        "source_type": "TECHNICAL_PUBLICATION",
+                    }
+                ],
             }
         )
 
@@ -111,7 +129,7 @@ class ComponentIdentityTests(unittest.TestCase):
             {
                 "identification_status": "PROBABLE",
                 "generation": {"name": "Tucson TL", "resolution": "PROBABLE"},
-                "engine": {"code": "G4FJ", "resolution": "PROBABLE"},
+                "engine": {"code": "G4FJ", "resolution": "PROBABLE", "evidence_refs": ["src_engine"]},
                 "transmission": {
                     "marketing_name": "7-speed DCT",
                     "code": "7DCT",
@@ -122,12 +140,69 @@ class ComponentIdentityTests(unittest.TestCase):
                     "code": "HTRAC",
                     "resolution": "PROBABLE",
                 },
+                "sources": [
+                    {
+                        "source_id": "src_engine",
+                        "source_name": "OEM engine catalog",
+                        "source_url": "https://example.test/engine",
+                        "source_type": "OEM_CATALOG",
+                    }
+                ],
             }
         )
 
         self.assertEqual(identity["engine"]["code"], "G4FJ")
         self.assertEqual(identity["transmission"]["code"], "")
         self.assertEqual(identity["drivetrain"]["code"], "")
+
+    def test_unreferenced_exact_4wd_transmission_code_becomes_candidate(self):
+        identity = normalize_component_identity(
+            {
+                "identification_status": "PROBABLE",
+                "generation": {"name": "RAV4 XA30", "resolution": "PROBABLE"},
+                "engine": {"marketing_name": "2.0 VVT-i", "resolution": "PROBABLE"},
+                "transmission": {
+                    "marketing_name": "4-speed automatic",
+                    "code": "U241E",
+                    "resolution": "PROBABLE",
+                    "confidence": "HIGH",
+                    "evidence_refs": [],
+                },
+                "drivetrain": {"type": "4WD", "resolution": "PROBABLE"},
+            }
+        )
+
+        self.assertEqual(identity["transmission"]["code"], "")
+        self.assertEqual(identity["transmission"]["confidence"], "MEDIUM")
+        self.assertTrue(
+            any(
+                item["transmission_code"] == "U241E"
+                for item in identity["candidate_variants"]
+            )
+        )
+
+    def test_dangling_reference_cannot_support_an_exact_component_code(self):
+        identity = normalize_component_identity(
+            {
+                "identification_status": "PROBABLE",
+                "generation": {"name": "RAV4 XA30", "resolution": "PROBABLE"},
+                "engine": {"marketing_name": "2.0 VVT-i", "resolution": "PROBABLE"},
+                "transmission": {
+                    "marketing_name": "4-speed automatic",
+                    "code": "U241E",
+                    "resolution": "PROBABLE",
+                    "evidence_refs": ["source_that_does_not_exist"],
+                },
+                "drivetrain": {"type": "4WD", "resolution": "PROBABLE"},
+                "sources": [],
+            }
+        )
+
+        self.assertEqual(identity["transmission"]["evidence_refs"], [])
+        self.assertEqual(identity["transmission"]["code"], "")
+        self.assertTrue(
+            any(item["transmission_code"] == "U241E" for item in identity["candidate_variants"])
+        )
 
     def test_grounding_citations_restore_source_urls_and_refs_do_not_dangle(self):
         identity = normalize_component_identity(
