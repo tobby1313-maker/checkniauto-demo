@@ -28,6 +28,7 @@ from scrapper_demo.providers.gemini import (
     GEMINI_FINAL_FALLBACK_MODELS,
     GEMINI_FINAL_MODEL,
     GEMINI_GROUNDING_MODEL,
+    GEMINI_MARKET_GROUNDING_MODEL,
     GEMINI_TEXT_RESEARCH_MODEL,
     GEMINI_VISION_MODEL,
     grounded_research as run_grounded_web_research,
@@ -503,6 +504,7 @@ def _lock_report_evidence_claims(
     risk = risk_score if isinstance(risk_score, dict) else {}
     text = _remove_public_scorecard(report_text)
     language = "en" if str(output_language).lower().startswith("en") else "sk"
+    text = _lock_report_verdict(text, risk, language=language)
 
     if not _market_benchmark_is_usable(research):
         raw_market = research.get("market_assessment")
@@ -688,6 +690,7 @@ def _lock_report_evidence_claims(
     raw_vin_check = research.get("vin_check")
     listing_facts: dict[str, Any] = raw_facts if isinstance(raw_facts, dict) else {}
     vin_check: dict[str, Any] = raw_vin_check if isinstance(raw_vin_check, dict) else {}
+    text = _lock_registration_age_claims(text, listing_facts, language=language)
     vin_missing = not str(listing_facts.get("vin") or "").strip() and vin_check.get("vin_present") is not True
     vehicle_findings = risk.get("vehicle_specific_findings") if isinstance(risk.get("vehicle_specific_findings"), list) else []
     raw_rules = risk.get("applied_rules")
@@ -719,6 +722,73 @@ def _lock_report_evidence_claims(
             rewritten.append(line)
         text = "\n".join(rewritten).rstrip() + "\n"
     return text
+
+
+def _lock_report_verdict(
+    report_text: str, risk_score: dict[str, Any], *, language: str
+) -> str:
+    """Make the customer verdict a backend value, never a model decision."""
+    verdict = str(risk_score.get("allowed_final_verdict") or "").strip()
+    if not verdict:
+        return report_text
+    label = "Assessment" if language == "en" else "Hodnotenie"
+    replacement = f"- **{label}:** {verdict}"
+    pattern = re.compile(
+        r"^\s*[-*]\s*\*\*(?:Hodnotenie|Assessment):\*\*.*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    if pattern.search(report_text):
+        return pattern.sub(replacement, report_text, count=1)
+    return report_text
+
+
+def _lock_registration_age_claims(
+    report_text: str,
+    listing_facts: dict[str, Any],
+    *,
+    language: str,
+    as_of: datetime | None = None,
+) -> str:
+    """Replace model-calculated vehicle age with deterministic registration age."""
+    raw_date = str(
+        listing_facts.get("registration_date")
+        or listing_facts.get("first_registration")
+        or ""
+    ).strip()
+    match = re.search(r"\b(0?[1-9]|1[0-2])\s*[/.-]\s*((?:19|20)\d{2})\b", raw_date)
+    if not match:
+        return report_text
+    month, year = int(match.group(1)), int(match.group(2))
+    current = as_of or datetime.now()
+    total_months = (current.year - year) * 12 + current.month - month
+    if total_months < 0:
+        return report_text
+    years, months = divmod(total_months, 12)
+    if language == "en":
+        parts = [f"{years} year{'s' if years != 1 else ''}"] if years else []
+        if months:
+            parts.append(f"{months} month{'s' if months != 1 else ''}")
+        age = " and ".join(parts or ["0 months"])
+        pattern = (
+            r"(?i)\b(?:in|over)\s+(?:(?:less than|nearly|approximately)\s+)?"
+            r"(?:\d+(?:[.,]\d+)?|one|two|three|four|five)\s+years?"
+            r"(?:\s+of (?:use|operation))?"
+        )
+        return re.sub(pattern, f"over approximately {age}", report_text)
+
+    def sk_unit(value: int, one: str, few: str, many: str) -> str:
+        return f"{value} {one if value == 1 else few if 2 <= value <= 4 else many}"
+
+    parts = [sk_unit(years, "rok", "roky", "rokov")] if years else []
+    if months:
+        parts.append(sk_unit(months, "mesiac", "mesiace", "mesiacov"))
+    age = "približne " + " a ".join(parts or ["0 mesiacov"])
+    pattern = (
+        r"(?i)\bza\s+(?:(?:necel[eé]|menej ako|takmer|pribli[zž]ne)\s+)?"
+        r"(?:\d+(?:[.,]\d+)?|jeden|dva|tri|[sš]tyri|p[aä]ť)\s+"
+        r"rok(?:y|ov)?(?:\s+prev[aá]dzky)?"
+    )
+    return re.sub(pattern, f"za {age} prevádzky", report_text)
 
 
 def _probable_market_detail_url(value: str) -> bool:
@@ -932,7 +1002,7 @@ def multi_model_analysis_events(
         "models": {
             "component_identity_grounding": GEMINI_GROUNDING_MODEL,
             "reliability_grounding": GEMINI_GROUNDING_MODEL,
-            "market_grounding": GEMINI_GROUNDING_MODEL,
+            "market_grounding": GEMINI_MARKET_GROUNDING_MODEL,
             "text_research": GEMINI_TEXT_RESEARCH_MODEL,
             "vision": GEMINI_VISION_MODEL,
             "final_synthesis": GEMINI_FINAL_MODEL,
@@ -1096,7 +1166,7 @@ def multi_model_analysis_events(
                     dependencies.grounded_research(
                         key,
                         grounded_listing_with_identity,
-                        model=GEMINI_GROUNDING_MODEL,
+                        model=GEMINI_MARKET_GROUNDING_MODEL,
                         listing_slug=slug,
                         research_mode=f"market_{current_pass}",
                     )

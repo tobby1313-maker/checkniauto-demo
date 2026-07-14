@@ -29,6 +29,9 @@ GEMINI_FLASH_MODEL = os.environ.get("GEMINI_FLASH_MODEL", "gemini-2.5-flash").st
 GEMINI_ADVANCED_FLASH_MODEL = os.environ.get("GEMINI_ADVANCED_FLASH_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
 GEMINI_FLASH_LITE_MODEL = os.environ.get("GEMINI_FLASH_LITE_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
 GEMINI_GROUNDING_MODEL = os.environ.get("GEMINI_GROUNDING_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
+GEMINI_MARKET_GROUNDING_MODEL = os.environ.get(
+    "GEMINI_MARKET_GROUNDING_MODEL", GEMINI_FLASH_LITE_MODEL
+).strip() or GEMINI_FLASH_LITE_MODEL
 GEMINI_TEXT_RESEARCH_MODEL = os.environ.get("GEMINI_TEXT_RESEARCH_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
 GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", GEMINI_FLASH_MODEL).strip() or GEMINI_FLASH_MODEL
 GEMINI_FINAL_MODEL = os.environ.get("GEMINI_FINAL_MODEL", GEMINI_ADVANCED_FLASH_MODEL).strip() or GEMINI_ADVANCED_FLASH_MODEL
@@ -470,48 +473,24 @@ styri vysledky sa pokus najst s rovnakym motorom a prevodovkou. TSI a eTSI nie
 su rovnaka motorizacia; eTSI moze byt nanajvys tier B s jasnym rozdielom.
 
 Pravidla proveniencie:
-- URL nikdy nevytvaraj ani nedoplnaj podla sablony.
-- `detail_url` skopiruj iba ak je presne totozny s realnou grounding citaciou
-  detailu konkretneho inzeratu.
-- `evidence_url` musi byt presna grounding citacia z tohto passu.
-- Kandidata bez realnej `evidence_url` vobec nevracaj. Prazdne `evidence_url`
-  znamena, ze polozka nie je overitelny search vysledok a nepatri do vystupu.
-- Pre scope {scope} moze byt vysledkova alebo kategoriova stranka iba v
-  `evidence_url`, nie ako overeny detail URL.
-- Pri zahranicnom passe vrat aj search kartu bez detail URL, ak karta priamo
-  obsahuje cenu, rok, najazd a relevantnu konfiguraciu. Pouzi
-  `url_kind=RESULTS_PAGE`; backend ju pouzije iba v skrytom EU benchmarku.
-- Ak vidis detail URL v texte, ale nie je medzi citaciami, zachovaj ju a nastav
-  `url_kind=UNVERIFIED`. Backend ju nezverejni a zaznamena URL ako neoverenu.
-- Nevymyslaj cenu, rok, najazd, parametre ani URL. Zachovaj povodnu menu.
+- Kazdy kandidat musi vychadzat z jedneho konkretneho Google Search vysledku.
+- Kazdy kandidat musi byt samostatny obycajny textovy riadok, aby poskytovatel
+  mohol k tomu riadku pripojit inline grounding citaciu.
+- URL nevypisuj. Backend ju vezme priamo z grounding anotacie poskytovatela.
+- Nepouzivaj JSON, Markdown tabulku, odrazky ani code block; pri tychto formatoch
+  poskytovatel casto nepripoji citaciu ku konkretnemu kandidatu.
+- Pri zahranicnom passe vrat aj search kartu bez detail URL, ak search vysledok
+  priamo obsahuje cenu, rok, najazd a relevantnu konfiguraciu. Backend ju pouzije
+  iba v skrytom EU benchmarku.
+- Nevymyslaj cenu, rok, najazd ani parametre. Zachovaj povodnu menu.
 - Vrat najviac 6 ponuk. Vyluc salvage, aukcie, export-only a netto-only ceny.
 
-Vrat vzdy jeden kompletny JSON objekt bez uvodu, ospravedlnenia alebo Markdown
-komentara, aj keby `candidates` zostalo prazdne:
-{{
-  "search_pass": "{market_pass}",
-  "candidates": [
-    {{
-      "description": "",
-      "year": null,
-      "mileage_km": null,
-      "engine": "",
-      "transmission": "",
-      "drivetrain": "",
-      "price_display": "",
-      "price_eur": null,
-      "price_basis": "gross_asking | net | auction | damaged | export_only | unknown",
-      "source_country": "",
-      "market_scope": "{scope}",
-      "similarity_tier": "A | B | C",
-      "material_difference": "",
-      "detail_url": "",
-      "evidence_url": "",
-      "url_kind": "DETAIL | RESULTS_PAGE | UNVERIFIED"
-    }}
-  ]
-}}
-Google Search citacie musia zostat zachovane poskytovatelom za JSON objektom.
+Kazdy vysledok vrat presne na jednom riadku v tomto pipe-delimited tvare. V
+hodnotach nepouzivaj znak `|`:
+CANDIDATE | description=... | year=2023 | mileage_km=159000 | engine=1.5 TSI | transmission=DSG | drivetrain=FWD | price_display=18 990 EUR | price_eur=18990 | price_basis=gross_asking | source_country=SK | similarity_tier=A | material_difference=...
+
+Ak nemas ani jeden konkretny vysledok s cenou a parametrami, vrat iba:
+NO_CANDIDATES
 
 Kontext analyzovaneho vozidla:
 
@@ -519,17 +498,22 @@ Kontext analyzovaneho vozidla:
 """
 
 
-def _extract_interaction_text_and_citations(data: dict[str, Any]) -> str:
+def _extract_interaction_text_and_citations(
+    data: dict[str, Any], *, inline_citations: bool = False
+) -> str:
     """Extract model text and URL citations from an Interactions API response."""
     text_blocks: list[str] = []
     seen_texts: set[str] = set()
     citations: list[str] = []
     seen_urls: set[str] = set()
 
-    def add_text(value: Any) -> None:
+    def add_text(value: Any, annotations: Any = None) -> None:
         if not isinstance(value, str) or not value.strip():
             return
-        text = value.strip()
+        text = value
+        if inline_citations:
+            text = _append_inline_citation_markers(text, annotations)
+        text = text.strip()
         if text in seen_texts:
             return
         seen_texts.add(text)
@@ -579,13 +563,45 @@ def _extract_interaction_text_and_citations(data: dict[str, Any]) -> str:
                 continue
             if not isinstance(block, dict):
                 continue
-            add_text(block.get("text"))
+            add_text(block.get("text"), block.get("annotations"))
             add_annotations(block.get("annotations"))
 
     result = "\n\n".join(text_blocks).strip()
     if citations:
         result = f"{result}\n\n### Citacie z Google Search\n" + "\n".join(citations)
     return result.strip()
+
+
+def _append_inline_citation_markers(text: str, annotations: Any) -> str:
+    """Attach authoritative annotation URLs to the text line they support.
+
+    Market parsing needs candidate-to-source provenance, not only a global list
+    of citations. The marker is inserted by the backend from provider metadata;
+    it is never trusted when merely generated by the model.
+    """
+    if not isinstance(annotations, list):
+        return text
+    line_urls: dict[int, list[str]] = {}
+    for annotation in annotations:
+        if not isinstance(annotation, dict):
+            continue
+        url = str(annotation.get("url") or "").strip()
+        start = annotation.get("start_index", annotation.get("startIndex"))
+        if not url or not isinstance(start, int) or start < 0 or start > len(text):
+            continue
+        line_index = text.count("\n", 0, start)
+        urls = line_urls.setdefault(line_index, [])
+        if url not in urls:
+            urls.append(url)
+    if not line_urls:
+        return text
+    lines = text.splitlines()
+    for line_index, urls in line_urls.items():
+        if line_index >= len(lines):
+            continue
+        for url in urls:
+            lines[line_index] += f" | grounding_url={url}"
+    return "\n".join(lines)
 
 
 def _clean_citation_label(value: str) -> str:
@@ -763,7 +779,9 @@ def run_grounded_web_research(
             message = error_info.get("message", str(error_info)) if isinstance(error_info, dict) else str(error_info)
             raise ConnectionError(f"Gemini Google Search grounding chyba: {message}")
 
-        research_text = _extract_interaction_text_and_citations(data)
+        research_text = _extract_interaction_text_and_citations(
+            data, inline_citations=market_only
+        )
         # Resolve Google/Vertex redirect URLs to real public URLs
         research_text = _resolve_annotation_redirects(research_text)
         output_text = research_text or "Google Search grounding prebehol, ale nevratil pouzitelny text."

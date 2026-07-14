@@ -70,6 +70,60 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
         self.assertEqual(item["data_provenance"], "GROUNDED_SEARCH_RESULT")
         self.assertFalse(item["display_in_report"])
 
+    def test_inline_grounding_annotation_record_becomes_verified_detail(self):
+        url = "https://www.autobazar.eu/detail/volkswagen-t-roc/123456"
+        grounded = (
+            "CANDIDATE | description=Volkswagen T-Roc 1.5 TSI DSG | "
+            "year=2023 | mileage_km=159000 | engine=1.5 TSI | "
+            "transmission=DSG | drivetrain=FWD | price_display=18 990 EUR | "
+            "price_eur=18990 | price_basis=gross_asking | source_country=SK | "
+            "similarity_tier=A | material_difference=rovnaka konfiguracia | "
+            f"grounding_url={url}\n\n"
+            "### Citacie z Google Search\n"
+            f"- [VW T-Roc]({url})\n"
+        )
+
+        result = extract_grounded_market_search_pass(grounded, "sk_cz")
+
+        item = result["candidates"][0]
+        self.assertEqual(item["source_url"], url)
+        self.assertTrue(item["verified_url"])
+        self.assertEqual(item["url_verification_status"], "VERIFIED_DETAIL")
+
+    def test_model_authored_grounding_marker_without_annotation_is_unverified(self):
+        invented = "https://www.autobazar.eu/detail/volkswagen-t-roc/invented"
+        grounded = (
+            "CANDIDATE | description=Volkswagen T-Roc 1.5 TSI DSG | "
+            "year=2023 | mileage_km=159000 | price_eur=18990 | "
+            f"grounding_url={invented}\n"
+        )
+
+        result = extract_grounded_market_search_pass(grounded, "sk_cz")
+
+        item = result["candidates"][0]
+        self.assertFalse(item["verified_url"])
+        self.assertEqual(item["url_verification_status"], "URL_UNVERIFIED")
+
+    def test_inline_results_page_record_is_eu_background_only(self):
+        url = "https://suchen.mobile.de/fahrzeuge/search.html?vc=Car&ms=25200"
+        grounded = (
+            "CANDIDATE | description=Volkswagen T-Roc 1.5 TSI DSG | "
+            "year=2022 | mileage_km=145000 | engine=1.5 TSI | "
+            "transmission=DSG | drivetrain=FWD | price_display=18 500 EUR | "
+            "price_eur=18500 | price_basis=gross_asking | source_country=DE | "
+            "similarity_tier=A | material_difference=rok -1 | "
+            f"grounding_url={url}\n\n"
+            "### Citacie z Google Search\n"
+            f"- [Mobile results]({url})\n"
+        )
+
+        result = extract_grounded_market_search_pass(grounded, "mobile_de")
+
+        item = result["candidates"][0]
+        self.assertFalse(item["verified_url"])
+        self.assertTrue(item["background_evidence_verified"])
+        self.assertEqual(item["url_verification_status"], "VERIFIED_SEARCH_RESULT")
+
     @staticmethod
     def _benchmark_candidate(index, *, year=2008, mileage=130000, price=8000):
         return {

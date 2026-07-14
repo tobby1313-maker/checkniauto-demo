@@ -59,6 +59,41 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertIn(f"]({direct_url})", resolved)
         self.assertNotIn(gemini.GROUNDING_REDIRECT_HOST, resolved)
 
+    def test_market_citation_is_attached_to_its_supported_candidate_line(self):
+        text = (
+            "CANDIDATE | description=VW T-Roc 1.5 TSI DSG | year=2023 | "
+            "mileage_km=159000 | price_eur=18990"
+        )
+        url = "https://www.autobazar.eu/detail/volkswagen-t-roc/123456"
+        payload = {
+            "steps": [
+                {
+                    "type": "model_output",
+                    "content": [
+                        {
+                            "text": text,
+                            "annotations": [
+                                {
+                                    "type": "url_citation",
+                                    "start_index": 0,
+                                    "end_index": len(text),
+                                    "title": "VW T-Roc",
+                                    "url": url,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        extracted = gemini._extract_interaction_text_and_citations(
+            payload, inline_citations=True
+        )
+
+        self.assertIn(f"grounding_url={url}", extracted.splitlines()[0])
+        self.assertIn(f"]({url})", extracted)
+
     def test_unresolved_grounding_redirect_becomes_plain_unverified_source(self):
         redirect_url = (
             "https://vertexaisearch.cloud.google.com/grounding-api-redirect/failed"

@@ -384,6 +384,71 @@ def _parse_grounded_market_json(value: str) -> dict[str, Any]:
     return {}
 
 
+def _parse_grounded_market_records(value: str) -> list[dict[str, Any]]:
+    """Parse citation-friendly one-line records from a grounded market pass."""
+    records: list[dict[str, Any]] = []
+    for line in str(value or "").splitlines():
+        if not re.match(r"^\s*CANDIDATE\s*\|", line, re.IGNORECASE):
+            continue
+        fields: dict[str, str] = {}
+        grounding_urls: list[str] = []
+        for token in line.split("|")[1:]:
+            key, separator, raw_value = token.partition("=")
+            if not separator:
+                continue
+            key = key.strip().lower()
+            field_value = raw_value.strip()
+            if key == "grounding_url":
+                url = _canonical_url(field_value)
+                if url and url not in grounding_urls:
+                    grounding_urls.append(url)
+                continue
+            fields[key] = field_value
+        if not fields:
+            continue
+        evidence_url = grounding_urls[0] if grounding_urls else ""
+        detail_url = evidence_url if _looks_like_direct_ad_url(evidence_url) else ""
+        records.append(
+            {
+                "description": fields.get("description", ""),
+                "year": _optional_record_int(fields.get("year")),
+                "mileage_km": _optional_record_int(fields.get("mileage_km")),
+                "engine": fields.get("engine", ""),
+                "transmission": fields.get("transmission", ""),
+                "drivetrain": fields.get("drivetrain", ""),
+                "price_display": fields.get("price_display", ""),
+                "price_eur": _optional_record_number(fields.get("price_eur")),
+                "price_basis": fields.get("price_basis", "unknown"),
+                "source_country": fields.get("source_country", ""),
+                "similarity_tier": fields.get("similarity_tier", "C").upper(),
+                "material_difference": fields.get("material_difference", ""),
+                "detail_url": detail_url,
+                "evidence_url": evidence_url,
+                "url_kind": "DETAIL" if detail_url else "RESULTS_PAGE",
+            }
+        )
+    return records
+
+
+def _optional_record_int(value: Any) -> int | None:
+    text = str(value or "").strip().lower()
+    if not text or text in {"null", "none", "unknown", "neuvedene", "neuvedené"}:
+        return None
+    digits = re.sub(r"[^0-9]", "", text)
+    return int(digits) if digits else None
+
+
+def _optional_record_number(value: Any) -> float | None:
+    text = str(value or "").strip().lower()
+    if not text or text in {"null", "none", "unknown", "neuvedene", "neuvedené"}:
+        return None
+    normalized = re.sub(r"[^0-9,.-]", "", text).replace(",", ".")
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
 def _url_matches_pass(url: str, pass_id: str) -> bool:
     spec = MARKET_SEARCH_PASS_SPECS.get(pass_id) or {}
     host = _url_host(url)
@@ -407,6 +472,8 @@ def extract_grounded_market_search_pass(
     raw_candidates = parsed.get("candidates") if isinstance(parsed, dict) else []
     if not isinstance(raw_candidates, list):
         raw_candidates = []
+    if not raw_candidates:
+        raw_candidates = _parse_grounded_market_records(grounded_text)
     cited_urls = [
         url
         for url in _citation_market_urls(grounded_text, direct_only=False)

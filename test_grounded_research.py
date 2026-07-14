@@ -42,10 +42,11 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("samostatny search pass SK_CZ", prompt)
         self.assertIn("A: rovnaka generacia, motor, prevodovka a pohon", prompt)
         self.assertIn("site-specific dopyt", prompt)
-        self.assertIn("URL nikdy nevytvaraj", prompt)
-        self.assertIn("evidence_url", prompt)
+        self.assertIn("URL nevypisuj", prompt)
+        self.assertIn("inline grounding citaciu", prompt)
         self.assertIn("analyzovany inzerat nepouzivaj", prompt)
-        self.assertIn("jeden kompletny JSON objekt", prompt)
+        self.assertIn("CANDIDATE | description=", prompt)
+        self.assertIn("Nepouzivaj JSON", prompt)
 
     def test_each_foreign_market_pass_uses_its_own_portal_and_language(self):
         mobile = llm_client._build_grounded_market_prompt("Toyota RAV4", "mobile_de")

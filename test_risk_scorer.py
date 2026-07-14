@@ -170,6 +170,45 @@ class RiskScorerTest(unittest.TestCase):
         self.assertIn("sourced material listing conflict", _overrides(result))
         self.assertEqual(result["decision_status"], "RESOLVE_BEFORE_PROCEEDING")
 
+    def test_two_claims_from_same_listing_are_not_independent_sources(self):
+        research = {
+            "listing_facts": {
+                "vin": "",
+                "year": "2023",
+                "mileage": "159000 km",
+                "service_history": "",
+                "origin_or_country": "",
+                "seller": "",
+            },
+            "vin_check": {"vin_present": False, "format_check": "skipped"},
+            "market_assessment": {"price_view": "requires_manual_verification"},
+            "consistency_checks": [{"result": "concern"}],
+            "data_conflicts": [
+                {
+                    "issue": "Mileage versus seller's advertised condition",
+                    "importance": "HIGH",
+                    "source_a": "Inzerát: 159 000 km, rok 2023",
+                    "source_b": "Inzerát: stav nového auta",
+                }
+            ],
+            "knowledge_base_findings": [],
+        }
+        vision = {
+            "photos_provided": True,
+            "photo_limitations": [
+                "Rozlíšenie fotografií neumožňuje detailné posúdenie drobných škrabancov."
+            ],
+            "visual_verdict": "Vyzerá vizuálne dobre",
+        }
+
+        hotfixed = calculate_risk_score(_json(research), _json(vision))
+        v2 = calculate_risk_score_v2(_json(research), _json(vision))
+
+        self.assertNotIn("sourced_listing_conflict_high", _rules(hotfixed))
+        self.assertNotIn("sourced material listing conflict", _overrides(hotfixed))
+        self.assertEqual(hotfixed["decision_status"], "WORTH_INSPECTING")
+        self.assertFalse(any(item["code"] == "SOURCED_CONFLICT" for item in v2["gate_triggers"]))
+
     def test_suspicious_cheap_price_with_missing_vin_does_not_force_risky_verdict(self):
         result = calculate_risk_score(
             _json(

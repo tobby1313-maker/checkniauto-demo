@@ -2,11 +2,13 @@ import json
 import tempfile
 import unittest
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     _lock_report_evidence_claims,
+    _lock_registration_age_claims,
     _merge_backend_evidence,
     _promote_selected_key,
     _research_parse_failed,
@@ -110,6 +112,47 @@ Cena 6 900 EUR je podozrivo lacná a na spodnej hranici trhu.
         self.assertNotIn("podozrivo nízka", locked.lower())
         self.assertNotIn("chýbajúci vin", locked.lower())
         self.assertIn("nemožno označiť za lacnú", locked)
+
+    def test_backend_verdict_replaces_model_verdict(self):
+        report = """# VW T-Roc
+
+## Rýchle zhrnutie
+- **Hodnotenie:** 🟠 RIEŠIŤ LEN S VÝHRADAMI
+"""
+
+        locked = _lock_report_evidence_claims(
+            report,
+            {"listing_facts": {}, "market_assessment": {"benchmark_available": False}},
+            {"allowed_final_verdict": "🟢 STOJÍ ZA OBHLIADKU"},
+            output_language="sk",
+        )
+
+        self.assertIn("- **Hodnotenie:** 🟢 STOJÍ ZA OBHLIADKU", locked)
+        self.assertNotIn("🟠 RIEŠIŤ LEN S VÝHRADAMI", locked)
+
+    def test_registration_age_claim_is_calculated_deterministically(self):
+        report = "- **Riziko:** 159 000 km za necelé 2 roky prevádzky."
+
+        locked = _lock_registration_age_claims(
+            report,
+            {"registration_date": "2/2023"},
+            language="sk",
+            as_of=datetime(2026, 7, 14),
+        )
+
+        self.assertEqual(
+            locked,
+            "- **Riziko:** 159 000 km za približne 3 roky a 5 mesiacov prevádzky.",
+        )
+        self.assertIn(
+            "za približne 3 roky a 5 mesiacov prevádzky",
+            _lock_registration_age_claims(
+                "Nájazd za necelé dva roky.",
+                {"registration_date": "2/2023"},
+                language="sk",
+                as_of=datetime(2026, 7, 14),
+            ),
+        )
 
     def test_market_lock_preserves_url_unverified_search_message(self):
         report = """# Toyota RAV4

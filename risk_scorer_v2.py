@@ -105,6 +105,29 @@ def _add_unique(items: list[dict[str, Any]], item: dict[str, Any], keys: tuple[s
     items.append(item)
 
 
+def _is_independent_material_conflict(conflict: dict[str, Any]) -> bool:
+    source_a = _source_family(conflict.get("source_a"))
+    source_b = _source_family(conflict.get("source_b"))
+    return bool(source_a and source_b and source_a != source_b)
+
+
+def _source_family(value: Any) -> str:
+    text = _text(value).lower()
+    if not text:
+        return ""
+    families = (
+        ("listing", ("inzerat", "inzerát", "listing", "seller claim", "predajca")),
+        ("photo", ("photo", "foto", "odometer image", "vision")),
+        ("document", ("doklad", "document", "registration certificate", "technicky preukaz", "technický preukaz")),
+        ("vin_record", ("vin record", "vin report", "cebia", "carvertical")),
+        ("official_record", ("official", "register", "registry", "databaza", "databáza")),
+    )
+    for family, markers in families:
+        if any(marker in text for marker in markers):
+            return family
+    return re.split(r"\s*[:;,|]\s*", text, maxsplit=1)[0].strip()
+
+
 def calculate_risk_score_v2(
     text_research: Any,
     vision: Any,
@@ -206,7 +229,7 @@ def calculate_risk_score_v2(
 
     for conflict in _list(research.get("data_conflicts")):
         item = _dict(conflict)
-        if not _text(item.get("source_a")) or not _text(item.get("source_b")):
+        if not _is_independent_material_conflict(item):
             continue
         importance = _text(item.get("importance")).upper()
         issue = _text(item.get("issue"))

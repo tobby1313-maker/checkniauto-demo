@@ -114,8 +114,7 @@ def calculate_hotfixed_risk_score(
         importance = _clean(conflict.get("importance")).upper()
         if (
             importance in {"HIGH", "MEDIUM"}
-            and _clean(conflict.get("source_a"))
-            and _clean(conflict.get("source_b"))
+            and _is_independent_material_conflict(conflict)
         ):
             material_conflicts.append(conflict)
     high_conflicts = [
@@ -198,7 +197,7 @@ def calculate_hotfixed_risk_score(
         )
     elif weak_photos:
         missing_flags.add("photos")
-        _add_rule(applied_rules, "missing_or_weak_photos", 1, "Fotografie chybaju alebo maju obmedzenu vypovednu hodnotu.")
+        _add_rule(applied_rules, "missing_or_weak_photos", 0, "Fotografie chybaju alebo maju obmedzenu vypovednu hodnotu.")
         priority_checks.append("Doplnit fotky karoserie, interieru, pneu, podvozku a pristrojovky.")
 
     minor_damage = _has_visual_severity(vision_data, {"minor", "medium"})
@@ -566,8 +565,38 @@ def _is_benign_photo_limitation(value: Any) -> bool:
         "vzork",
         "prehlad",
         "nahlad",
+        "drobnych skrabanc",
+        "drobných škrabanc",
+        "detailne posudenie",
+        "detailné posúdenie",
+        "osvetlenie na niektorych fotograf",
+        "osvetlenie na niektorých fotograf",
     )
     return any(phrase in text for phrase in benign_phrases)
+
+
+def _is_independent_material_conflict(conflict: dict[str, Any]) -> bool:
+    """Require two genuinely independent evidence sources for a penalty."""
+    source_a = _source_family(conflict.get("source_a"))
+    source_b = _source_family(conflict.get("source_b"))
+    return bool(source_a and source_b and source_a != source_b)
+
+
+def _source_family(value: Any) -> str:
+    text = _clean(value).lower()
+    if not text:
+        return ""
+    families = (
+        ("listing", ("inzerat", "inzerát", "listing", "seller claim", "predajca")),
+        ("photo", ("photo", "foto", "odometer image", "vision")),
+        ("document", ("doklad", "document", "registration certificate", "technicky preukaz", "technický preukaz")),
+        ("vin_record", ("vin record", "vin report", "cebia", "carvertical")),
+        ("official_record", ("official", "register", "registry", "databaza", "databáza")),
+    )
+    for family, markers in families:
+        if any(marker in text for marker in markers):
+            return family
+    return re.split(r"\s*[:;,|]\s*", text, maxsplit=1)[0].strip()
 
 
 def _has_good_documentation(
