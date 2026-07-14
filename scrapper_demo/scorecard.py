@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from collections.abc import Mapping
 from typing import Any
+
+from scrapper_demo.component_identity import component_is_identified
 
 
 MISSING_VALUES = {"", "unknown", "neuvedene", "nezname", "none", "null"}
@@ -57,18 +60,10 @@ def _transparency_score(research: dict[str, Any], vision: dict[str, Any]) -> int
     vin = _dict(research.get("vin_check"))
     score = 100
     vin_present = bool(_text(facts.get("vin"))) or vin.get("vin_present") is True
-    if not vin_present:
-        score -= 22
-    elif _fold(vin.get("format_check")) == "problem":
+    if vin_present and _fold(vin.get("format_check")) == "problem":
         score -= 35
-    if _missing(facts.get("service_history")):
-        score -= 20
     if _missing(facts.get("mileage")) and facts.get("advertised_mileage_km") in (None, ""):
         score -= 15
-    if _missing(facts.get("origin_or_country")):
-        score -= 5
-    if _missing(facts.get("seller")):
-        score -= 5
     for conflict in _list(research.get("data_conflicts")):
         importance = _fold(_dict(conflict).get("importance"))
         score -= 15 if importance == "high" else 8 if importance == "medium" else 3
@@ -108,19 +103,27 @@ def _risk_deduction(item: dict[str, Any]) -> int:
     return deduction
 
 
-def _component_score(research: dict[str, Any], keywords: tuple[str, ...]) -> int | None:
+def _component_score(
+    research: dict[str, Any],
+    keywords: tuple[str, ...],
+    component_name: str,
+) -> int | None:
     matched: list[dict[str, Any]] = []
     for raw in _list(research.get("technical_risks")):
         item = _dict(raw)
         haystack = _fold(f"{item.get('component', '')} {item.get('issue', '')}")
         if any(keyword in haystack for keyword in keywords):
-            matched.append(item)
-    if not matched:
+            category = _fold(item.get("evidence_category"))
+            specific = _text(item.get("specific_vehicle_evidence"))
+            if category in {"confirmed", "listing_claim", "visual_indication"} and specific:
+                matched.append(item)
+    identified = component_is_identified(
+        research.get("component_identity"), component_name
+    )
+    if not matched and not identified:
         return None
     score = 88
     score -= min(58, sum(_risk_deduction(item) for item in matched))
-    if _missing(_dict(research.get("listing_facts")).get("service_history")):
-        score -= 8
     return _clamp(score)
 
 
@@ -136,53 +139,32 @@ def _visual_score(vision: dict[str, Any]) -> int | None:
             severity = _fold(item.get("severity"))
             if assessment == "reassuring":
                 reassuring += 1
-            if assessment == "concern" or severity in {"minor", "medium", "serious"}:
+            if assessment == "concern":
                 score -= {"serious": 28, "medium": 14, "minor": 5}.get(severity, 8)
     score += min(8, reassuring * 2)
-    score -= min(30, len(_list(vision.get("visible_red_flags"))) * 15)
+    red_flags = [
+        _dict(item)
+        for item in _list(vision.get("visible_red_flags"))
+        if _fold(_dict(item).get("assessment")) == "concern"
+    ]
+    score -= min(30, len(red_flags) * 15)
     coverage = _dict(vision.get("view_coverage"))
     score -= sum(4 for key in ("exterior", "interior", "dashboard", "tires") if _fold(coverage.get(key)) == "missing")
     return _clamp(score)
 
 
-def _service_readiness_score(research: dict[str, Any]) -> int:
-    """Estimate how prepared the car appears for near-term ownership service."""
+def _service_readiness_score(research: dict[str, Any]) -> int | None:
+    """Score documented readiness; missing history is unknown, not negative."""
     facts = _dict(research.get("listing_facts"))
     service_history = _fold(facts.get("service_history"))
     if _missing(service_history):
-        score = 48
-    elif any(term in service_history for term in ("faktur", "doklad", "zaznam")):
-        score = 82
-    else:
-        score = 68
-    likely_costs = [
-        _dict(item)
-        for item in _list(research.get("expected_costs"))
-        if _fold(_dict(item).get("cost_type")) in {"initial_service", "diagnostic"}
-    ]
-    total_high = 0.0
-    urgent_count = 0
-    for item in likely_costs:
-        high = item.get("estimated_cost_eur_high")
-        low = item.get("estimated_cost_eur_low")
-        estimate = high if isinstance(high, (int, float)) else low
-        if isinstance(estimate, (int, float)):
-            total_high += max(0.0, float(estimate))
-        if _fold(item.get("urgency")) in {"high", "critical"}:
-            urgent_count += 1
-    if total_high >= 1_500:
-        score -= 30
-    elif total_high >= 900:
-        score -= 22
-    elif total_high >= 500:
-        score -= 14
-    elif total_high >= 250:
-        score -= 7
-    score -= min(12, urgent_count * 4)
-    return _clamp(score)
+        return None
+    if any(term in service_history for term in ("faktur", "doklad", "zaznam")):
+        return 82
+    return 68
 
 
-def _backend_score(risk_score: dict[str, Any]) -> int:
+def _backend_score(risk_score: Mapping[str, Any]) -> int:
     if isinstance(risk_score.get("screening_score"), (int, float)):
         return _clamp(float(risk_score["screening_score"]))
     status = _text(risk_score.get("decision_status"))
@@ -198,7 +180,7 @@ def _backend_score(risk_score: dict[str, Any]) -> int:
 def _confidence(
     research: dict[str, Any],
     vision: dict[str, Any],
-    risk_score: dict[str, Any],
+    risk_score: Mapping[str, Any],
     scores: dict[str, int | None],
 ) -> str:
     quality = _fold(risk_score.get("evidence_quality") or _dict(research.get("evidence_summary")).get("overall_confidence"))
@@ -215,17 +197,22 @@ def _confidence(
 def build_buyer_scorecard(
     text_research: Any,
     vision: Any,
-    risk_score: dict[str, Any],
+    risk_score: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Build scores where 100 consistently means a more favorable profile."""
     research = _parse(text_research)
     vision_data = _parse(vision)
     transparency = _transparency_score(research, vision_data)
     market = _market_score(research)
-    engine = _component_score(research, ("motor", "engine", "rozvod", "turbo", "dpf", "egr"))
+    engine = _component_score(
+        research,
+        ("motor", "engine", "rozvod", "turbo", "dpf", "egr"),
+        "engine",
+    )
     transmission = _component_score(
         research,
         ("prevodov", "automat", "transmission", "gearbox", "spojk", "dsg", "cvt", "pohon", "4x4", "awd", "diferencial"),
+        "transmission",
     )
     visual = _visual_score(vision_data)
     service = _service_readiness_score(research)

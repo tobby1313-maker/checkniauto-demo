@@ -242,9 +242,10 @@ znalosti pre stateless verejne demo, preto pokry vsetky relevantne vrstvy vozidl
 nie iba dve alebo tri najznamejsie chyby. Vyhladavaj cielene, hlavne v SK/CZ/EU.
 
 Postup researchu:
-1. Najprv identifikuj najpravdepodobnejsiu generaciu/platformu, kod alebo rodinu
-   motora, kod alebo rodinu prevodovky a typ pohonu. Ak vstup obsahuje rozpor,
-   uved kandidata a neistotu; nevynucuj presny kod bez opory v zdroji.
+1. Pouzi dodany COMPONENT_IDENTITY ako vopred vyhladanu identifikaciu generacie,
+   motora, prevodovky a pohonu. Over jeho aplikovatelnost, ale nezvysuj jeho
+   resolution/confidence a nevynucuj presny kod, ked zostal PROBABLE, AMBIGUOUS
+   alebo UNKNOWN.
 2. Samostatne vyhladaj motor: spolahlivost, typicke poruchy, servisne intervaly,
    kilometrove/vekove spustace a prakticke kontroly pred kupou.
 3. Samostatne vyhladaj prevodovku a AWD/4x4/hybrid/EV komponenty: kvapaliny,
@@ -254,10 +255,16 @@ Postup researchu:
 5. Over zvolavacie a servisne kampane, prednostne cez oficialny web vyrobcu
    alebo regulatorny zdroj. Produkcne obdobie znamena iba kontrolu cez VIN,
    nie potvrdenu otvorenu akciu na konkretnom aute.
-6. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Rozlis bezny vstupny servis,
+6. Ak je model a rok pokryty ADAC Pannenstatistik alebo TÜV Reportom, pouzi ich
+   iba ako modelovy/vekovy kontext. ADAC nepovazuj za dokaz stavu motora alebo
+   prevodovky a TÜV nepovazuj za dokaz vady konkretneho auta.
+7. CarSurvey a specializovane fora pouzi iba na hladanie opakujucich sa
+   symptomov presne identifikovanej kombinacie. Jasne ich oznac ako owner report
+   alebo anekdoticky zdroj; nikdy nimi nepotvrdzuj vadu konkretneho vozidla.
+8. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Rozlis bezny vstupny servis,
    diagnostiku, podmienene opravy a drahy downside; podmienene opravy nikdy
    neprezentuj ako ocakavany sucet.
-7. Najdi najviac 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka
+9. Najdi najviac 3-5 co najblizsich aktualnych porovnatelnych ponuk: rovnaka
    generacia, motor, pohon, prevodovka, podobny rok a najazd. Za najdenu ponuku
    sa povazuje iba konkretny inzerat, ku ktoremu mas priamy verejny URL detailu.
    Najprv hladaj na Bazos.SK, Autobazar.EU/Autobazar.SK a potom Bazos.CZ.
@@ -266,7 +273,7 @@ Postup researchu:
    rok, najazd ani vybavu nerekonstruuj zo vseobecnej znalosti alebo zo search
    snippetu bez otvoritelneho detailu. Ak nenajdes ani jednu taku ponuku, napis
    iba, ze presne porovnatelne inzeraty s priamym URL neboli najdene.
-8. Ak je uvedeny VIN, urob aj lahku samostatnu kontrolu presneho VIN vo vyhladavani
+10. Ak je uvedeny VIN, urob aj lahku samostatnu kontrolu presneho VIN vo vyhladavani
    (hladaj cely retazec v uvodzovkach). Uved iba konkretnu relevantnu verejnu
    zmienku o aukcii, poistnej udalosti, servise alebo inom zazname, ak sa najde.
    Ak sa relevantny verejne indexovany zaznam nenajde, uved to raz neutralne ako
@@ -326,6 +333,57 @@ Format:
 
 ### Najdolezitejsie webove zistenia pre finalnu analyzu
 - 5 az 8 bodov napriec motorom, prevodovkou/pohonom, generaciou, trhom a nakladmi
+
+Kontext inzeratu:
+
+{context}
+"""
+
+
+def _build_grounded_component_identity_prompt(listing_context: str) -> str:
+    """Build the short grounded pass that resolves generation and components."""
+    context = listing_context
+    if len(context) > GROUNDING_CONTEXT_MAX_CHARS:
+        context = context[:GROUNDING_CONTEXT_MAX_CHARS] + "\n\n[Context truncated.]"
+    return f"""Si identifikacny modul pre analyzu ojazdeneho auta.
+
+Pouzi Google Search a cielene urci generaciu/platformu, motor, prevodovku a
+pohon vozidla z inzeratu. Vyhladaj kombinaciu znacky, modelu, roku/mesiaca,
+paliva, vykonu v kW, poctu stupnov, typu prevodovky a pohonu. Preferuj:
+1. oficialne katalogy/brozury vyrobcu a regulatorne zdroje,
+2. OEM alebo doveryhodne katalogy dielov a dielenske prirucky,
+3. renomovane technicke publikacie a specialistov.
+
+Pravidla istoty:
+- VERIFIED pouzi iba ked presny kod doklada VIN build sheet, dokument/stitok
+  konkretneho vozidla, OEM zaznam viazany na VIN alebo rovnocenny priamy dokaz.
+- PROBABLE pouzi pri jedinej dobre podporenej kombinacii rok + vykon + palivo +
+  prevodovka + pohon, ked chyba priamy dokaz konkretneho kusu.
+- AMBIGUOUS pouzi, ked zostavaju aspon dva realne varianty.
+- UNKNOWN pouzi, ked zdroje nestacia.
+- Marketingovy nazov ako 7DCT, DSG, Steptronic alebo automat nie je automaticky
+  vyrobny kod prevodovky.
+- VIN prefix alebo modelovy rok sam o sebe nepotvrdzuje presny motor ani prevodovku.
+- Nevymyslaj kod. Pri neistote vrat kandidatov a sposob manualneho overenia.
+- verification_basis musi byt VIN_RECORD, VEHICLE_DOCUMENT alebo PHYSICAL_LABEL
+  iba pri priamom dokaze konkretneho auta. Bez neho pouzi SPECIFICATION_MATCH,
+  MULTIPLE_CANDIDATES alebo INSUFFICIENT.
+- Nevytvaraj hodnotenie kupy, poruchovost ani cenu. Toto je iba identita.
+- Do source_url kopiruj iba realny verejny URL; Google/Vertex redirect vynechaj.
+
+Vrat jeden kratky JSON objekt bez Markdownu. Pocty: sources najviac 6,
+candidate_variants najviac 4, notes najviac 4. Pouzi presne tuto strukturu:
+{{
+  "schema_version": 1,
+  "identification_status": "VERIFIED|PROBABLE|AMBIGUOUS|UNKNOWN",
+  "generation": {{"name":"", "code":"", "family":"", "resolution":"VERIFIED|PROBABLE|AMBIGUOUS|UNKNOWN", "confidence":"HIGH|MEDIUM|LOW", "verification_basis":"VIN_RECORD|VEHICLE_DOCUMENT|PHYSICAL_LABEL|SPECIFICATION_MATCH|MULTIPLE_CANDIDATES|INSUFFICIENT", "evidence_refs":[]}},
+  "engine": {{"marketing_name":"", "code":"", "family":"", "resolution":"VERIFIED|PROBABLE|AMBIGUOUS|UNKNOWN", "confidence":"HIGH|MEDIUM|LOW", "verification_basis":"VIN_RECORD|VEHICLE_DOCUMENT|PHYSICAL_LABEL|SPECIFICATION_MATCH|MULTIPLE_CANDIDATES|INSUFFICIENT", "evidence_refs":[]}},
+  "transmission": {{"marketing_name":"", "code":"", "family":"", "resolution":"VERIFIED|PROBABLE|AMBIGUOUS|UNKNOWN", "confidence":"HIGH|MEDIUM|LOW", "verification_basis":"VIN_RECORD|VEHICLE_DOCUMENT|PHYSICAL_LABEL|SPECIFICATION_MATCH|MULTIPLE_CANDIDATES|INSUFFICIENT", "evidence_refs":[]}},
+  "drivetrain": {{"type":"", "code":"", "family":"", "resolution":"VERIFIED|PROBABLE|AMBIGUOUS|UNKNOWN", "confidence":"HIGH|MEDIUM|LOW", "verification_basis":"VIN_RECORD|VEHICLE_DOCUMENT|PHYSICAL_LABEL|SPECIFICATION_MATCH|MULTIPLE_CANDIDATES|INSUFFICIENT", "evidence_refs":[]}},
+  "candidate_variants": [{{"engine_code":"", "transmission_code":"", "reason":""}}],
+  "sources": [{{"source_id":"src_1", "source_name":"", "source_url":"", "source_type":"OFFICIAL|REGULATORY|OEM_CATALOG|TECHNICAL_PUBLICATION|PARTS_CATALOG|REPAIR_SOURCE|OWNER_REPORT|OTHER", "used_for":""}}],
+  "notes": []
+}}
 
 Kontext inzeratu:
 
@@ -473,13 +531,22 @@ def run_grounded_web_research(
     model_to_use = model if model else GEMINI_GROUNDING_MODEL
     model_candidates = _ordered_unique_models(model_to_use, GEMINI_GROUNDING_FALLBACK_MODELS)
 
-    market_only = str(research_mode or "full").strip().lower() == "market"
-    prompt = (
-        _build_grounded_market_prompt(listing_context)
+    normalized_mode = str(research_mode or "full").strip().lower()
+    market_only = normalized_mode == "market"
+    identity_only = normalized_mode == "identity"
+    if market_only:
+        prompt = _build_grounded_market_prompt(listing_context)
+    elif identity_only:
+        prompt = _build_grounded_component_identity_prompt(listing_context)
+    else:
+        prompt = _build_grounded_search_prompt(listing_context)
+    tracking_phase = (
+        "market_grounding"
         if market_only
-        else _build_grounded_search_prompt(listing_context)
+        else "component_identity_grounding"
+        if identity_only
+        else "grounding"
     )
-    tracking_phase = "market_grounding" if market_only else "grounding"
     last_error_text = ""
     unavailable_models = []
     rate_limited_models = []

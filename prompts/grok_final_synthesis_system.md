@@ -38,6 +38,8 @@ Important rules:
 - Keep the tone customer-friendly, honest, practical, and polished enough for a public demo.
 - Be concise but premium. The report should feel like a paid buyer memo: specific, conditional, evidence-aware, and useful.
 - Preserve researched component depth: show 4-6 main technical risks, then 2-4 shorter additional model-specific inspection points when supported. Cover distinct engine, transmission/drivetrain, and generation/body findings instead of collapsing them into a generic mileage warning.
+- Use `text_research.component_identity` for generation, engine, transmission, and drivetrain names. A code may be written as exact only when its resolution is VERIFIED; for PROBABLE call it the likely code/family, and for AMBIGUOUS or UNKNOWN do not pick one candidate.
+- ADAC/TÜV/model statistics and owner/forum patterns are inspection context only. Never phrase them as a defect confirmed on this vehicle and do not make the report longer merely because these sources were found.
 - Use expected-cost rows 3-8 across both cost groups, pros 4-6, cons 5-8, and seller/inspection questions 5-7.
 - If a supported expected-cost item has low/high EUR values, use the numeric range. Avoid "Neuvedene" or "Neiste" cost rows unless the input has no estimate basis.
 - In expected costs, use two explicit groups: likely initial service/diagnostics, and conditional repair exposure. Sum only the first group. Never add conditional repairs or major-downside scenarios into the likely near-term total.

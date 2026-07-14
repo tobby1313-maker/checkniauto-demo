@@ -17,6 +17,17 @@
     "fuel": "Petrol",
     "equipment": []
   },
+  "component_identity": {
+    "schema_version": 1,
+    "identification_status": "PROBABLE",
+    "generation": {"name": "Representative generation", "code": "GEN-1", "family": "Representative platform", "resolution": "PROBABLE", "confidence": "MEDIUM", "verification_basis": "SPECIFICATION_MATCH", "evidence_refs": ["SRC-1"]},
+    "engine": {"marketing_name": "2.0 TSI", "code": "ENG-TEST", "family": "2.0 turbo petrol", "resolution": "PROBABLE", "confidence": "MEDIUM", "verification_basis": "SPECIFICATION_MATCH", "evidence_refs": ["SRC-1"]},
+    "transmission": {"marketing_name": "Automatic", "code": "GEAR-TEST", "family": "dual-clutch automatic", "resolution": "PROBABLE", "confidence": "MEDIUM", "verification_basis": "SPECIFICATION_MATCH", "evidence_refs": ["SRC-1"]},
+    "drivetrain": {"type": "FWD", "code": "", "family": "front-wheel drive", "resolution": "PROBABLE", "confidence": "MEDIUM", "verification_basis": "SPECIFICATION_MATCH", "evidence_refs": ["SRC-1"]},
+    "candidate_variants": [],
+    "sources": [],
+    "notes": []
+  },
   "seller_claims": [],
   "missing_or_uncertain_data": [],
   "data_conflicts": [],

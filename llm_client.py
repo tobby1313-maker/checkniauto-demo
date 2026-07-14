@@ -35,6 +35,7 @@ from scrapper_demo.providers.gemini import (
     GROUNDING_REDIRECT_HOST,
     GROUNDING_RESOLVE_MAX_REDIRECTS,
     GROUNDING_RESOLVE_TIMEOUT,
+    _build_grounded_component_identity_prompt,
     _build_grounded_search_prompt,
     _build_grounded_market_prompt,
     _call_gemini,

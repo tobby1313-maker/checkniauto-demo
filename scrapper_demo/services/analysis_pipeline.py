@@ -39,7 +39,15 @@ from scrapper_demo.providers.retry import (
     normalize_gemini_key_entries,
 )
 from scrapper_demo.scorecard import build_buyer_scorecard
-from scrapper_demo.market_comparables import deduplicate_market_comparables
+from scrapper_demo.component_identity import (
+    normalize_component_identity,
+    parse_first_json_object,
+    unknown_component_identity,
+)
+from scrapper_demo.market_comparables import (
+    deduplicate_market_comparables,
+    reconcile_market_comparable_urls,
+)
 from scrapper_demo.validation import (
     _ensure_end_analysis_marker,
     _soft_validate_final_report,
@@ -105,6 +113,77 @@ def _token_event(input_tokens: int, output_tokens: int) -> str:
     return _sse_event(token_usage={"input_tokens": input_tokens, "output_tokens": output_tokens})
 
 
+def _research_parse_failed(value: Any) -> bool:
+    return (
+        not isinstance(value, dict)
+        or value.get("_parse_error") is True
+        or ("raw_preview" in value and "source_role" not in value)
+    )
+
+
+def _merge_backend_evidence(
+    research: dict[str, Any],
+    listing_context: dict[str, Any],
+    component_identity: dict[str, Any],
+) -> dict[str, Any]:
+    """Lock deterministic listing facts and grounded identity into model output."""
+    merged = dict(research)
+    merged["component_identity"] = component_identity
+    facts = merged.get("listing_facts")
+    if not isinstance(facts, dict):
+        facts = {}
+    else:
+        facts = dict(facts)
+
+    canonical = {
+        "title": listing_context.get("title"),
+        "price": listing_context.get("price"),
+        "vin": listing_context.get("vin"),
+        "mileage": listing_context.get("mileage"),
+        "year": listing_context.get("year"),
+        "engine": listing_context.get("engine"),
+        "power": listing_context.get("power"),
+        "fuel": listing_context.get("fuel"),
+        "color": listing_context.get("color"),
+        "transmission": listing_context.get("transmission"),
+        "drive": listing_context.get("drive"),
+    }
+    for key, value in canonical.items():
+        if value not in (None, "", [], {}):
+            facts[key] = str(value) if key == "price" else value
+    mileage_km = listing_context.get("mileage_km")
+    if isinstance(mileage_km, (int, float)) and mileage_km > 0:
+        facts["advertised_mileage_km"] = int(mileage_km)
+        if not facts.get("mileage"):
+            facts["mileage"] = f"{int(mileage_km)} km"
+    merged["listing_facts"] = facts
+
+    known_missing_terms: set[str] = set()
+    if facts.get("mileage") or facts.get("advertised_mileage_km"):
+        known_missing_terms.update({"mileage", "najazd", "najazdene", "kilomet"})
+    if facts.get("year"):
+        known_missing_terms.update({"year", "rok", "registr"})
+    if facts.get("vin"):
+        known_missing_terms.add("vin")
+    if facts.get("transmission"):
+        known_missing_terms.update({"transmission", "prevodov"})
+    if facts.get("engine"):
+        known_missing_terms.update({"engine", "motor"})
+
+    if known_missing_terms and isinstance(merged.get("missing_or_uncertain_data"), list):
+        filtered: list[Any] = []
+        for item in merged["missing_or_uncertain_data"]:
+            if not isinstance(item, dict):
+                filtered.append(item)
+                continue
+            normalized = _fold_market_text(item.get("item", ""))
+            if any(term in normalized for term in known_missing_terms):
+                continue
+            filtered.append(item)
+        merged["missing_or_uncertain_data"] = filtered
+    return merged
+
+
 def _fold_market_text(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
@@ -122,7 +201,7 @@ def _probable_market_detail_url(value: str) -> bool:
     if host == "vertexaisearch.cloud.google.com" or host.endswith(".vertexaisearch.cloud.google.com"):
         return False
     path = parsed.path.lower()
-    if any(fragment in path for fragment in ("/vysledky", "/search", "/category", "/katalog", "/filter")):
+    if any(fragment in path for fragment in ("/vysledky", "/inzeraty/", "/search", "/category", "/katalog", "/filter")):
         return False
     direct_markers = ("/detail", "/inzerat/", "/offer/", "/offers/", "/auto-inserat/")
     if any(marker in path for marker in direct_markers):
@@ -157,10 +236,15 @@ def _has_linked_market_comparable(
 ) -> bool:
     """Return True when grounded output contains a probable direct ad URL."""
     in_market_section = False
+    in_citation_section = False
     for line in str(research_text or "").splitlines():
         stripped = line.strip()
         if re.match(r"^#{2,4}\s+", stripped):
             heading = _fold_market_text(re.sub(r"^#{2,4}\s+", "", stripped))
+            in_citation_section = (
+                "citacie z google search" in heading
+                or "google search citations" in heading
+            )
             in_market_section = (
                 ("cena" in heading and "trh" in heading)
                 or "porovnatelne inzeraty" in heading
@@ -170,6 +254,8 @@ def _has_linked_market_comparable(
             )
             continue
         if not market_only and not in_market_section:
+            continue
+        if customer_facing_only and not in_citation_section:
             continue
         for match in re.finditer(r"\[[^\]\n]+\]\((https?://[^\s)]+(?:\([^\s)]*\)[^\s)]*)*)\)", line, re.IGNORECASE):
             url = match.group(1)
@@ -264,12 +350,61 @@ def multi_model_analysis_events(
     car_info_text = repository.read_text(slug, "car_info.md", default="") or ""
     vin_light_decode = _read_vin_light_decode(repository, slug)
     model_listing_context = dependencies.listing_context_text(car_info_text)
+    listing_context_data = parse_first_json_object(model_listing_context)
+    repository.write_json(slug, "listing_facts.json", listing_context_data)
     grounding_listing_context = dependencies.listing_context_text(car_info_text, description_chars=700)
     if vin_light_decode:
         vin_context = dependencies.compact_json_for_prompt(vin_light_decode)
         model_listing_context += f"\n\nVIN_LIGHT_CHECK (local prefix decoder; not a history result):\n{vin_context}"
         grounding_listing_context += f"\n\nVIN_LIGHT_CHECK (local prefix decoder; not a history result):\n{vin_context}"
     validation_warnings = []
+
+    component_identity = unknown_component_identity(
+        "Grounded component identification was unavailable."
+    )
+    try:
+        yield _status_event("Identifying generation, engine, transmission, and drivetrain...")
+        identity_grounded, _identity_key = yield from dependencies.collect_gemini(
+            gemini_key_entries,
+            "component identity research",
+            lambda key: [
+                dependencies.grounded_research(
+                    key,
+                    grounding_listing_context,
+                    model=GEMINI_GROUNDING_MODEL,
+                    listing_slug=slug,
+                    research_mode="identity",
+                )
+            ],
+            retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+            same_key_retries=1,
+            same_key_retry_exceptions=(GroundingTransientError,),
+        )
+        component_identity = normalize_component_identity(identity_grounded)
+        status = component_identity.get("identification_status", "UNKNOWN")
+        yield _status_event(f"Component identification saved: {status}.")
+    except Exception as identity_exc:
+        dependencies.log(f"Component identity research warning: {identity_exc}")
+        yield _status_event(
+            "Component identification unavailable; continuing without guessing exact codes."
+        )
+    component_identity_json = json.dumps(
+        component_identity, indent=2, ensure_ascii=False
+    )
+    repository.write_text(slug, "component_identity.json", component_identity_json)
+    validation_warnings.extend(
+        dependencies.validate_json_contract(
+            "component_identity.json",
+            component_identity_json,
+            "component_identity.schema.json",
+        )
+    )
+    identity_context = dependencies.compact_json_for_prompt(component_identity)
+    grounded_listing_with_identity = (
+        grounding_listing_context
+        + "\n\nCOMPONENT_IDENTITY (grounded candidate; preserve resolution):\n"
+        + identity_context
+    )
 
     web_research_text = ""
     try:
@@ -280,7 +415,7 @@ def multi_model_analysis_events(
             lambda key: [
                 dependencies.grounded_research(
                     key,
-                    grounding_listing_context,
+                    grounded_listing_with_identity,
                     model=GEMINI_GROUNDING_MODEL,
                     listing_slug=slug,
                 )
@@ -291,6 +426,7 @@ def multi_model_analysis_events(
         )
         if grounded:
             web_research_text = grounded
+            repository.write_text(slug, "reliability_research.md", grounded)
             if not _has_linked_market_comparable(grounded, customer_facing_only=True):
                 yield _status_event("No supported SK/CZ comparable links found; running targeted market search...")
                 try:
@@ -300,7 +436,7 @@ def multi_model_analysis_events(
                         lambda key: [
                             dependencies.grounded_research(
                                 key,
-                                grounding_listing_context,
+                                grounded_listing_with_identity,
                                 model=GEMINI_GROUNDING_MODEL,
                                 listing_slug=slug,
                                 research_mode="market",
@@ -310,6 +446,7 @@ def multi_model_analysis_events(
                         same_key_retries=0,
                     )
                     if market_grounded:
+                        repository.write_text(slug, "market_research.md", market_grounded)
                         web_research_text = (
                             grounded.rstrip()
                             + "\n\n## Cielene porovnanie trhu\n\n"
@@ -348,7 +485,12 @@ def multi_model_analysis_events(
         text_research_system_prompt = f.read()
 
     text_research_json_text = ""
-    text_research_content = dependencies.build_text_research_context(model_listing_context, output_language, web_research_text)
+    text_research_content = dependencies.build_text_research_context(
+        model_listing_context,
+        output_language,
+        web_research_text,
+        component_identity,
+    )
     input_tokens = dependencies.estimate_request_tokens(text_research_system_prompt, text_research_content)
     yield _token_event(input_tokens, 0)
     if text_provider == "gemini":
@@ -392,17 +534,60 @@ def multi_model_analysis_events(
             )
     try:
         research_data = dependencies.safe_model_json(text_research_json_text)
+    except Exception:
+        research_data = {"_parse_error": True}
+    if _research_parse_failed(research_data):
+        yield _status_event("Text/research JSON was incomplete; retrying once with a compact recovery response...")
+        recovery_content = (
+            text_research_content
+            + "\n\nRECOVERY REQUIREMENT: The previous response was incomplete JSON. "
+            "Regenerate the complete schema from the supplied evidence. Be concise: use at most "
+            "4 technical risks, 4 web findings, 4 comparables, 6 expected costs, and short strings. "
+            "Return one complete JSON object and close every array/object."
+        )
+        try:
+            text_research_json_text, _text_key = yield from dependencies.collect_gemini(
+                gemini_key_entries,
+                "text/research JSON recovery",
+                lambda key: dependencies.call_gemini(
+                    key,
+                    text_research_system_prompt,
+                    recovery_content,
+                    image_data_list=None,
+                    model=GEMINI_TEXT_RESEARCH_MODEL,
+                    listing_slug=slug,
+                    phase="text_research",
+                ),
+            )
+            research_data = dependencies.safe_model_json(text_research_json_text)
+        except Exception as recovery_exc:
+            dependencies.log(f"Text/research JSON recovery failed: {recovery_exc}")
+            research_data = {"_parse_error": True}
+        if _research_parse_failed(research_data):
+            repository.write_text(slug, "grok_research.json", text_research_json_text)
+            yield _error_event(
+                "Text/research analysis returned incomplete JSON twice. Analysis stopped before creating an unreliable report."
+            )
+            return
+    research_data = _merge_backend_evidence(
+        research_data,
+        listing_context_data,
+        component_identity,
+    )
+    try:
         if isinstance(research_data.get("market_comparables"), list):
             comparable_count_before = len(research_data["market_comparables"])
+            research_data = reconcile_market_comparable_urls(research_data, web_research_text)
             research_data = deduplicate_market_comparables(research_data, car_info_text)
             comparable_count_after = len(research_data.get("market_comparables") or [])
             text_research_json_text = dependencies.compact_json_for_prompt(research_data)
             if comparable_count_after < comparable_count_before:
                 yield _status_event(
-                    f"Removed {comparable_count_before - comparable_count_after} duplicate or cross-posted market ad(s)."
+                    f"Removed {comparable_count_before - comparable_count_after} invalid, duplicate, or cross-posted market ad(s)."
                 )
     except Exception as comparable_exc:
         dependencies.log(f"Market comparable deduplication warning: {comparable_exc}")
+    text_research_json_text = dependencies.compact_json_for_prompt(research_data)
     repository.write_text(slug, "grok_research.json", text_research_json_text)
     validation_warnings.extend(
         dependencies.validate_json_contract(

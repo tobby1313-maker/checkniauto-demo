@@ -1,0 +1,87 @@
+{
+  "title": "Grounded Component Identity",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "identification_status",
+    "generation",
+    "engine",
+    "transmission",
+    "drivetrain",
+    "candidate_variants",
+    "sources",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "enum": [1] },
+    "identification_status": {
+      "type": "string",
+      "enum": ["VERIFIED", "PROBABLE", "AMBIGUOUS", "UNKNOWN"]
+    },
+    "generation": { "$ref": "#/definitions/generation" },
+    "engine": { "$ref": "#/definitions/component" },
+    "transmission": { "$ref": "#/definitions/component" },
+    "drivetrain": { "$ref": "#/definitions/drivetrain" },
+    "candidate_variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "engine_code": { "type": "string" },
+          "transmission_code": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source_id", "source_name", "source_url", "source_type", "used_for"],
+        "properties": {
+          "source_id": { "type": "string" },
+          "source_name": { "type": "string" },
+          "source_url": { "type": "string" },
+          "source_type": {
+            "type": "string",
+            "enum": ["OFFICIAL", "REGULATORY", "OEM_CATALOG", "TECHNICAL_PUBLICATION", "PARTS_CATALOG", "REPAIR_SOURCE", "OWNER_REPORT", "OTHER"]
+          },
+          "used_for": { "type": "string" }
+        }
+      }
+    },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  },
+  "definitions": {
+    "base": {
+      "type": "object",
+      "required": ["code", "family", "resolution", "confidence", "verification_basis", "evidence_refs"],
+      "properties": {
+        "code": { "type": "string" },
+        "family": { "type": "string" },
+        "resolution": { "type": "string", "enum": ["VERIFIED", "PROBABLE", "AMBIGUOUS", "UNKNOWN"] },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "verification_basis": { "type": "string", "enum": ["VIN_RECORD", "VEHICLE_DOCUMENT", "PHYSICAL_LABEL", "SPECIFICATION_MATCH", "MULTIPLE_CANDIDATES", "INSUFFICIENT"] },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "generation": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } }
+      ]
+    },
+    "component": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        { "type": "object", "required": ["marketing_name"], "properties": { "marketing_name": { "type": "string" } } }
+      ]
+    },
+    "drivetrain": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        { "type": "object", "required": ["type"], "properties": { "type": { "type": "string" } } }
+      ]
+    }
+  }
+}

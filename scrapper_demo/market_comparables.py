@@ -49,6 +49,19 @@ _COUNTRY_ALIASES = {
     "ceska republika": "CZ",
 }
 
+_URL_TOKEN_STOPWORDS = {
+    "auto",
+    "detail",
+    "en",
+    "id",
+    "inzerat",
+    "offer",
+    "offers",
+    "osobni",
+    "sk",
+    "www",
+}
+
 
 def _fold(value: Any) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
@@ -97,6 +110,136 @@ def _url_host(value: Any) -> str:
 
 def _host_matches(host: str, expected: str) -> bool:
     return host == expected or host.endswith(f".{expected}")
+
+
+def _marketplace_host(value: Any) -> str:
+    host = _url_host(value)
+    for expected in (
+        *_PUBLIC_MARKETPLACE_HOSTS,
+        "sauto.cz",
+        "tipcars.com",
+        "tipcars.sk",
+        "mobile.de",
+        "autoscout24.com",
+    ):
+        if _host_matches(host, expected):
+            return expected
+    return host
+
+
+def _looks_like_direct_ad_url(value: Any) -> bool:
+    try:
+        parsed = urlparse(str(value or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    path = parsed.path.lower()
+    if not path.strip("/") or any(
+        marker in path
+        for marker in ("/inzeraty/", "/search", "/category", "/katalog", "/filter", "/vysledky")
+    ):
+        return False
+    host = _marketplace_host(value)
+    if host in {"bazos.sk", "bazos.cz"}:
+        return bool(re.search(r"/inzerat/\d+", path))
+    if host == "autobazar.eu":
+        return "/detail/" in path or bool(re.search(r"-id\d+\.html$", path))
+    if host == "autobazar.sk":
+        return "/detail/" in path or bool(re.match(r"^/\d+/[^/]+/?$", path))
+    return any(
+        marker in path
+        for marker in ("/detail/", "/inzerat/", "/offer/", "/offers/", "/auto-inserat/")
+    )
+
+
+def _url_identity_tokens(value: Any) -> set[str]:
+    try:
+        parsed = urlparse(str(value or "").strip())
+    except ValueError:
+        return set()
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]{2,}", _fold(parsed.path))
+        if token not in _URL_TOKEN_STOPWORDS and not token.isdigit()
+    }
+
+
+def _url_identity_similarity(left: Any, right: Any) -> float:
+    left_tokens, right_tokens = _url_identity_tokens(left), _url_identity_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
+
+
+def _citation_market_urls(web_research_text: str) -> list[str]:
+    """Extract direct ad URLs only from grounding's authoritative citations."""
+    urls: list[str] = []
+    in_citations = False
+    for line in str(web_research_text or "").splitlines():
+        heading = re.match(r"^\s*(#{2,4})\s+(.+?)\s*$", line)
+        if heading:
+            title = _fold(heading.group(2))
+            in_citations = "citacie z google search" in title or "google search citations" in title
+            continue
+        if not in_citations:
+            continue
+        for match in re.finditer(r"\[[^\]\n]+\]\((https?://[^\s)]+(?:\([^\s)]*\)[^\s)]*)*)\)", line, re.IGNORECASE):
+            url = _canonical_url(match.group(1))
+            if url and _looks_like_direct_ad_url(url) and url not in urls:
+                urls.append(url)
+    return urls
+
+
+def reconcile_market_comparable_urls(
+    research: dict[str, Any],
+    web_research_text: str,
+) -> dict[str, Any]:
+    """Use only direct ad URLs backed by the current grounding citations.
+
+    Grounded narrative occasionally repeats an expired marketplace URL while
+    its annotation/citation contains the current canonical detail URL. Match
+    those by marketplace and stable slug tokens. If no citation supports an
+    advertised URL, it must not become a customer link or market datapoint.
+    """
+    raw_items = research.get("market_comparables")
+    if not isinstance(raw_items, list):
+        return research
+    citations = _citation_market_urls(web_research_text)
+    citation_set = set(citations)
+    reconciled: list[dict[str, Any]] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        original_url = _canonical_url(item.get("source_url"))
+        replacement = original_url if original_url in citation_set else ""
+        if not replacement and original_url:
+            same_market = [
+                url
+                for url in citations
+                if _marketplace_host(url) == _marketplace_host(original_url)
+            ]
+            ranked = sorted(
+                (
+                    (_url_identity_similarity(original_url, candidate), candidate)
+                    for candidate in same_market
+                ),
+                reverse=True,
+            )
+            if ranked and ranked[0][0] >= 0.55:
+                if len(ranked) == 1 or ranked[0][0] > ranked[1][0]:
+                    replacement = ranked[0][1]
+        if replacement:
+            item["source_url"] = replacement
+            item["verified_url"] = True
+        else:
+            item["source_url"] = ""
+            item["verified_url"] = False
+            item["display_in_report"] = False
+        reconciled.append(item)
+    research["market_comparables"] = reconciled
+    return research
 
 
 def _normalized_country(value: Any) -> str:
@@ -272,7 +415,13 @@ def deduplicate_market_comparables(
     raw_items = research.get("market_comparables")
     if not isinstance(raw_items, list):
         return research
-    candidates = [dict(item) for item in raw_items if isinstance(item, dict)]
+    candidates = [
+        dict(item)
+        for item in raw_items
+        if isinstance(item, dict)
+        and item.get("verified_url") is True
+        and _looks_like_direct_ad_url(item.get("source_url"))
+    ]
     candidates.sort(key=_quality, reverse=True)
     original = _listing_identity(listing_text)
     original_url = _canonical_url(original.get("source_url"))

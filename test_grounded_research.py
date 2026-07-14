@@ -8,6 +8,17 @@ from scrapper_demo.services.analysis_pipeline import _has_linked_market_comparab
 
 
 class GroundedResearchTest(unittest.TestCase):
+    def test_component_identity_prompt_is_short_strict_and_non_confirming(self):
+        prompt = llm_client._build_grounded_component_identity_prompt(
+            "Hyundai Tucson, 09/2016, 1.6 T-GDi, 130 kW, 7-speed automatic, 4x4"
+        )
+
+        self.assertIn("VERIFIED pouzi iba", prompt)
+        self.assertIn("PROBABLE pouzi", prompt)
+        self.assertIn("Marketingovy nazov ako 7DCT", prompt)
+        self.assertIn('"candidate_variants"', prompt)
+        self.assertIn("Nevytvaraj hodnotenie kupy", prompt)
+
     def test_grounding_prompt_requires_component_by_component_search(self):
         prompt = llm_client._build_grounded_search_prompt(
             "Mazda CX-5 2.5 AWD automatic, 2014, 182734 km"
@@ -51,6 +62,25 @@ class GroundedResearchTest(unittest.TestCase):
 
         self.assertTrue(_has_linked_market_comparable(citation_output, market_only=True))
         self.assertFalse(_has_linked_market_comparable(category_output, market_only=True))
+
+    def test_supported_rescue_requires_direct_grounding_citation_not_stale_narrative(self):
+        stale_narrative = (
+            "### Orientacna cena / trh\n"
+            "- [Old Tucson](https://auto.bazos.cz/inzerat/111111/old-tucson.php)\n\n"
+            "### Citacie z Google Search\n"
+            "- [Tucson category](https://auto.bazos.cz/inzeraty/hyundai-tucson/)\n"
+        )
+        current_citation = (
+            stale_narrative
+            + "- [Current Tucson](https://auto.bazos.cz/inzerat/222222/current-tucson.php)\n"
+        )
+
+        self.assertFalse(
+            _has_linked_market_comparable(stale_narrative, customer_facing_only=True)
+        )
+        self.assertTrue(
+            _has_linked_market_comparable(current_citation, customer_facing_only=True)
+        )
 
     def test_default_gemini_model_order_matches_demo_routing(self):
         standard_chain = llm_client._ordered_unique_models(
@@ -118,6 +148,28 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(context["engine"], "2.0 TDI")
         self.assertEqual(context["fuel"], "Diesel")
         self.assertEqual(context["color"], "Biela")
+
+    def test_listing_context_extracts_bazos_label_before_value_facts(self):
+        context = web_server._listing_context_object(
+            "# Hyundai Tucson 1.6 T-GDi Premium 4x4 DTC\n\n"
+            "## Specifications\n\n"
+            "| Parameter | Value |\n"
+            "|-----------|-------|\n"
+            "| Engine Power | 130 kW |\n"
+            "| Fuel | Benzín |\n"
+            "| Drivetrain | 4x4 |\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "Mesiac/Rok: 09/2016\n"
+            "Prevodovka: 7-st. automatická\n"
+            "Najazdené km: 161949\n"
+        )
+
+        self.assertEqual(context["mileage"], "161949 km")
+        self.assertEqual(context["mileage_km"], 161949)
+        self.assertEqual(context["year"], "2016")
+        self.assertEqual(context["transmission"], "7-st. automatická")
+        self.assertEqual(context["power"], "130 kW")
+        self.assertEqual(context["drive"], "4x4")
 
     def test_final_compaction_preserves_expanded_research_limits(self):
         payload = {

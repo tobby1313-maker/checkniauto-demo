@@ -260,6 +260,17 @@ Cena je orientacna.
                 "weakest_evidence": ["Service invoices are missing."],
             },
             "listing_facts": {"title": "Mazda CX-5", "price": "9999 EUR"},
+            "component_identity": {
+                "schema_version": 1,
+                "identification_status": "PROBABLE",
+                "generation": {"name": "CX-5 KE", "resolution": "PROBABLE"},
+                "engine": {"marketing_name": "2.0 Skyactiv-G", "resolution": "PROBABLE"},
+                "transmission": {"marketing_name": "Automatic", "resolution": "AMBIGUOUS"},
+                "drivetrain": {"type": "AWD", "resolution": "PROBABLE"},
+                "candidate_variants": [],
+                "sources": [],
+                "notes": [],
+            },
             "seller_claims": [
                 {
                     "claim": "Regular service history.",

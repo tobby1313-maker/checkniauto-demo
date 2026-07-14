@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
+    _research_parse_failed,
     multi_model_analysis_events,
 )
 from scrapper_demo.storage import ListingJobRepository
@@ -39,6 +40,11 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_incomplete_structured_research_is_detected_before_final_synthesis(self):
+        self.assertTrue(_research_parse_failed({"_parse_error": True, "raw_preview": "{"}))
+        self.assertTrue(_research_parse_failed({"raw_preview": "partial"}))
+        self.assertFalse(_research_parse_failed({"source_role": "text_research"}))
+
     def test_missing_job_is_reported_without_flask_context(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repository = ListingJobRepository(Path(temp_dir) / "jobs")
@@ -96,6 +102,16 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             def collect_gemini(entries, phase, factory, **kwargs):
                 yield from ()
                 collected_phases.append(phase)
+                if phase == "component identity research":
+                    return (
+                        '{"schema_version":1,"identification_status":"PROBABLE",'
+                        '"generation":{"name":"Sample generation","resolution":"PROBABLE"},'
+                        '"engine":{"marketing_name":"2.0 TDI","resolution":"PROBABLE"},'
+                        '"transmission":{"marketing_name":"7DCT","resolution":"PROBABLE"},'
+                        '"drivetrain":{"type":"FWD","resolution":"PROBABLE"},'
+                        '"candidate_variants":[],"sources":[],"notes":[]}',
+                        entries[0],
+                    )
                 if phase == "web research":
                     return "### Orientacna cena / trh\n- Bez priamych URL.", entries[0]
                 if phase == "market comparable research":
@@ -146,9 +162,18 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             self.assertEqual(phase_positions, sorted(phase_positions))
             self.assertIn("https://auto.bazos.sk/inzerat/123456/sample.php", repository.read_text("sample", "web_research.md"))
             self.assertEqual(
-                collected_phases[:3],
-                ["web research", "market comparable research", "text/research analysis"],
+                collected_phases[:4],
+                [
+                    "component identity research",
+                    "web research",
+                    "market comparable research",
+                    "text/research analysis",
+                ],
             )
+            self.assertTrue(repository.read_text("sample", "listing_facts.json"))
+            self.assertTrue(repository.read_text("sample", "component_identity.json"))
+            self.assertTrue(repository.read_text("sample", "reliability_research.md"))
+            self.assertTrue(repository.read_text("sample", "market_research.md"))
             self.assertTrue(repository.read_text("sample", "grok_research.json"))
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
             self.assertTrue(repository.read_text("sample", "risk_score.json"))

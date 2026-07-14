@@ -22,9 +22,17 @@ manual mode for `mobile.de` listings.
 The analysis pipeline is:
 
 1. Scrape or import the listing into a temporary `Auta/<slug>/` job folder.
-2. Run stateless Gemini grounded web research for the identified generation,
-   engine, transmission/drivetrain, recalls, repair exposure, and close market
-   comparables when available. If this broad pass returns no directly linked
+2. Run a short, separate grounded identification pass for the exact listing
+   combination: generation, engine, transmission, and drivetrain. Exact codes
+   are `VERIFIED` only when VIN/document/OEM evidence supports them;
+   specification matching alone remains `PROBABLE`, and unresolved variants
+   remain `AMBIGUOUS` or `UNKNOWN`. The result is saved independently in
+   `component_identity.json`, so a later long model response cannot erase it.
+3. Run stateless Gemini grounded reliability research using that component
+   identity, followed by close market comparables when available. ADAC and
+   TÜV findings are model/year context, while owner surveys and forums are
+   recurring-problem hypotheses. Neither source type proves a defect on the
+   listed vehicle or directly lowers its score. If the broad pass returns no directly linked
    comparable ad, a short market-only grounded fallback searches relevant
    SK/CZ/EU marketplaces with tiered A/B/C similarity and engine/drivetrain
    aliases; it is skipped when the broad pass already found a link and is
@@ -37,16 +45,23 @@ The analysis pipeline is:
    from `bazos.sk`, `bazos.cz`, `autobazar.eu`, or `autobazar.sk`. Other EU ads
    remain background evidence for aggregate market pricing and are not listed
    or linked individually in the public report.
-3. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
+   Comparable URLs must also be backed by the current Google Search citation
+   block. Stale IDs repeated only in grounded narrative are replaced by a
+   matching cited canonical detail URL or dropped without loading the ad site.
+   If structured text/research JSON is interrupted, the pipeline makes one
+   compact recovery attempt and stops rather than publishing an unreliable
+   partial report when recovery also fails.
+4. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
    optional provider branches if their keys are explicitly configured.
-4. Run Gemini vision analysis on representative uploaded or scraped photos.
-5. Calculate a deterministic backend listing-screening status and buyer
+5. Run Gemini vision analysis on representative uploaded or scraped photos.
+6. Calculate a deterministic backend listing-screening status and buyer
    scorecard. Every score uses the same direction: `100` is more favorable;
    areas without enough evidence remain unscored and are excluded from the
-   weighted scorecard average.
-6. Generate the final buyer-facing report. Gemini defaults to a stronger Flash
+   weighted scorecard average. Generic model risks create inspection actions;
+   only evidence tied to this specific car can worsen component scores.
+7. Generate the final buyer-facing report. Gemini defaults to a stronger Flash
    model for this phase.
-7. Save the public report and intermediate artifacts for the dashboard. When
+8. Save the public report and intermediate artifacts for the dashboard. When
    final synthesis names a structured, verified market comparable but omits
    its Markdown link, the public-output normalizer restores the exact ad link
    deterministically inside `Cena a vyjednávanie` only.
@@ -319,6 +334,10 @@ Lists available intermediate analysis files for a completed job. Administrator l
 
 Possible artifacts include:
 
+- `listing_facts.json`
+- `component_identity.json`
+- `reliability_research.md`
+- `market_research.md`
 - `web_research.md`
 - `grok_research.json`
 - `gemini_vision.json`
@@ -367,7 +386,11 @@ python -m scrapper_demo.calibration_cli report D:\private-calibration --split ho
   --json-output evaluation.json --markdown-output evaluation.md
 ```
 
-The reviewer edits only `expert_label.json`. Rule changes belong in the shared,
+The reviewer edits only `expert_label.json`. Schema v2 can additionally record
+the expert-expected generation, engine code, transmission code, drivetrain,
+identity confidence, and verification source. Identity accuracy is reported
+separately from verdict agreement, including any incorrectly asserted
+`VERIFIED` identity. Rule changes belong in the shared,
 versioned `risk_policy_v2.json` and must be based on repeated tuning-set errors,
 not individual makes, models, or listing slugs.
 
@@ -409,6 +432,10 @@ car_info.md
 raw_data.json
 vin_decoded.json
 analysis_request.md
+listing_facts.json
+component_identity.json
+reliability_research.md
+market_research.md
 web_research.md
 grok_research.json
 gemini_vision.json

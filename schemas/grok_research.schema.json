@@ -3,6 +3,7 @@
   "type": "object",
   "required": [
     "source_role",
+    "component_identity",
     "evidence_summary",
     "listing_facts",
     "seller_claims",
@@ -22,6 +23,21 @@
   ],
   "properties": {
     "source_role": { "type": "string", "pattern": "text_research" },
+    "component_identity": {
+      "type": "object",
+      "required": ["schema_version", "identification_status", "generation", "engine", "transmission", "drivetrain", "candidate_variants", "sources", "notes"],
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "identification_status": { "type": "string", "enum": ["VERIFIED", "PROBABLE", "AMBIGUOUS", "UNKNOWN"] },
+        "generation": { "type": "object" },
+        "engine": { "type": "object" },
+        "transmission": { "type": "object" },
+        "drivetrain": { "type": "object" },
+        "candidate_variants": { "type": "array" },
+        "sources": { "type": "array" },
+        "notes": { "type": "array" }
+      }
+    },
     "evidence_summary": {
       "type": "object",
       "properties": {

@@ -17,6 +17,7 @@ from scrapper_demo.verdicts import STATUS_RANK, status_for_label
 
 CONFIDENCE_VALUES = {"LOW", "MEDIUM", "HIGH"}
 SPLIT_VALUES = {"tuning", "holdout"}
+IDENTITY_FIELDS = ("generation", "engine_code", "transmission_code", "drivetrain")
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -58,6 +59,22 @@ def validate_label(case_dir: Path) -> list[str]:
         errors.append("reviewer_role is required")
     if not isinstance(label.get("material_findings"), list):
         errors.append("material_findings must be an array")
+    schema_version = label.get("label_schema_version", 1)
+    if not isinstance(schema_version, int) or schema_version not in {1, 2}:
+        errors.append("label_schema_version must be 1 or 2")
+    if schema_version >= 2:
+        identity = label.get("expected_component_identity")
+        if not isinstance(identity, dict):
+            errors.append("expected_component_identity must be an object")
+        else:
+            for field in (*IDENTITY_FIELDS, "verification_source"):
+                if not isinstance(identity.get(field, ""), str):
+                    errors.append(f"expected_component_identity.{field} must be text")
+            identity_confidence = str(identity.get("identity_confidence") or "").upper()
+            if identity_confidence and identity_confidence not in CONFIDENCE_VALUES:
+                errors.append(
+                    "expected_component_identity.identity_confidence must be blank, LOW, MEDIUM, or HIGH"
+                )
     return errors
 
 
@@ -66,6 +83,51 @@ def _case_inputs(case_dir: Path) -> tuple[str, str, str]:
     vision = (case_dir / "gemini_vision.json").read_text(encoding="utf-8")
     listing = (case_dir / "car_info.md").read_text(encoding="utf-8")
     return research, vision, listing
+
+
+def _normalized_identity_value(value: Any) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def _identity_comparison(case_dir: Path, label: dict[str, Any]) -> dict[str, Any]:
+    expected = label.get("expected_component_identity")
+    if not isinstance(expected, dict):
+        expected = {}
+    try:
+        predicted = _json(case_dir / "component_identity.json")
+    except (OSError, ValueError, json.JSONDecodeError):
+        predicted = {}
+
+    mappings = {
+        "generation": ("generation", "name"),
+        "engine_code": ("engine", "code"),
+        "transmission_code": ("transmission", "code"),
+        "drivetrain": ("drivetrain", "type"),
+    }
+    comparisons: dict[str, bool | None] = {}
+    false_verified = False
+    for field, (component_name, value_key) in mappings.items():
+        expected_value = _normalized_identity_value(expected.get(field))
+        component = predicted.get(component_name)
+        if not isinstance(component, dict):
+            component = {}
+        predicted_value = _normalized_identity_value(component.get(value_key))
+        comparisons[field] = (
+            predicted_value == expected_value if expected_value else None
+        )
+        if (
+            expected_value
+            and predicted_value != expected_value
+            and str(component.get("resolution") or "").upper() == "VERIFIED"
+        ):
+            false_verified = True
+    reviewed = any(_normalized_identity_value(expected.get(field)) for field in IDENTITY_FIELDS)
+    return {
+        "reviewed": reviewed,
+        "comparisons": comparisons,
+        "false_verified": false_verified,
+        "predicted_status": str(predicted.get("identification_status") or "UNKNOWN"),
+    }
 
 
 def evaluate_dataset(dataset: Path, *, split: str | None = None) -> dict[str, Any]:
@@ -105,6 +167,7 @@ def evaluate_dataset(dataset: Path, *, split: str | None = None) -> dict[str, An
             if isinstance(item, dict) and str(item.get("concern_family") or "").strip()
         }
         predicted_families = {str(item.get("family") or "") for item in v2["gate_triggers"] if item.get("family") not in {"evidence", "combined"}}
+        identity = _identity_comparison(case_dir, label)
         rows.append({
             "case_id": case_dir.name,
             "split": label["dataset_split"],
@@ -126,6 +189,10 @@ def evaluate_dataset(dataset: Path, *, split: str | None = None) -> dict[str, An
             ) and not expected_families,
             "missing_vin": any(item.get("code") == "VIN_MISSING" for item in v2["missing_information"]),
             "gate_triggers": v2["gate_triggers"],
+            "component_identity_reviewed": identity["reviewed"],
+            "component_identity_matches": identity["comparisons"],
+            "component_identity_false_verified": identity["false_verified"],
+            "component_identity_status": identity["predicted_status"],
         })
 
     total = len(rows)
@@ -150,6 +217,22 @@ def evaluate_dataset(dataset: Path, *, split: str | None = None) -> dict[str, An
     unexpected_families = Counter(
         family for row in rows for family in set(row["predicted_families"]) - set(row["expected_families"])
     )
+    identity_rows = [row for row in rows if row["component_identity_reviewed"]]
+    identity_metrics: dict[str, Any] = {
+        "reviewed_case_count": len(identity_rows),
+        "false_verified_count": sum(
+            row["component_identity_false_verified"] for row in identity_rows
+        ),
+    }
+    for field in IDENTITY_FIELDS:
+        compared = [
+            row["component_identity_matches"][field]
+            for row in identity_rows
+            if row["component_identity_matches"][field] is not None
+        ]
+        identity_metrics[f"{field}_exact_agreement"] = (
+            sum(compared) / len(compared) if compared else None
+        )
     return {
         "case_count": total,
         "split": split or "all",
@@ -169,6 +252,7 @@ def evaluate_dataset(dataset: Path, *, split: str | None = None) -> dict[str, An
             "missed": dict(sorted(missed_families.items())),
             "unexpected": dict(sorted(unexpected_families.items())),
         },
+        "component_identity": identity_metrics,
         "confusion_matrix": [
             {"expected": expected, "predicted": predicted, "count": count}
             for (expected, predicted), count in sorted(confusion.items())
@@ -191,6 +275,8 @@ def markdown_report(result: dict[str, Any]) -> str:
         f"- Proceed/no-proceed agreement: {percent(metrics['proceed_agreement'])}",
         f"- False green: {metrics['false_green_count']}",
         f"- False red/extreme: {metrics['false_red_or_extreme_count']}",
+        f"- Component identity reviewed: {result['component_identity']['reviewed_case_count']}",
+        f"- False VERIFIED component identities: {result['component_identity']['false_verified_count']}",
         "",
         "## Cases",
         "",

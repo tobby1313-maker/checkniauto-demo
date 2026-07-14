@@ -39,7 +39,20 @@ class CalibrationWorkflowTest(unittest.TestCase):
         (job / ".analysis_images" / "overview.jpg").write_bytes(b"overview")
         (job / "car_info.md").write_text("# Car\n\n**Source:** https://example.test/car\n", encoding="utf-8")
         (job / "raw_data.json").write_text(json.dumps({"source_url": "https://example.test/car"}), encoding="utf-8")
-        (job / "grok_research.json").write_text(json.dumps({"listing_facts": {"year": "2015", "vin": "TESTVIN", "service_history": "full"}, "vin_check": {"vin_present": True, "format_check": "ok"}}), encoding="utf-8")
+        listing_facts = {"year": "2015", "vin": "TESTVIN", "service_history": "full"}
+        component_identity = {
+            "schema_version": 1,
+            "identification_status": "PROBABLE",
+            "generation": {"name": "Test generation", "resolution": "PROBABLE"},
+            "engine": {"code": "TEST-ENGINE", "resolution": "PROBABLE"},
+            "transmission": {"code": "TEST-GEARBOX", "resolution": "PROBABLE"},
+            "drivetrain": {"type": "FWD", "resolution": "PROBABLE"},
+        }
+        (job / "listing_facts.json").write_text(json.dumps(listing_facts), encoding="utf-8")
+        (job / "component_identity.json").write_text(json.dumps(component_identity), encoding="utf-8")
+        (job / "reliability_research.md").write_text("# Reliability\n", encoding="utf-8")
+        (job / "market_research.md").write_text("# Market\n", encoding="utf-8")
+        (job / "grok_research.json").write_text(json.dumps({"listing_facts": listing_facts, "component_identity": component_identity, "vin_check": {"vin_present": True, "format_check": "ok"}}), encoding="utf-8")
         (job / "gemini_vision.json").write_text(json.dumps({"photos_provided": True, "photo_limitations": []}), encoding="utf-8")
         (job / "analysis_result.md").write_text("# Hidden verdict", encoding="utf-8")
         (job / "risk_score.json").write_text(json.dumps({"allowed_final_verdict": "hidden"}), encoding="utf-8")
@@ -84,6 +97,10 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("expert_label.json", names)
             self.assertIn("images/01.jpg", names)
             self.assertIn("analysis_images/overview.jpg", names)
+            self.assertIn("listing_facts.json", names)
+            self.assertIn("component_identity.json", names)
+            self.assertIn("reliability_research.md", names)
+            self.assertIn("market_research.md", names)
             self.assertNotIn("risk_score.json", names)
         self.assertNotIn("analysis_result.md", names)
 
@@ -128,6 +145,14 @@ class CalibrationWorkflowTest(unittest.TestCase):
         label_path = case / "expert_label.json"
         label = json.loads(label_path.read_text(encoding="utf-8"))
         label.update({
+            "expected_component_identity": {
+                "generation": "Test generation",
+                "engine_code": "TEST-ENGINE",
+                "transmission_code": "TEST-GEARBOX",
+                "drivetrain": "FWD",
+                "identity_confidence": "HIGH",
+                "verification_source": "reviewed listing evidence",
+            },
             "expected_status": "WORTH_INSPECTING",
             "proceed_to_inspection": True,
             "reviewer_confidence": "HIGH",
@@ -139,6 +164,8 @@ class CalibrationWorkflowTest(unittest.TestCase):
         result = evaluate_dataset(dataset, split="holdout")
         self.assertEqual(result["case_count"], 1)
         self.assertEqual(result["metrics"]["exact_agreement"], 1.0)
+        self.assertEqual(result["component_identity"]["engine_code_exact_agreement"], 1.0)
+        self.assertEqual(result["component_identity"]["false_verified_count"], 0)
 
     def test_legacy_visible_verdict_label_remains_importable(self):
         job = self._job("legacy-label-case")

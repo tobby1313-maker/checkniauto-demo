@@ -16,6 +16,10 @@ CALIBRATION_FILES = (
     "raw_data.json",
     "car_info.md",
     "vin_decoded.json",
+    "listing_facts.json",
+    "component_identity.json",
+    "reliability_research.md",
+    "market_research.md",
     "web_research.md",
     "grok_research.json",
     "gemini_vision.json",
@@ -23,8 +27,16 @@ CALIBRATION_FILES = (
 )
 
 LABEL_TEMPLATE: dict[str, Any] = {
-    "label_schema_version": 1,
+    "label_schema_version": 2,
     "case_id": "",
+    "expected_component_identity": {
+        "generation": "",
+        "engine_code": "",
+        "transmission_code": "",
+        "drivetrain": "",
+        "identity_confidence": "",
+        "verification_source": ""
+    },
     "expected_status": "",
     "proceed_to_inspection": None,
     "reviewer_confidence": "",
@@ -96,6 +108,7 @@ def _car_info_metadata(path: Path) -> dict[str, Any]:
 
 def _manifest_metadata(job_dir: Path, slug: str) -> dict[str, Any]:
     raw = _json_file(job_dir / "raw_data.json")
+    deterministic = _json_file(job_dir / "listing_facts.json")
     research = _json_file(job_dir / "grok_research.json")
     car_info = _car_info_metadata(job_dir / "car_info.md")
     facts = research.get("listing_facts")
@@ -106,9 +119,10 @@ def _manifest_metadata(job_dir: Path, slug: str) -> dict[str, Any]:
         "case_id": slug,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source_url": raw.get("source_url") or raw.get("url") or car_info.get("source_url") or "",
-        "vehicle_year": facts.get("year") or raw.get("year") or raw.get("yearValue") or car_info.get("vehicle_year"),
-        "vehicle_mileage": facts.get("mileage") or raw.get("mileage") or car_info.get("vehicle_mileage"),
-        "pipeline_version": "demo-v2-calibration-1",
+        "vehicle_year": facts.get("year") or deterministic.get("year") or raw.get("year") or raw.get("yearValue") or car_info.get("vehicle_year"),
+        "vehicle_mileage": facts.get("mileage") or deterministic.get("mileage") or raw.get("mileage") or car_info.get("vehicle_mileage"),
+        "pipeline_version": "demo-v2-component-identity-1",
+        "component_identity_schema_version": 1,
         "vision_schema_version": 2,
         "risk_policy_version": 2,
     }

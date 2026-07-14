@@ -7,6 +7,16 @@ class BuyerScorecardTests(unittest.TestCase):
     def setUp(self):
         self.research = {
             "evidence_summary": {"overall_confidence": "MEDIUM"},
+            "component_identity": {
+                "engine": {
+                    "marketing_name": "2.0 TDI",
+                    "resolution": "PROBABLE",
+                },
+                "transmission": {
+                    "marketing_name": "7-speed DSG",
+                    "resolution": "PROBABLE",
+                },
+            },
             "listing_facts": {
                 "vin": "TMBJJ7NE0J0123456",
                 "mileage": "125 000 km",
@@ -85,7 +95,8 @@ class BuyerScorecardTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(value is None or 0 <= value <= 100 for value in card["scores"].values()))
-        self.assertLess(card["scores"]["transmission_profile"], card["scores"]["engine_profile"])
+        self.assertEqual(card["scores"]["engine_profile"], 88)
+        self.assertEqual(card["scores"]["transmission_profile"], 88)
         self.assertLessEqual(card["overall_score"], 75)
         self.assertEqual(card["confidence"], "MEDIUM")
 
@@ -108,6 +119,7 @@ class BuyerScorecardTests(unittest.TestCase):
         self.assertEqual(incomplete["confidence"], "LOW")
         self.assertIsNone(incomplete["scores"]["market_position"])
         self.assertIsNone(incomplete["scores"]["visual_condition"])
+        self.assertIsNone(incomplete["scores"]["service_readiness"])
 
     def test_verified_comparables_improve_market_score(self):
         verified = build_buyer_scorecard(self.research, self.vision, self.risk)
@@ -121,6 +133,50 @@ class BuyerScorecardTests(unittest.TestCase):
             0,
         )
         self.assertIsNone(unavailable["scores"]["market_position"])
+
+    def test_only_vehicle_specific_component_evidence_reduces_profile(self):
+        baseline = build_buyer_scorecard(self.research, self.vision, self.risk)
+        research = dict(self.research)
+        research["technical_risks"] = list(self.research["technical_risks"]) + [
+            {
+                "component": "Automatic transmission",
+                "issue": "Jerks during the test drive",
+                "risk_level": "HIGH",
+                "evidence_category": "VISUAL_INDICATION",
+                "specific_vehicle_evidence": "Seller video shows repeated jerking.",
+            }
+        ]
+
+        concerned = build_buyer_scorecard(research, self.vision, self.risk)
+
+        self.assertEqual(baseline["scores"]["transmission_profile"], 88)
+        self.assertLess(concerned["scores"]["transmission_profile"], 88)
+
+    def test_missing_vin_and_service_history_are_unknown_not_score_penalties(self):
+        baseline = build_buyer_scorecard(self.research, self.vision, self.risk)
+        research = dict(self.research)
+        research["listing_facts"] = dict(self.research["listing_facts"])
+        research["listing_facts"].pop("vin")
+        research["listing_facts"].pop("service_history")
+        research["vin_check"] = {"vin_present": False}
+
+        unknown = build_buyer_scorecard(research, self.vision, self.risk)
+
+        self.assertEqual(
+            unknown["scores"]["listing_transparency"],
+            baseline["scores"]["listing_transparency"],
+        )
+        self.assertIsNone(unknown["scores"]["service_readiness"])
+
+    def test_reassuring_legacy_severity_does_not_reduce_visual_score(self):
+        vision = dict(self.vision)
+        vision["exterior_observations"] = [
+            {"assessment": "reassuring", "severity": "minor"}
+        ]
+
+        card = build_buyer_scorecard(self.research, vision, self.risk)
+
+        self.assertGreaterEqual(card["scores"]["visual_condition"], 82)
 
 
 if __name__ == "__main__":

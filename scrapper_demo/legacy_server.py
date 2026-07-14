@@ -1786,13 +1786,27 @@ def healthz():
     return jsonify({"status": "ok", "demo_mode": bool(_runtime_config("DEMO_MODE", DEMO_MODE))})
 
 
-def _build_text_research_context(car_info_text, output_language="sk", web_research_text=""):
+def _build_text_research_context(
+    car_info_text,
+    output_language="sk",
+    web_research_text="",
+    component_identity=None,
+):
     web_section = ""
     if web_research_text:
         web_section = f"\n\n## Provided web research results\n{web_research_text}"
+    identity_section = ""
+    if isinstance(component_identity, dict):
+        identity_section = (
+            "\n\n## Backend grounded component identity\n"
+            + _compact_json_for_prompt(component_identity)
+            + "\nPreserve each resolution/confidence exactly; do not upgrade PROBABLE, "
+            "AMBIGUOUS, or UNKNOWN to confirmed."
+        )
 
     return f"""## Listing data
 {car_info_text}
+{identity_section}
 {web_section}
 
 ## Output language
@@ -1939,7 +1953,7 @@ def _safe_model_json(value):
     parsed = parse_model_json(value)
     if parsed:
         return parsed
-    return {"raw_preview": _clip_text(value, 1200)}
+    return {"_parse_error": True, "raw_preview": _clip_text(value, 1200)}
 
 
 
@@ -2117,11 +2131,85 @@ def _mileage_km_value(value):
         return None
 
 
+def _description_capture(description, patterns):
+    text = str(description or "").replace("\u00a0", " ")
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return re.sub(r"\s+", " ", match.group(1)).strip(" :-\t\r\n")
+    return ""
+
+
+def _description_listing_facts(description, title=""):
+    text = str(description or "")
+    mileage = _description_capture(
+        text,
+        (
+            r"(?:najazden[eé]\s*km|najazd|mileage)\s*:?\s*([\d\s.]+)(?:\s*km)?",
+            r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
+        ),
+    )
+    mileage_km = _mileage_km_value(mileage)
+    if mileage_km:
+        mileage = f"{mileage_km} km"
+
+    year = _description_capture(
+        text,
+        (
+            r"(?:mesiac\s*/\s*rok|rok(?:\s*v[ýy]roby)?|year)\s*:?\s*(?:\d{1,2}\s*/\s*)?((?:19|20)\d{2})",
+            r"\b(?:0?[1-9]|1[0-2])\s*/\s*((?:19|20)\d{2})\b",
+        ),
+    )
+    engine = _description_capture(
+        text,
+        (r"(?:typ\s+motora|motor|engine)\s*:?\s*([^\r\n,;]{2,80})",),
+    )
+    fuel = _description_capture(
+        text,
+        (r"(?:palivo|fuel)\s*:?\s*([^\r\n,;]{2,40})",),
+    )
+    transmission = _description_capture(
+        text,
+        (r"(?:prevodovka|transmission|gearbox)\s*:?\s*([^\r\n,;]{2,80})",),
+    )
+    power = _description_capture(
+        text,
+        (r"(?:v[ýy]kon|power)\s*:?\s*(\d{2,4}\s*kW)",),
+    )
+    combined = f"{title}\n{text}"
+    drive = (
+        "4x4"
+        if re.search(
+            r"\b(?:4x4|4wd|awd|quattro|allrad)\b", combined, re.IGNORECASE
+        )
+        else ""
+    )
+    return {
+        "mileage": mileage,
+        "mileage_km": mileage_km,
+        "year": year,
+        "engine": engine,
+        "fuel": fuel,
+        "transmission": transmission,
+        "power": power,
+        "drive": drive,
+    }
+
+
 def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCRIPTION_CHARS):
     parsed = parse_car_info_md(car_info_text)
     specs = parsed.get("specs") or {}
-    mileage = specs.get("Mileage") or specs.get("Nájazd") or specs.get("Najazd") or ""
-    fuel = specs.get("Fuel") or specs.get("Palivo") or ""
+    description_facts = _description_listing_facts(
+        parsed.get("description"), parsed.get("title")
+    )
+    mileage = (
+        specs.get("Mileage")
+        or specs.get("Nájazd")
+        or specs.get("Najazd")
+        or description_facts["mileage"]
+        or ""
+    )
+    fuel = specs.get("Fuel") or specs.get("Palivo") or description_facts["fuel"] or ""
     color = specs.get("Color") or specs.get("Farba") or ""
     return {
         "title": parsed.get("title"),
@@ -2130,12 +2218,13 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
         "vin": parsed.get("vin"),
         "mileage": mileage,
         "mileage_km": _mileage_km_value(mileage),
-        "year": specs.get("Year") or specs.get("Rok") or "",
-        "engine": specs.get("Engine") or specs.get("Motor") or "",
+        "year": specs.get("Year") or specs.get("Rok") or description_facts["year"] or "",
+        "engine": specs.get("Engine") or specs.get("Motor") or description_facts["engine"] or "",
+        "power": specs.get("Engine Power") or specs.get("Výkon") or description_facts["power"] or "",
         "fuel": fuel,
         "color": color,
-        "transmission": specs.get("Transmission") or specs.get("Prevodovka") or "",
-        "drive": specs.get("Drivetrain") or specs.get("Pohon") or "",
+        "transmission": specs.get("Transmission") or specs.get("Prevodovka") or description_facts["transmission"] or "",
+        "drive": specs.get("Drivetrain") or specs.get("Pohon") or description_facts["drive"] or "",
         "source_url": parsed.get("source_url"),
         "scraped_at": parsed.get("scraped_at"),
         "photos_count": parsed.get("photos_count"),
@@ -2658,6 +2747,7 @@ def _compact_text_research_for_final(text_research_json_text):
             )
     return {
         "evidence_summary": _compact_value(data.get("evidence_summary")),
+        "component_identity": _compact_value(data.get("component_identity")),
         "listing_facts": _compact_value(data.get("listing_facts")),
         "seller_claims": _limited_list(data.get("seller_claims"), 8, prefer_concerns=True),
         "missing_or_uncertain_data": _limited_list(data.get("missing_or_uncertain_data"), 6, prefer_concerns=True),

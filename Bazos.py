@@ -109,13 +109,26 @@ def extract_car_info(soup, url):
     # Try to extract mileage, year, engine etc from description or structured elements
     desc_text = info.get("description", "")
     
-    # Mileage
-    mileage_match = re.search(r'(\d[\d\s]*)\s*km', desc_text)
+    # Mileage: Bazos descriptions commonly use either "Najazdene km: 161949"
+    # or the conventional "161 949 km" order.
+    mileage_match = re.search(
+        r'(?:najazden[eé]\s*km|najazd|mileage)\s*:?\s*([\d\s.]+)(?:\s*km)?',
+        desc_text,
+        re.I,
+    )
+    if not mileage_match:
+        mileage_match = re.search(r'(\d{2,3}(?:[\s.]\d{3})+)\s*km\b', desc_text, re.I)
     if mileage_match:
-        info["parameters"]["Mileage"] = f"{mileage_match.group(1).replace(' ', '')} km"
+        mileage_digits = re.sub(r'\D', '', mileage_match.group(1))
+        if mileage_digits:
+            info["parameters"]["Mileage"] = f"{mileage_digits} km"
 
     # Year
-    year_match = re.search(r'(?:Rok|ročník|modelový\s*rok)\s*:?\s*(\d{4})', desc_text, re.I)
+    year_match = re.search(
+        r'(?:Mesiac\s*/\s*Rok|Rok|ročník|modelový\s*rok|year)\s*:?\s*(?:\d{1,2}\s*/\s*)?(\d{4})',
+        desc_text,
+        re.I,
+    )
     if year_match:
         info["parameters"]["Year"] = year_match.group(1)
 
@@ -123,6 +136,14 @@ def extract_car_info(soup, url):
     power_match = re.search(r'(\d+)\s*kW', desc_text, re.I)
     if power_match:
         info["parameters"]["Engine Power"] = f"{power_match.group(1)} kW"
+
+    engine_match = re.search(
+        r'(?:Typ\s+motora|Motor|Engine)\s*:?\s*([^\r\n,;]{2,80})',
+        desc_text,
+        re.I,
+    )
+    if engine_match:
+        info["parameters"]["Engine"] = engine_match.group(1).strip()
 
     # Engine capacity
     capacity_match = re.search(r'(\d+[.,]?\d*)\s*(?:cm3|l\b)', desc_text, re.I)
@@ -141,9 +162,17 @@ def extract_car_info(soup, url):
             info["parameters"]["Fuel"] = fuel_name
             break
 
-    # Transmission
+    # Transmission. Preserve an explicit labelled value because the gear count
+    # and DCT/DSG/CVT family materially improve component identification.
+    transmission_match = re.search(
+        r'(?:Prevodovka|Transmission|Gearbox)\s*:?\s*([^\r\n,;]{2,80})',
+        desc_text,
+        re.I,
+    )
+    if transmission_match:
+        info["parameters"]["Transmission"] = transmission_match.group(1).strip()
     # First check for explicit manual transmission mentions (e.g. "manualnou prevodovkou", "Manual 6 rýchlostný")
-    if re.search(r'(?:manuálna\s+prevodovka|manualnou\s+prevodovkou|manual\s+\d+\s*rýchlost|manuál\s+\d+\s*stupňov)', desc_text, re.I):
+    elif re.search(r'(?:manuálna\s+prevodovka|manualnou\s+prevodovkou|manual\s+\d+\s*rýchlost|manuál\s+\d+\s*stupňov)', desc_text, re.I):
         info["parameters"]["Transmission"] = "Manuálna"
     # Then check for explicit automatic transmission mentions
     elif re.search(r'(?:automatická\s+prevodovka|automatickou\s+prevodovkou|tiptronic|s-tronic|dsg|cvt)', desc_text, re.I):
@@ -157,12 +186,13 @@ def extract_car_info(soup, url):
     elif re.search(r'\b(?:manuál|manual)\b', desc_text, re.I):
         info["parameters"]["Transmission"] = "Manuálna"
 
-    # Drivetrain
-    if re.search(r'\b(?:4x4|quattro|pohon\s*4x4|awd|4wd|allrad)\b', desc_text, re.I):
+    # Drivetrain is often present only in the ad title.
+    drivetrain_text = f'{info.get("title", "")}\n{desc_text}'
+    if re.search(r'\b(?:4x4|quattro|pohon\s*4x4|awd|4wd|allrad)\b', drivetrain_text, re.I):
         info["parameters"]["Drivetrain"] = "4x4"
-    elif re.search(r'\b(?:predn[ýi]\s*pohon|fwd|predokolka)\b', desc_text, re.I):
+    elif re.search(r'\b(?:predn[ýi]\s*pohon|fwd|predokolka)\b', drivetrain_text, re.I):
         info["parameters"]["Drivetrain"] = "Predný"
-    elif re.search(r'\b(?:zadn[Aa-z]\s*pohon|rwd)\b', desc_text, re.I):
+    elif re.search(r'\b(?:zadn[Aa-z]\s*pohon|rwd)\b', drivetrain_text, re.I):
         info["parameters"]["Drivetrain"] = "Zadna"
 
     # --- VIN Extraction (scan description for VIN pattern) ---

@@ -4,6 +4,7 @@ from scrapper_demo.market_comparables import (
     customer_link_priority,
     deduplicate_market_comparables,
     is_customer_facing_market_comparable,
+    reconcile_market_comparable_urls,
 )
 
 
@@ -31,7 +32,7 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
                     "vin": "VF1HJD40465517684",
                     "seller_or_location": "Auto ESA Praha",
                     "relevance": "MEDIUM",
-                    "source_url": "https://www.tipcars.com/dacia-duster/example.html",
+                    "source_url": "https://www.tipcars.com/auto-inserat/dacia-duster/example.html",
                     "verified_url": True,
                 },
                 {
@@ -68,6 +69,7 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
                     "seller_or_location": "Brno",
                     "relevance": "HIGH",
                     "source_url": "https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/1",
+                    "verified_url": True,
                 },
                 {
                     "description": "Suzuki Grand Vitara 2.4 VVT automat 4WD, 2011",
@@ -76,7 +78,8 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
                     "price_eur": 10100,
                     "seller_or_location": "Brno",
                     "relevance": "MEDIUM",
-                    "source_url": "https://www.tipcars.com/suzuki-grand-vitara/1.html",
+                    "source_url": "https://www.tipcars.com/auto-inserat/suzuki-grand-vitara/1.html",
+                    "verified_url": True,
                 },
                 {
                     "description": "Suzuki Grand Vitara 2.4 VVT automat 4x4, 2011",
@@ -86,6 +89,7 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
                     "seller_or_location": "Praha",
                     "relevance": "HIGH",
                     "source_url": "https://www.sauto.cz/osobni/detail/suzuki/grand-vitara/2",
+                    "verified_url": True,
                 },
             ],
         }
@@ -120,7 +124,8 @@ r.v. 5/2020
                     "mileage_km": 135000,
                     "price_eur": 12690,
                     "relevance": "HIGH",
-                    "source_url": "https://www.other-market.example/dacia-duster-crosspost",
+                    "source_url": "https://www.other-market.example/auto-inserat/dacia-duster-crosspost",
+                    "verified_url": True,
                 },
                 {
                     "description": "Dacia Duster 1.3 TCe 4x4 Prestige, 2020",
@@ -128,7 +133,8 @@ r.v. 5/2020
                     "mileage_km": 108500,
                     "price_eur": 12900,
                     "relevance": "HIGH",
-                    "source_url": "https://www.other-market.example/dacia-duster-other",
+                    "source_url": "https://www.other-market.example/auto-inserat/dacia-duster-other",
+                    "verified_url": True,
                 },
             ],
         }
@@ -213,6 +219,49 @@ r.v. 5/2020
         self.assertEqual(result["market_assessment"]["observed_market_low_eur"], 13900)
         self.assertEqual(result["market_assessment"]["observed_market_high_eur"], 15000)
         self.assertEqual(result["market_assessment"]["observed_market_average_eur"], 14450)
+
+    def test_stale_narrative_urls_are_replaced_by_current_grounding_citations(self):
+        research = {
+            "market_assessment": {"available": True},
+            "market_comparables": [
+                {
+                    "description": "Hyundai Tucson 1.6 T-GDi Premium 4x4 DCT",
+                    "price_eur": 16000,
+                    "source_url": "https://www.autobazar.eu/hyundai-tucson-16-t-gdi-premium-4x4-dtc-id28014498.html",
+                    "verified_url": True,
+                },
+                {
+                    "description": "Hyundai Tucson 1.6 T-GDi 4x4 2016",
+                    "price_display": "359 000 CZK",
+                    "source_url": "https://auto.bazos.cz/inzerat/192663959/hyundai-tucson-16-t-gdi-4x4-62016-130kw-1majitel.php",
+                    "verified_url": True,
+                },
+                {
+                    "description": "Unsupported stale Autobazar.sk result",
+                    "price_eur": 13990,
+                    "source_url": "https://www.autobazar.sk/9937746/hyundai-tucson-old/",
+                    "verified_url": True,
+                },
+            ],
+        }
+        grounded = """## Trh
+- [old EU](https://www.autobazar.eu/hyundai-tucson-16-t-gdi-premium-4x4-dtc-id28014498.html)
+
+### Citacie z Google Search
+- [autobazar.eu](https://www.autobazar.eu/en/detail/hyundai-tucson-16-t-gdi-premium-4x4-dtc/Am1qTX0VW5q)
+- [bazos.cz](https://auto.bazos.cz/inzerat/221171808/hyundai-tucson-16-t-gdi-4x4-62016-130kw-1majitel.php)
+- [autobazar.sk category](https://hyundai-tucson.autobazar.sk)
+"""
+
+        result = reconcile_market_comparable_urls(research, grounded)
+
+        self.assertIn("/detail/", result["market_comparables"][0]["source_url"])
+        self.assertIn("221171808", result["market_comparables"][1]["source_url"])
+        self.assertEqual(result["market_comparables"][2]["source_url"], "")
+        self.assertFalse(result["market_comparables"][2]["verified_url"])
+
+        deduplicated = deduplicate_market_comparables(result, "# Other listing")
+        self.assertEqual(len(deduplicated["market_comparables"]), 2)
 
 
 if __name__ == "__main__":
