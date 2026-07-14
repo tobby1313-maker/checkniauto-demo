@@ -43,6 +43,23 @@ def _dependencies(repository, prompt_dir):
         prepare_images=lambda slug_dir: ([], {}),
         stream_text_model=lambda *args, **kwargs: iter(()),
         log=lambda message: None,
+        direct_market_search=lambda listing: [
+            {
+                "pass_id": "sk_cz",
+                "portal": "Bazos SK/CZ",
+                "language": "sk/cs",
+                "market_scope": "PUBLIC_SK_CZ",
+                "search_method": "DIRECT_PORTAL_HTML",
+                "status": "NOTHING_FOUND",
+                "citation_count": 0,
+                "candidate_count": 0,
+                "verified_detail_count": 0,
+                "verified_background_count": 0,
+                "url_unverified_count": 0,
+                "candidates": [],
+                "source_attempts": [],
+            }
+        ],
     )
 
 
@@ -439,24 +456,6 @@ Bez porovnania.
                     )
                 if phase == "web research":
                     return "### Orientacna cena / trh\n- Bez priamych URL.", entries[0]
-                if phase == "market research sk_cz":
-                    return (
-                        '{"search_pass":"sk_cz","candidates":[{'
-                        '"description":"Sample car","year":2015,"mileage_km":150000,'
-                        '"price_eur":8900,"price_basis":"gross_asking",'
-                        '"source_country":"SK","similarity_tier":"A",'
-                        '"detail_url":"https://auto.bazos.sk/inzerat/123456/sample.php",'
-                        '"evidence_url":"https://auto.bazos.sk/inzerat/123456/sample.php"}]}'
-                        "\n\n### Citacie z Google Search\n"
-                        "- [Sample car](https://auto.bazos.sk/inzerat/123456/sample.php)",
-                        entries[0],
-                    )
-                if phase in {
-                    "market research mobile_de",
-                    "market research otomoto_pl",
-                    "market research autoscout",
-                }:
-                    return '{"candidates":[]}', entries[0]
                 if phase == "text/research analysis":
                     return '{"listing_facts": {}, "vin_check": {}}', entries[0]
                 raise AssertionError(f"Unexpected collected phase: {phase}")
@@ -468,6 +467,46 @@ Bez porovnania.
                     for index, key in enumerate(keys)
                 ],
                 collect_gemini=collect_gemini,
+                direct_market_search=lambda listing: [
+                    {
+                        "pass_id": "sk_cz",
+                        "portal": "Bazos SK/CZ",
+                        "language": "sk/cs",
+                        "market_scope": "PUBLIC_SK_CZ",
+                        "search_method": "DIRECT_PORTAL_HTML",
+                        "search_query": "Sample car",
+                        "status": "FOUND",
+                        "citation_count": 1,
+                        "candidate_count": 1,
+                        "verified_detail_count": 1,
+                        "verified_background_count": 0,
+                        "url_unverified_count": 0,
+                        "source_attempts": [],
+                        "candidates": [
+                            {
+                                "candidate_id": "BAZOS-SK-123456",
+                                "description": "Sample car",
+                                "year": 2015,
+                                "mileage_km": 150000,
+                                "price_eur": 8900,
+                                "price_basis": "gross_asking",
+                                "source_country": "SK",
+                                "similarity_tier": "A",
+                                "search_pass": "sk_cz",
+                                "search_language": "sk",
+                                "market_scope": "PUBLIC_SK_CZ",
+                                "source_url": "https://auto.bazos.sk/inzerat/123456/sample.php",
+                                "claimed_source_url": "https://auto.bazos.sk/inzerat/123456/sample.php",
+                                "evidence_url": "https://auto.bazos.sk/inzeraty/sample-car/",
+                                "verified_url": True,
+                                "url_verification_status": "VERIFIED_DETAIL",
+                                "background_evidence_verified": False,
+                                "display_in_report": True,
+                                "data_provenance": "DIRECT_PORTAL_SEARCH",
+                            }
+                        ],
+                    }
+                ],
                 call_gemini=lambda *args, **kwargs: iter(("# Final report",)),
                 calculate_risk_score=lambda *args, **kwargs: {
                     "risk_score": 0,
@@ -496,16 +535,15 @@ Bez porovnania.
                 for marker in ("Phase 1/4", "Phase 2/4", "Phase 3/4", "Phase 4/4")
             ]
             self.assertEqual(phase_positions, sorted(phase_positions))
-            self.assertIn("https://auto.bazos.sk/inzerat/123456/sample.php", repository.read_text("sample", "web_research.md"))
+            self.assertIn(
+                "https://auto.bazos.sk/inzerat/123456/sample.php",
+                repository.read_text("sample", "market_search_results.json"),
+            )
             self.assertEqual(
-                collected_phases[:7],
+                collected_phases[:3],
                 [
                     "component identity research",
                     "web research",
-                    "market research sk_cz",
-                    "market research mobile_de",
-                    "market research otomoto_pl",
-                    "market research autoscout",
                     "text/research analysis",
                 ],
             )

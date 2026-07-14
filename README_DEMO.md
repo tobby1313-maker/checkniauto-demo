@@ -34,23 +34,20 @@ The analysis pipeline is:
    identity. ADAC and TÜV findings are model/year context, while owner surveys
    and forums are recurring-problem hypotheses. Neither source type proves a
    defect on the listed vehicle or directly lowers its score.
-   Market discovery then runs four independent grounded passes: SK/CZ in
-   Slovak/Czech, Mobile.de in German, Otomoto in Polish, and AutoScout24 in the
-   relevant national-market language. Each pass uses only its assigned portal
-   family and produces structured candidates plus its own citation trail.
-   The backend, not the synthesis model, replaces and validates the candidate
-   list. A detail URL is accepted only when its canonical value exactly matches
-   a citation from the same pass; URLs are never repaired or inferred from a
-   portal template. A mismatch is retained in diagnostics as `URL_UNVERIFIED`
-   rather than being reported as an empty search.
-   Local SK/CZ records require a verified direct detail URL before they may be
-   shown to customers. Unique Slovak ads are preferred over Czech ads from
-   Bazos, Autobazar, Sauto, or TipCars, and links appear only in `Cena a
-   vyjednávanie`. Mobile.de, AutoScout24, and Otomoto remain hidden background
-   evidence. For those foreign passes, a grounded results page or search card
-   that contains the price, year, mileage, and configuration may contribute to
-   the aggregate benchmark even when no verified detail URL is available.
-   Such a record can never become a customer link.
+   Market discovery does not use a language model. The backend derives a
+   narrow make/model query from the scraped title and fetches the public Bazos
+   SK and Bazos CZ result pages once each. It parses visible result cards and
+   keeps only the exact detail URL present in each card; it never constructs a
+   detail URL from a template. The analyzed ad, non-vehicle offers, and model
+   mismatches are removed before benchmarking. Each country attempt records
+   the search URL, number of cards, filters, accepted candidates, and request
+   errors.
+   Local records require a verified direct detail URL before they may be shown
+   to customers, and links appear only in `Cena a vyjednávanie`. Mobile.de,
+   AutoScout24, and Otomoto grounded market passes are disabled: they added paid
+   calls without yielding dependable structured candidates. Until a similarly
+   deterministic foreign source exists, the system reports only an SK/CZ
+   asking-price benchmark and does not present it as a European benchmark.
    Structured candidates are deduplicated across portals by VIN or a
    conservative year/mileage/version/price/seller fingerprint, and cross-posts
    of the analyzed listing are removed. Non-EUR prices are normalized by ECB
@@ -61,8 +58,8 @@ The analysis pipeline is:
    Expanded records receive lower weights and wider price-classification
    thresholds. Three A/B retail observations are still required; C-tier, net,
    auction, damaged, export-only, duplicate, and non-normalizable offers are
-   excluded. Local SK/CZ samples take priority, otherwise the hidden European
-   sample supplies the aggregate benchmark. The full search audit is stored in
+   excluded. If fewer than three verified A/B local observations survive, the
+   price conclusion remains unavailable. The full search audit is stored in
    `market_search_results.json`; staged acceptance, rejection reasons, weights,
    and diagnostic counts are stored in `market_benchmark.json`. Asking prices
    are not transaction prices, so market price never changes the technical
@@ -85,8 +82,9 @@ The analysis pipeline is:
    deterministically inside `Cena a vyjednávanie` only.
 
 The public analysis pipeline does not load or update a vehicle knowledge base.
-Model, engine, transmission, drivetrain, generation, recall, cost, and market
-context is researched for each job through Gemini Google Search grounding.
+Model, engine, transmission, drivetrain, generation, recall, and cost context
+is researched for each job through Gemini Google Search grounding. Comparable
+SK/CZ asking prices are collected separately by deterministic Bazos search.
 Generated job files are temporary runtime artifacts and are not treated as a
 persistent cache; this keeps deployments compatible with ephemeral Render
 filesystems.
@@ -359,9 +357,6 @@ Possible artifacts include:
 - `component_identity.json`
 - `reliability_research.md`
 - `market_research_sk_cz.md`
-- `market_research_mobile_de.md`
-- `market_research_otomoto_pl.md`
-- `market_research_autoscout.md`
 - `market_research.md`
 - `market_search_results.json`
 - `market_benchmark.json`

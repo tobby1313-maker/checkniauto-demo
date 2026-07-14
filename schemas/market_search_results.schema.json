@@ -94,7 +94,7 @@
         "display_in_report": { "type": "boolean" },
         "data_provenance": {
           "type": "string",
-          "enum": ["GROUNDED_DETAIL", "GROUNDED_SEARCH_RESULT", "UNVERIFIED_MODEL_OUTPUT"]
+          "enum": ["DIRECT_PORTAL_SEARCH", "GROUNDED_DETAIL", "GROUNDED_SEARCH_RESULT", "UNVERIFIED_MODEL_OUTPUT"]
         }
       }
     }

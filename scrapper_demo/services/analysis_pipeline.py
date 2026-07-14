@@ -28,7 +28,6 @@ from scrapper_demo.providers.gemini import (
     GEMINI_FINAL_FALLBACK_MODELS,
     GEMINI_FINAL_MODEL,
     GEMINI_GROUNDING_MODEL,
-    GEMINI_MARKET_GROUNDING_MODEL,
     GEMINI_TEXT_RESEARCH_MODEL,
     GEMINI_VISION_MODEL,
     grounded_research as run_grounded_web_research,
@@ -45,12 +44,11 @@ from scrapper_demo.component_identity import (
     parse_first_json_object,
     unknown_component_identity,
 )
+from scrapper_demo.direct_market_search import search_bazos_sk_cz
 from scrapper_demo.market_comparables import (
-    MARKET_SEARCH_PASS_SPECS,
     build_market_benchmark,
     build_market_search_results,
     deduplicate_market_comparables,
-    extract_grounded_market_search_pass,
     fetch_ecb_reference_rates,
     is_customer_facing_market_comparable,
 )
@@ -91,6 +89,7 @@ class AnalysisPipelineDependencies:
     normalize_gemini_keys: Callable[..., list[GeminiKeyEntry]] = normalize_gemini_key_entries
     collect_gemini: Callable[..., Any] = collect_gemini_with_key_fallback
     grounded_research: Callable[..., str] = run_grounded_web_research
+    direct_market_search: Callable[[dict[str, Any]], list[dict[str, Any]]] = search_bazos_sk_cz
     call_gemini: Callable[..., Any] = _call_gemini
     gemini_retry_status: Callable[..., str] = gemini_retry_status
     calculate_risk_score: Callable[..., RiskScoreResult] = calculate_risk_score
@@ -993,7 +992,7 @@ def multi_model_analysis_events(
         "models": {
             "component_identity_grounding": GEMINI_GROUNDING_MODEL,
             "reliability_grounding": GEMINI_GROUNDING_MODEL,
-            "market_grounding": GEMINI_MARKET_GROUNDING_MODEL,
+            "market_search": "direct-bazos-sk-cz-v1",
             "text_research": GEMINI_TEXT_RESEARCH_MODEL,
             "vision": GEMINI_VISION_MODEL,
             "final_synthesis": GEMINI_FINAL_MODEL,
@@ -1137,83 +1136,57 @@ def multi_model_analysis_events(
     # the provenance-locked candidates.
     text_research_web_context = web_research_text
 
-    # Market discovery is deliberately split into independent portal/language
-    # passes. The text synthesis model is not the authority for the resulting
-    # URLs or candidate list; every item is reconciled here against citations.
-    market_pass_results: list[dict[str, Any]] = []
-    market_sections: list[str] = []
-    market_quota_exhausted = False
+    # Price discovery is independent from the language model. Direct result-
+    # card parsing preserves exact Bazos detail URLs and avoids four paid
+    # grounding calls that repeatedly returned no usable candidates.
     diagnostics["market"]["targeted_search_attempted"] = True
-    yield _status_event("Searching comparable cars in separate SK/CZ and European market passes...")
-    for pass_id, pass_spec in MARKET_SEARCH_PASS_SPECS.items():
-        pass_label = str(pass_spec.get("label") or pass_id)
-        yield _status_event(f"Market search: {pass_label}...")
-        market_grounded = ""
-        selected_market_key: GeminiKeyEntry | None = None
-        if market_quota_exhausted:
-            pass_result = {
-                "pass_id": pass_id,
-                "portal": pass_label,
-                "language": pass_spec.get("language", ""),
-                "market_scope": pass_spec.get("market_scope", ""),
-                "status": "SKIPPED_AFTER_RATE_LIMIT",
-                "error_type": "RateLimitError",
+    yield _status_event("Searching Bazos SK/CZ directly for comparable cars...")
+    try:
+        market_pass_results = dependencies.direct_market_search(listing_context_data)
+    except Exception as market_exc:
+        dependencies.log(f"Direct market search warning: {market_exc}")
+        market_pass_results = [
+            {
+                "pass_id": "sk_cz",
+                "portal": "Bazos SK/CZ",
+                "language": "sk/cs",
+                "market_scope": "PUBLIC_SK_CZ",
+                "search_method": "DIRECT_PORTAL_HTML",
+                "status": "ERROR",
+                "error_type": type(market_exc).__name__,
                 "citation_count": 0,
                 "candidate_count": 0,
                 "verified_detail_count": 0,
                 "verified_background_count": 0,
                 "url_unverified_count": 0,
                 "candidates": [],
+                "source_attempts": [],
             }
-        else:
-            try:
-                market_grounded, selected_market_key = yield from dependencies.collect_gemini(
-                    gemini_key_entries,
-                    f"market research {pass_id}",
-                    lambda key, current_pass=pass_id: [
-                        dependencies.grounded_research(
-                            key,
-                            grounded_listing_with_identity,
-                            model=GEMINI_MARKET_GROUNDING_MODEL,
-                            listing_slug=slug,
-                            research_mode=f"market_{current_pass}",
-                        )
-                    ],
-                    retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
-                    same_key_retries=0,
-                )
-                _promote_selected_key(gemini_key_entries, selected_market_key)
-                pass_result = extract_grounded_market_search_pass(
-                    market_grounded, pass_id
-                )
-                pass_result["selected_key_label"] = _selected_key_label(
-                    selected_market_key
-                )
-            except Exception as market_exc:
-                dependencies.log(f"Market research {pass_id} warning: {market_exc}")
-                if isinstance(market_exc, RateLimitError):
-                    market_quota_exhausted = True
-                pass_result = {
-                    "pass_id": pass_id,
-                    "portal": pass_label,
-                    "language": pass_spec.get("language", ""),
-                    "market_scope": pass_spec.get("market_scope", ""),
-                    "status": "ERROR",
-                    "error_type": type(market_exc).__name__,
-                    "citation_count": 0,
-                    "candidate_count": 0,
-                    "verified_detail_count": 0,
-                    "verified_background_count": 0,
-                    "url_unverified_count": 0,
-                    "candidates": [],
-                }
-        market_pass_results.append(pass_result)
-        repository.write_text(
-            slug, f"market_research_{pass_id}.md", market_grounded
-        )
-        market_sections.append(
-            f"## Market search pass: {pass_label}\n\n{market_grounded.strip()}"
-        )
+        ]
+
+    direct_pass = market_pass_results[0] if market_pass_results else {}
+    market_lines = [
+        "# Direct Bazos SK/CZ market search",
+        "",
+        f"- Query: {direct_pass.get('search_query') or 'unavailable'}",
+        f"- Status: {direct_pass.get('status') or 'ERROR'}",
+        f"- Result cards: {int(direct_pass.get('citation_count') or 0)}",
+        f"- Verified detail candidates: {int(direct_pass.get('verified_detail_count') or 0)}",
+    ]
+    for attempt in direct_pass.get("source_attempts") or []:
+        if isinstance(attempt, dict):
+            market_lines.append(
+                "- "
+                + str(attempt.get("country") or "?")
+                + ": "
+                + str(attempt.get("status") or "ERROR")
+                + f", cards={int(attempt.get('result_card_count') or 0)}"
+                + f", candidates={int(attempt.get('parsed_candidate_count') or 0)}"
+                + ", "
+                + str(attempt.get("search_url") or "")
+            )
+    market_sections = ["\n".join(market_lines)]
+    repository.write_text(slug, "market_research_sk_cz.md", market_sections[0])
 
     market_search_results = build_market_search_results(market_pass_results)
     repository.write_json(slug, "market_search_results.json", market_search_results)

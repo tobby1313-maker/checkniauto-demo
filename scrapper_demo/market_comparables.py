@@ -1428,7 +1428,7 @@ def build_market_benchmark(
     )
     return {
         "schema_version": 2,
-        "method": "WEIGHTED_MEDIAN_OF_GROUNDED_TIER_A_B_ASKING_PRICES",
+        "method": "WEIGHTED_MEDIAN_OF_VERIFIED_TIER_A_B_ASKING_PRICES",
         "minimum_sample_size": 3,
         "available": benchmark_available,
         "confidence": confidence,
