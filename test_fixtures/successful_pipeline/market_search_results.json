@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "passes": [
+    {
+      "pass_id": "sk_cz",
+      "portal": "SK/CZ",
+      "language": "sk/cs",
+      "market_scope": "PUBLIC_SK_CZ",
+      "status": "NOTHING_FOUND",
+      "citation_count": 0,
+      "candidate_count": 0,
+      "verified_detail_count": 0,
+      "verified_background_count": 0,
+      "url_unverified_count": 0,
+      "candidates": []
+    },
+    {
+      "pass_id": "mobile_de",
+      "portal": "Mobile.de",
+      "language": "de",
+      "market_scope": "BACKGROUND_EU",
+      "status": "NOTHING_FOUND",
+      "citation_count": 0,
+      "candidate_count": 0,
+      "verified_detail_count": 0,
+      "verified_background_count": 0,
+      "url_unverified_count": 0,
+      "candidates": []
+    },
+    {
+      "pass_id": "otomoto_pl",
+      "portal": "Otomoto",
+      "language": "pl",
+      "market_scope": "BACKGROUND_EU",
+      "status": "NOTHING_FOUND",
+      "citation_count": 0,
+      "candidate_count": 0,
+      "verified_detail_count": 0,
+      "verified_background_count": 0,
+      "url_unverified_count": 0,
+      "candidates": []
+    },
+    {
+      "pass_id": "autoscout",
+      "portal": "AutoScout24",
+      "language": "market-local",
+      "market_scope": "BACKGROUND_EU",
+      "status": "NOTHING_FOUND",
+      "citation_count": 0,
+      "candidate_count": 0,
+      "verified_detail_count": 0,
+      "verified_background_count": 0,
+      "url_unverified_count": 0,
+      "candidates": []
+    }
+  ],
+  "candidates": [],
+  "summary": {
+    "pass_count": 4,
+    "nothing_found_passes": 4,
+    "search_results_found_count": 0,
+    "candidate_count": 0,
+    "url_unverified_count": 0,
+    "verified_detail_count": 0,
+    "verified_background_count": 0
+  }
+}

@@ -119,6 +119,7 @@ class AnalysisArtifacts:
     component_identity: str = "component_identity.json"
     reliability_research: str = "reliability_research.md"
     market_research: str = "market_research.md"
+    market_search_results: str = "market_search_results.json"
     market_benchmark: str = "market_benchmark.json"
     web_research: str = "web_research.md"
     text_research: str = "grok_research.json"

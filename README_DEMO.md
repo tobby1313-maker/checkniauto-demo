@@ -31,36 +31,42 @@ The analysis pipeline is:
    citations remain in `component_identity_research.md`. A later long model
    response therefore cannot erase the identity or its source trail.
 3. Run stateless Gemini grounded reliability research using that component
-   identity, followed by close market comparables when available. ADAC and
-   TÜV findings are model/year context, while owner surveys and forums are
-   recurring-problem hypotheses. Neither source type proves a defect on the
-   listed vehicle or directly lowers its score. If the broad pass has fewer
-   than three directly linked ads or no customer-linkable SK/CZ ad, a short
-   market-only grounded pass searches relevant SK/CZ/EU marketplaces with
-   tiered A/B/C similarity and engine/drivetrain aliases. It is tracked
-   separately as `market_grounding`. Its output is retained for the
-   structured extraction phase even when links arrive in a citation block.
-   Structured comparables are then deduplicated across portals by VIN or a
+   identity. ADAC and TÜV findings are model/year context, while owner surveys
+   and forums are recurring-problem hypotheses. Neither source type proves a
+   defect on the listed vehicle or directly lowers its score.
+   Market discovery then runs four independent grounded passes: SK/CZ in
+   Slovak/Czech, Mobile.de in German, Otomoto in Polish, and AutoScout24 in the
+   relevant national-market language. Each pass uses only its assigned portal
+   family and produces structured candidates plus its own citation trail.
+   The backend, not the synthesis model, replaces and validates the candidate
+   list. A detail URL is accepted only when its canonical value exactly matches
+   a citation from the same pass; URLs are never repaired or inferred from a
+   portal template. A mismatch is retained in diagnostics as `URL_UNVERIFIED`
+   rather than being reported as an empty search.
+   Local SK/CZ records require a verified direct detail URL before they may be
+   shown to customers. Unique Slovak ads are preferred over Czech ads from
+   Bazos, Autobazar, Sauto, or TipCars, and links appear only in `Cena a
+   vyjednávanie`. Mobile.de, AutoScout24, and Otomoto remain hidden background
+   evidence. For those foreign passes, a grounded results page or search card
+   that contains the price, year, mileage, and configuration may contribute to
+   the aggregate benchmark even when no verified detail URL is available.
+   Such a record can never become a customer link.
+   Structured candidates are deduplicated across portals by VIN or a
    conservative year/mileage/version/price/seller fingerprint, and cross-posts
-   of the analyzed listing are removed before scoring and final synthesis.
-   Customer-facing links use unique Slovak ads first and Czech ads second from
-   Bazos, Autobazar, Sauto, or TipCars, and appear only in `Cena a
-   vyjednávanie`. Foreign ads from sources such as Mobile.de, AutoScout24, and
-   Otomoto remain background evidence and are never listed or linked
-   individually in the public report. Non-EUR prices are normalized by the
-   ECB reference rates; CZK uses the average of available ECB observations
-   from the latest 30-calendar-day window, while other currencies use the
-   latest available reference rate. A local SK/CZ median takes priority;
-   the mixed EU background is used only when fewer than three local A/B ads
-   exist and then uses a wider price-classification tolerance. A deterministic
-   median requires at least three verified A/B retail asking prices; C-tier, net, auction,
-   damaged, export-only, duplicate, and non-normalizable offers are excluded.
-   The full decision trail is stored in `market_benchmark.json`. Asking prices
+   of the analyzed listing are removed. Non-EUR prices are normalized by ECB
+   reference rates; CZK uses the average of available ECB observations from
+   the latest 30-calendar-day window, while other currencies use the latest
+   available reference rate. The benchmark first applies the strict year and
+   mileage limits, then widens the year range, and only then widens mileage.
+   Expanded records receive lower weights and wider price-classification
+   thresholds. Three A/B retail observations are still required; C-tier, net,
+   auction, damaged, export-only, duplicate, and non-normalizable offers are
+   excluded. Local SK/CZ samples take priority, otherwise the hidden European
+   sample supplies the aggregate benchmark. The full search audit is stored in
+   `market_search_results.json`; staged acceptance, rejection reasons, weights,
+   and diagnostic counts are stored in `market_benchmark.json`. Asking prices
    are not transaction prices, so market price never changes the technical
    risk verdict.
-   Comparable URLs must also be backed by the current Google Search citation
-   block. Stale IDs repeated only in grounded narrative are replaced by a
-   matching cited canonical detail URL or dropped without loading the ad site.
    If structured text/research JSON is interrupted, the pipeline makes one
    compact recovery attempt and stops rather than publishing an unreliable
    partial report when recovery also fails.
@@ -350,7 +356,12 @@ Possible artifacts include:
 - `component_identity_research.md`
 - `component_identity.json`
 - `reliability_research.md`
+- `market_research_sk_cz.md`
+- `market_research_mobile_de.md`
+- `market_research_otomoto_pl.md`
+- `market_research_autoscout.md`
 - `market_research.md`
+- `market_search_results.json`
 - `market_benchmark.json`
 - `web_research.md`
 - `grok_research.json`
@@ -467,7 +478,12 @@ listing_facts.json
 component_identity_research.md
 component_identity.json
 reliability_research.md
+market_research_sk_cz.md
+market_research_mobile_de.md
+market_research_otomoto_pl.md
+market_research_autoscout.md
 market_research.md
+market_search_results.json
 market_benchmark.json
 web_research.md
 grok_research.json

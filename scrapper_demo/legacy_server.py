@@ -2763,13 +2763,6 @@ def _compact_text_research_for_final(text_research_json_text):
     all_comparables = data.get("market_comparables")
     if not isinstance(all_comparables, list):
         all_comparables = []
-    verified_background = [
-        item
-        for item in all_comparables
-        if isinstance(item, dict)
-        and item.get("verified_url") is True
-        and _is_verified_public_url(str(item.get("source_url") or ""))
-    ]
     verified_comparables = []
     public_candidates = sorted(
         (
@@ -2788,17 +2781,40 @@ def _compact_text_research_for_final(text_research_json_text):
             verified_comparables.append(sanitized)
 
     market_assessment = _compact_value(data.get("market_assessment"))
-    if not verified_background:
+    original_market = market_assessment if isinstance(market_assessment, dict) else {}
+    legacy_verified_background = any(
+        isinstance(item, dict)
+        and item.get("verified_url") is True
+        and _is_verified_public_url(str(item.get("source_url") or ""))
+        for item in all_comparables
+    )
+    benchmark_available = (
+        original_market.get("benchmark_available") is True
+        and int(original_market.get("benchmark_comparable_count") or 0) >= 3
+    ) or (
+        "benchmark_available" not in original_market and legacy_verified_background
+    )
+    if not benchmark_available:
         original = market_assessment if isinstance(market_assessment, dict) else {}
+        has_backend_search_summary = isinstance(
+            data.get("market_search_summary"), dict
+        )
         market_assessment = {
-            "available": False,
+            "available": bool(original.get("available"))
+            if has_backend_search_summary
+            else False,
             "advertised_price_eur": original.get("advertised_price_eur"),
             "observed_market_low_eur": None,
             "observed_market_high_eur": None,
             "observed_market_average_eur": None,
-            "comparable_count": 0,
-            "public_comparable_count": 0,
-            "summary": "No directly verifiable comparable ads with exact URLs were found.",
+            "comparable_count": original.get("comparable_count", 0)
+            if has_backend_search_summary
+            else 0,
+            "public_comparable_count": len(verified_comparables),
+            "benchmark_comparable_count": 0,
+            "benchmark_available": False,
+            "summary": original.get("summary")
+            or "Automatic search could not assemble a verified sample.",
             "limitations": "Current market comparison requires manual verification.",
             "negotiation_anchor_eur": None,
             "negotiation_reason": "",

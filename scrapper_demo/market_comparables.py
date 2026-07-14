@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import statistics
 import time
 import unicodedata
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
@@ -53,6 +54,79 @@ _BACKGROUND_MARKETPLACE_HOSTS = {
     "otomoto.pl",
 }
 
+MARKET_SEARCH_PASS_SPECS: dict[str, dict[str, Any]] = {
+    "sk_cz": {
+        "label": "SK/CZ",
+        "language": "sk/cs",
+        "market_scope": "PUBLIC_SK_CZ",
+        "hosts": (
+            "bazos.sk",
+            "bazos.cz",
+            "autobazar.eu",
+            "autobazar.sk",
+            "sauto.cz",
+            "tipcars.com",
+        ),
+    },
+    "mobile_de": {
+        "label": "Mobile.de",
+        "language": "de",
+        "market_scope": "BACKGROUND_EU",
+        "hosts": ("mobile.de",),
+    },
+    "otomoto_pl": {
+        "label": "Otomoto",
+        "language": "pl",
+        "market_scope": "BACKGROUND_EU",
+        "hosts": ("otomoto.pl",),
+    },
+    "autoscout": {
+        "label": "AutoScout24",
+        "language": "market-local",
+        "market_scope": "BACKGROUND_EU",
+        "hosts": (
+            "autoscout24.at",
+            "autoscout24.be",
+            "autoscout24.com",
+            "autoscout24.de",
+            "autoscout24.fr",
+            "autoscout24.it",
+        ),
+    },
+}
+
+class _ToleranceStage(TypedDict):
+    name: str
+    year_delta: int
+    mileage_floor: int
+    mileage_ratio: float
+    weight: float
+
+
+_TOLERANCE_STAGES: tuple[_ToleranceStage, ...] = (
+    {
+        "name": "STRICT",
+        "year_delta": 3,
+        "mileage_floor": 40000,
+        "mileage_ratio": 0.35,
+        "weight": 1.0,
+    },
+    {
+        "name": "EXPANDED_YEAR",
+        "year_delta": 5,
+        "mileage_floor": 40000,
+        "mileage_ratio": 0.35,
+        "weight": 0.75,
+    },
+    {
+        "name": "EXPANDED_MILEAGE",
+        "year_delta": 5,
+        "mileage_floor": 80000,
+        "mileage_ratio": 0.60,
+        "weight": 0.5,
+    },
+)
+
 ECB_90_DAY_RATES_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
 _ECB_CACHE_SECONDS = 6 * 60 * 60
 _ecb_cache: tuple[float, dict[str, Any]] | None = None
@@ -80,20 +154,6 @@ _COUNTRY_ALIASES = {
     "austria": "AT",
     "rakusko": "AT",
 }
-
-_URL_TOKEN_STOPWORDS = {
-    "auto",
-    "detail",
-    "en",
-    "id",
-    "inzerat",
-    "offer",
-    "offers",
-    "osobni",
-    "sk",
-    "www",
-}
-
 
 def _fold(value: Any) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
@@ -283,27 +343,12 @@ def fetch_ecb_reference_rates(*, timeout: float = 5.0) -> dict[str, Any]:
     return dict(result)
 
 
-def _url_identity_tokens(value: Any) -> set[str]:
-    try:
-        parsed = urlparse(str(value or "").strip())
-    except ValueError:
-        return set()
-    return {
-        token
-        for token in re.findall(r"[a-z0-9]{2,}", _fold(parsed.path))
-        if token not in _URL_TOKEN_STOPWORDS and not token.isdigit()
-    }
-
-
-def _url_identity_similarity(left: Any, right: Any) -> float:
-    left_tokens, right_tokens = _url_identity_tokens(left), _url_identity_tokens(right)
-    if not left_tokens or not right_tokens:
-        return 0.0
-    return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
-
-
-def _citation_market_urls(web_research_text: str) -> list[str]:
-    """Extract direct ad URLs only from grounding's authoritative citations."""
+def _citation_market_urls(
+    web_research_text: str,
+    *,
+    direct_only: bool = True,
+) -> list[str]:
+    """Extract marketplace URLs only from grounding's authoritative citations."""
     urls: list[str] = []
     in_citations = False
     for line in str(web_research_text or "").splitlines():
@@ -316,21 +361,209 @@ def _citation_market_urls(web_research_text: str) -> list[str]:
             continue
         for match in re.finditer(r"\[[^\]\n]+\]\((https?://[^\s)]+(?:\([^\s)]*\)[^\s)]*)*)\)", line, re.IGNORECASE):
             url = _canonical_url(match.group(1))
-            if url and _looks_like_direct_ad_url(url) and url not in urls:
+            if (
+                url
+                and _marketplace_host(url)
+                and (not direct_only or _looks_like_direct_ad_url(url))
+                and url not in urls
+            ):
                 urls.append(url)
     return urls
+
+
+def _parse_grounded_market_json(value: str) -> dict[str, Any]:
+    text = str(value or "")
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            parsed, _end = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("candidates"), list):
+            return parsed
+    return {}
+
+
+def _url_matches_pass(url: str, pass_id: str) -> bool:
+    spec = MARKET_SEARCH_PASS_SPECS.get(pass_id) or {}
+    host = _url_host(url)
+    return any(_host_matches(host, expected) for expected in spec.get("hosts", ()))
+
+
+def extract_grounded_market_search_pass(
+    grounded_text: str,
+    pass_id: str,
+) -> dict[str, Any]:
+    """Create provenance-locked candidates from one portal-specific search pass.
+
+    A detail URL is verified only by an exact canonical grounding citation. A
+    foreign result-card observation may use a cited results page as background
+    evidence, but it can never become a customer-facing link.
+    """
+    spec = MARKET_SEARCH_PASS_SPECS.get(pass_id)
+    if not spec:
+        raise ValueError(f"Unknown market search pass: {pass_id}")
+    parsed = _parse_grounded_market_json(grounded_text)
+    raw_candidates = parsed.get("candidates") if isinstance(parsed, dict) else []
+    if not isinstance(raw_candidates, list):
+        raw_candidates = []
+    cited_urls = [
+        url
+        for url in _citation_market_urls(grounded_text, direct_only=False)
+        if _url_matches_pass(url, pass_id)
+    ]
+    cited_set = set(cited_urls)
+    cited_details = {url for url in cited_urls if _looks_like_direct_ad_url(url)}
+    scope = str(spec["market_scope"])
+    candidates: list[dict[str, Any]] = []
+    unverified_count = 0
+    for index, raw in enumerate(raw_candidates):
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        claimed_url = _canonical_url(
+            item.get("detail_url") or item.get("source_url")
+        )
+        evidence_url = _canonical_url(item.get("evidence_url"))
+        verified_detail = bool(
+            claimed_url
+            and claimed_url in cited_details
+            and _url_matches_pass(claimed_url, pass_id)
+        )
+        verified_evidence = bool(
+            evidence_url
+            and evidence_url in cited_set
+            and _url_matches_pass(evidence_url, pass_id)
+        )
+        if not evidence_url and verified_detail:
+            evidence_url = claimed_url
+            verified_evidence = True
+
+        if verified_detail:
+            verification_status = "VERIFIED_DETAIL"
+            source_url = claimed_url
+        elif claimed_url:
+            verification_status = "URL_UNVERIFIED"
+            source_url = ""
+            unverified_count += 1
+        elif verified_evidence and scope == "BACKGROUND_EU":
+            verification_status = "VERIFIED_SEARCH_RESULT"
+            source_url = ""
+        elif verified_evidence:
+            verification_status = "URL_UNVERIFIED"
+            source_url = ""
+            unverified_count += 1
+        else:
+            verification_status = "URL_UNVERIFIED"
+            source_url = ""
+            unverified_count += 1
+
+        background_evidence_verified = bool(
+            scope == "BACKGROUND_EU"
+            and verified_evidence
+            and verification_status in {
+                "VERIFIED_DETAIL",
+                "VERIFIED_SEARCH_RESULT",
+                "URL_UNVERIFIED",
+            }
+        )
+        item.update(
+            {
+                "candidate_id": f"{pass_id}-{index + 1}",
+                "search_pass": pass_id,
+                "search_language": spec["language"],
+                "market_scope": scope,
+                "source_url": source_url,
+                "claimed_source_url": claimed_url,
+                "evidence_url": evidence_url if verified_evidence else "",
+                "verified_url": verified_detail,
+                "url_verification_status": verification_status,
+                "background_evidence_verified": background_evidence_verified,
+                "display_in_report": bool(
+                    scope == "PUBLIC_SK_CZ" and verified_detail
+                ),
+                "data_provenance": (
+                    "GROUNDED_DETAIL"
+                    if verified_detail
+                    else "GROUNDED_SEARCH_RESULT"
+                    if background_evidence_verified
+                    else "UNVERIFIED_MODEL_OUTPUT"
+                ),
+            }
+        )
+        candidates.append(item)
+
+    if candidates:
+        status = "FOUND_WITH_UNVERIFIED_URLS" if unverified_count else "FOUND"
+    elif cited_urls:
+        status = "SEARCH_RESULTS_FOUND_NOT_STRUCTURED"
+    else:
+        status = "NOTHING_FOUND"
+    return {
+        "pass_id": pass_id,
+        "portal": spec["label"],
+        "language": spec["language"],
+        "market_scope": scope,
+        "status": status,
+        "citation_count": len(cited_urls),
+        "candidate_count": len(candidates),
+        "verified_detail_count": sum(
+            item.get("url_verification_status") == "VERIFIED_DETAIL"
+            for item in candidates
+        ),
+        "verified_background_count": sum(
+            item.get("background_evidence_verified") is True for item in candidates
+        ),
+        "url_unverified_count": unverified_count,
+        "candidates": candidates,
+    }
+
+
+def build_market_search_results(pass_results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Combine separate portal passes into one auditable search artifact."""
+    passes = [item for item in pass_results if isinstance(item, dict)]
+    candidates = [
+        candidate
+        for item in passes
+        for candidate in item.get("candidates", [])
+        if isinstance(candidate, dict)
+    ]
+    return {
+        "schema_version": 1,
+        "passes": passes,
+        "candidates": candidates,
+        "summary": {
+            "pass_count": len(passes),
+            "nothing_found_passes": sum(
+                item.get("status") == "NOTHING_FOUND" for item in passes
+            ),
+            "search_results_found_count": sum(
+                int(item.get("citation_count") or 0) for item in passes
+            ),
+            "candidate_count": len(candidates),
+            "url_unverified_count": sum(
+                int(item.get("url_unverified_count") or 0) for item in passes
+            ),
+            "verified_detail_count": sum(
+                int(item.get("verified_detail_count") or 0) for item in passes
+            ),
+            "verified_background_count": sum(
+                int(item.get("verified_background_count") or 0) for item in passes
+            ),
+        },
+    }
 
 
 def reconcile_market_comparable_urls(
     research: dict[str, Any],
     web_research_text: str,
 ) -> dict[str, Any]:
-    """Use only direct ad URLs backed by the current grounding citations.
+    """Require an exact canonical grounding citation for every detail URL.
 
-    Grounded narrative occasionally repeats an expired marketplace URL while
-    its annotation/citation contains the current canonical detail URL. Match
-    those by marketplace and stable slug tokens. If no citation supports an
-    advertised URL, it must not become a customer link or market datapoint.
+    This is retained for callers using the legacy combined research response.
+    It deliberately does not repair, substitute, or fuzzy-match URLs: a model
+    URL that differs from the citation is preserved only as an unverified
+    claim for diagnostics.
     """
     raw_items = research.get("market_comparables")
     if not isinstance(raw_items, list):
@@ -344,29 +577,16 @@ def reconcile_market_comparable_urls(
         item = dict(raw_item)
         original_url = _canonical_url(item.get("source_url"))
         replacement = original_url if original_url in citation_set else ""
-        if not replacement and original_url:
-            same_market = [
-                url
-                for url in citations
-                if _marketplace_host(url) == _marketplace_host(original_url)
-            ]
-            ranked = sorted(
-                (
-                    (_url_identity_similarity(original_url, candidate), candidate)
-                    for candidate in same_market
-                ),
-                reverse=True,
-            )
-            if ranked and ranked[0][0] >= 0.55:
-                if len(ranked) == 1 or ranked[0][0] > ranked[1][0]:
-                    replacement = ranked[0][1]
         if replacement:
             item["source_url"] = replacement
             item["verified_url"] = True
+            item["url_verification_status"] = "VERIFIED_DETAIL"
         else:
+            item["claimed_source_url"] = original_url
             item["source_url"] = ""
             item["verified_url"] = False
             item["display_in_report"] = False
+            item["url_verification_status"] = "URL_UNVERIFIED"
         reconciled.append(item)
     research["market_comparables"] = reconciled
     return research
@@ -538,7 +758,7 @@ def _normalized_eur_price(
     return int(round(amount / rate)), currency, amount
 
 
-def build_market_benchmark(
+def _build_market_benchmark_v1(
     research: dict[str, Any],
     listing_text: str,
     *,
@@ -633,7 +853,7 @@ def build_market_benchmark(
             exclusion = exclusion or "MILEAGE_OUTSIDE_BENCHMARK_BAND"
         if normalized is None:
             exclusion = exclusion or "NO_EUR_NORMALIZATION"
-        audit_row = {
+        audit_row: dict[str, Any] = {
             "source_url": str(item.get("source_url") or ""),
             "source_country": country,
             "market_scope": item["market_scope"],
@@ -774,6 +994,395 @@ def build_market_benchmark(
     return benchmark
 
 
+def _weighted_median(rows: list[dict[str, Any]]) -> int | None:
+    weighted = sorted(
+        (
+            (int(item["normalized_price_eur"]), float(item.get("weight") or 0))
+            for item in rows
+            if item.get("normalized_price_eur") is not None
+            and float(item.get("weight") or 0) > 0
+        ),
+        key=lambda item: item[0],
+    )
+    if not weighted:
+        return None
+    halfway = sum(weight for _price_value, weight in weighted) / 2
+    cumulative = 0.0
+    for price_value, weight in weighted:
+        cumulative += weight
+        if cumulative >= halfway:
+            return price_value
+    return weighted[-1][0]
+
+
+def _minimum_tolerance_stage(
+    listing_year: int,
+    listing_mileage: int,
+    item_year: int,
+    item_mileage: int,
+) -> _ToleranceStage | None:
+    for stage in _TOLERANCE_STAGES:
+        mileage_limit = max(
+            int(stage["mileage_floor"]),
+            int(listing_mileage * float(stage["mileage_ratio"])),
+        )
+        if (
+            abs(item_year - listing_year) <= int(stage["year_delta"])
+            and abs(item_mileage - listing_mileage) <= mileage_limit
+        ):
+            return stage
+    return None
+
+
+def _market_unavailable_summary(
+    search_summary: dict[str, Any],
+    diagnostic_counts: dict[str, int],
+) -> str:
+    if diagnostic_counts.get("url_unverified", 0):
+        return "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL."
+    if diagnostic_counts.get("year_rejected", 0) or diagnostic_counts.get(
+        "mileage_rejected", 0
+    ):
+        return "Nájdené ponuky boli mimo nastavených tolerancií."
+    if (
+        int(search_summary.get("search_results_found_count") or 0) > 0
+        or int(search_summary.get("candidate_count") or 0) > 0
+    ):
+        return "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku."
+    return "Automatické vyhľadávanie nenašlo použiteľné porovnateľné ponuky."
+
+
+def build_market_benchmark(
+    research: dict[str, Any],
+    listing_text: str,
+    *,
+    exchange_rates: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a staged, provenance-aware weighted asking-price benchmark."""
+    market = research.get("market_assessment")
+    if not isinstance(market, dict):
+        market = {}
+        research["market_assessment"] = market
+    items = research.get("market_comparables")
+    if not isinstance(items, list):
+        items = []
+    search_summary = research.get("market_search_summary")
+    if not isinstance(search_summary, dict):
+        search_summary = {}
+
+    rate_payload = exchange_rates if isinstance(exchange_rates, dict) else {}
+    rates = rate_payload.get("rates_per_eur")
+    rates = {**rates, "EUR": 1.0} if isinstance(rates, dict) else {"EUR": 1.0}
+    rate_details = rate_payload.get("rate_details")
+    if not isinstance(rate_details, dict):
+        rate_details = {}
+
+    listing_identity = _listing_identity(listing_text)
+    listing_facts = research.get("listing_facts")
+    if isinstance(listing_facts, dict):
+        listing_year = _number(listing_facts.get("year")) or _number(
+            listing_facts.get("advertised_year")
+        )
+        listing_mileage = _number(
+            listing_facts.get("advertised_mileage_km")
+        ) or _number(listing_facts.get("mileage_km")) or _number(
+            listing_facts.get("mileage")
+        )
+    else:
+        listing_year = None
+        listing_mileage = None
+    listing_year = listing_year or listing_identity.get("year")
+    listing_mileage = listing_mileage or listing_identity.get("mileage_km")
+
+    diagnostic_counts = {
+        "nothing_found": int(search_summary.get("nothing_found_passes") or 0),
+        "url_unverified": 0,
+        "year_rejected": 0,
+        "mileage_rejected": 0,
+        "europe_background_only": 0,
+        "full_comparable_accepted": 0,
+        "insufficient_sample": 0,
+    }
+    eligible: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        item = raw
+        tier = _similarity_tier(item)
+        country = _market_country(item)
+        explicit_scope = str(item.get("market_scope") or "").upper()
+        scope = (
+            explicit_scope
+            if explicit_scope in {"PUBLIC_SK_CZ", "BACKGROUND_EU"}
+            else "PUBLIC_SK_CZ"
+            if is_customer_facing_market_comparable(item)
+            else "BACKGROUND_EU"
+        )
+        public = scope == "PUBLIC_SK_CZ" and is_customer_facing_market_comparable(item)
+        item["similarity_tier"] = tier
+        item["market_scope"] = scope
+        item["display_in_report"] = public
+        if country and not item.get("source_country"):
+            item["source_country"] = country
+
+        normalized, currency, original_amount = _normalized_eur_price(item, rates)
+        item["original_currency"] = currency
+        item["original_price"] = original_amount
+        item["normalized_price_eur"] = normalized
+        rate_detail = rate_details.get(currency)
+        if not isinstance(rate_detail, dict):
+            rate_detail = {}
+        item["normalization_method"] = (
+            "ORIGINAL_EUR"
+            if normalized is not None and currency == "EUR"
+            else str(rate_detail.get("method") or "ECB_REFERENCE_RATE")
+            if normalized is not None
+            else "UNAVAILABLE"
+        )
+
+        audit_row: dict[str, Any] = {
+            "candidate_id": str(item.get("candidate_id") or ""),
+            "search_pass": str(item.get("search_pass") or ""),
+            "source_url": str(item.get("source_url") or ""),
+            "evidence_url": str(item.get("evidence_url") or ""),
+            "source_country": country,
+            "market_scope": scope,
+            "similarity_tier": tier,
+            "original_price": original_amount,
+            "original_currency": currency,
+            "normalized_price_eur": normalized,
+            "url_verification_status": str(
+                item.get("url_verification_status") or ""
+            ),
+        }
+        if item.get("url_verification_status") == "URL_UNVERIFIED":
+            diagnostic_counts["url_unverified"] += 1
+
+        exclusion = _excluded_price_basis(item)
+        verified_detail = bool(
+            item.get("verified_url") is True
+            and _looks_like_direct_ad_url(item.get("source_url"))
+        )
+        verified_background = bool(
+            scope == "BACKGROUND_EU"
+            and item.get("background_evidence_verified") is True
+            and _canonical_url(item.get("evidence_url"))
+        )
+        if scope == "PUBLIC_SK_CZ" and not verified_detail:
+            exclusion = exclusion or "URL_UNVERIFIED"
+        elif scope == "BACKGROUND_EU" and not (
+            verified_detail or verified_background
+        ):
+            exclusion = exclusion or "URL_UNVERIFIED"
+        if tier == "C":
+            exclusion = exclusion or "SIMILARITY_TIER_C"
+        item_year = _year(item)
+        item_mileage = _number(item.get("mileage_km"))
+        if (
+            listing_year is None
+            or listing_mileage is None
+            or item_year is None
+            or item_mileage is None
+        ):
+            exclusion = exclusion or "MISSING_YEAR_OR_MILEAGE"
+        if normalized is None:
+            exclusion = exclusion or "NO_EUR_NORMALIZATION"
+        if exclusion:
+            audit_row["exclusion_reason"] = exclusion
+            rejected.append(audit_row)
+            continue
+
+        assert listing_year is not None
+        assert listing_mileage is not None
+        assert item_year is not None
+        assert item_mileage is not None
+        stage = _minimum_tolerance_stage(
+            listing_year, listing_mileage, item_year, item_mileage
+        )
+        if stage is None:
+            if abs(item_year - listing_year) > _TOLERANCE_STAGES[-1]["year_delta"]:
+                audit_row["exclusion_reason"] = "YEAR_OUTSIDE_EXPANDED_BAND"
+                diagnostic_counts["year_rejected"] += 1
+            else:
+                audit_row["exclusion_reason"] = "MILEAGE_OUTSIDE_EXPANDED_BAND"
+                diagnostic_counts["mileage_rejected"] += 1
+            rejected.append(audit_row)
+            continue
+
+        provenance_factor = (
+            0.75 if item.get("data_provenance") == "GROUNDED_SEARCH_RESULT" else 1.0
+        )
+        tier_factor = 0.85 if tier == "B" else 1.0
+        audit_row["tolerance_stage"] = stage["name"]
+        audit_row["weight"] = round(
+            float(stage["weight"]) * provenance_factor * tier_factor, 3
+        )
+        audit_row["acceptance_status"] = (
+            "FULL_COMPARABLE"
+            if scope == "PUBLIC_SK_CZ"
+            else "EUROPE_BACKGROUND_ONLY"
+        )
+        eligible.append(audit_row)
+
+    selected_stage: _ToleranceStage | None = None
+    selected: list[dict[str, Any]] = []
+    benchmark_scope = "EU_MIXED_BACKGROUND"
+    stage_names: set[str] = set()
+    for stage in _TOLERANCE_STAGES:
+        stage_names.add(str(stage["name"]))
+        stage_rows = [
+            item for item in eligible if item.get("tolerance_stage") in stage_names
+        ]
+        local_rows = [
+            item for item in stage_rows if item.get("market_scope") == "PUBLIC_SK_CZ"
+        ]
+        if len(local_rows) >= 3:
+            selected_stage = stage
+            selected = local_rows
+            benchmark_scope = "SK_CZ"
+            break
+        if len(stage_rows) >= 3:
+            selected_stage = stage
+            selected = stage_rows
+            break
+
+    benchmark_available = len(selected) >= 3
+    stage_name = str(selected_stage.get("name")) if selected_stage else "NONE"
+    if not benchmark_available:
+        diagnostic_counts["insufficient_sample"] = len(eligible)
+    for item in selected:
+        if item.get("acceptance_status") == "FULL_COMPARABLE":
+            diagnostic_counts["full_comparable_accepted"] += 1
+        else:
+            diagnostic_counts["europe_background_only"] += 1
+
+    median_eur = _weighted_median(selected) if benchmark_available else None
+    local_median_eur = _weighted_median(
+        [item for item in eligible if item.get("market_scope") == "PUBLIC_SK_CZ"]
+    )
+    foreign_median_eur = _weighted_median(
+        [item for item in eligible if item.get("market_scope") == "BACKGROUND_EU"]
+    )
+    selected_prices = [int(item["normalized_price_eur"]) for item in selected]
+    classification_threshold = (
+        12
+        if benchmark_scope == "SK_CZ" and stage_name == "STRICT"
+        else 15
+        if stage_name == "STRICT"
+        else 18
+        if stage_name == "EXPANDED_YEAR"
+        else 22
+    )
+    advertised = _number(market.get("advertised_price_eur"))
+    if advertised is None:
+        advertised = listing_identity.get("price_eur")
+    delta_percent = (
+        round(((advertised - median_eur) / median_eur) * 100, 1)
+        if advertised is not None and median_eur
+        else None
+    )
+    if not benchmark_available or delta_percent is None:
+        price_view = "requires_manual_verification"
+    elif delta_percent <= -classification_threshold:
+        price_view = "rather_cheap"
+    elif delta_percent >= classification_threshold:
+        price_view = "rather_expensive"
+    else:
+        price_view = "fair"
+
+    tier_a_count = sum(item.get("similarity_tier") == "A" for item in selected)
+    confidence = (
+        "HIGH"
+        if benchmark_available
+        and benchmark_scope == "SK_CZ"
+        and stage_name == "STRICT"
+        and len(selected) >= 5
+        and tier_a_count >= 3
+        else "MEDIUM"
+        if benchmark_available
+        else "LOW"
+    )
+    summary = (
+        f"Cenová pozícia vychádza z váženého mediánu {len(selected)} porovnateľných ponúk."
+        if benchmark_available
+        else _market_unavailable_summary(search_summary, diagnostic_counts)
+    )
+    market.update(
+        {
+            "available": bool(items)
+            or int(search_summary.get("search_results_found_count") or 0) > 0,
+            "advertised_price_eur": advertised,
+            "comparable_count": len(items),
+            "public_comparable_count": sum(
+                1 for item in items if is_customer_facing_market_comparable(item)
+            ),
+            "eur_priced_comparable_count": sum(
+                item.get("normalized_price_eur") is not None
+                for item in items
+                if isinstance(item, dict)
+            ),
+            "benchmark_comparable_count": len(selected),
+            "benchmark_available": benchmark_available,
+            "benchmark_confidence": confidence,
+            "benchmark_scope": benchmark_scope,
+            "benchmark_tolerance_stage": stage_name,
+            "observed_market_low_eur": min(selected_prices) if selected_prices else None,
+            "observed_market_high_eur": max(selected_prices) if selected_prices else None,
+            "observed_market_average_eur": median_eur,
+            "benchmark_median_eur": median_eur,
+            "local_market_median_eur": local_median_eur,
+            "foreign_background_median_eur": foreign_median_eur,
+            "price_delta_percent": delta_percent if benchmark_available else None,
+            "price_view": price_view,
+            "negotiation_anchor_eur": median_eur
+            if price_view == "rather_expensive"
+            else None,
+            "summary": summary,
+            "limitations": "Ide o ponukové, nie realizačné ceny; širšie a výsledkové porovnania majú nižšiu váhu.",
+            "negotiation_reason": (
+                f"Inzerovaná cena je najmenej o {classification_threshold} % nad váženým mediánom."
+                if price_view == "rather_expensive"
+                else ""
+            ),
+        }
+    )
+    return {
+        "schema_version": 2,
+        "method": "WEIGHTED_MEDIAN_OF_GROUNDED_TIER_A_B_ASKING_PRICES",
+        "minimum_sample_size": 3,
+        "available": benchmark_available,
+        "confidence": confidence,
+        "benchmark_scope": benchmark_scope,
+        "tolerance_stage": stage_name,
+        "classification_threshold_percent": classification_threshold,
+        "advertised_price_eur": advertised,
+        "median_eur": median_eur,
+        "local_market_median_eur": local_median_eur,
+        "foreign_background_median_eur": foreign_median_eur,
+        "price_delta_percent": delta_percent if benchmark_available else None,
+        "price_view": price_view,
+        "exchange_rates": {
+            "source": rate_payload.get("source", ""),
+            "source_url": rate_payload.get("source_url", ""),
+            "rate_date": rate_payload.get("rate_date", ""),
+            "rate_details": rate_details,
+        },
+        "accepted_comparables": selected,
+        "eligible_comparables": eligible,
+        "rejected_comparables": rejected,
+        "diagnostic_counts": diagnostic_counts,
+        "search_summary": search_summary,
+        "limitations": [
+            "Asking prices are not completed transaction prices.",
+            "No deterministic adjustment is made for equipment, condition, import costs, or warranty.",
+            "Tier C, net, auction, damaged, export-only, and non-normalizable offers are excluded.",
+            "Tolerance expands only when fewer than three candidates survive: year first, then mileage.",
+            "Expanded and search-card observations receive lower weights.",
+        ],
+    }
+
+
 def _prices_close(left: dict[str, Any], right: dict[str, Any], *, exact: bool = False) -> bool:
     left_price, right_price = _price(left), _price(right)
     if left_price is None or right_price is None or left_price[0] != right_price[0]:
@@ -847,6 +1456,21 @@ def _quality(item: dict[str, Any]) -> tuple[int, int, int, int, int]:
     )
 
 
+def _auditable_market_candidate(item: dict[str, Any]) -> bool:
+    if item.get("verified_url") is True and _looks_like_direct_ad_url(
+        item.get("source_url")
+    ):
+        return True
+    # Only the backend pass extractor may set these provenance fields. Legacy
+    # model output without a grounded evidence URL remains excluded.
+    if item.get("background_evidence_verified") is True:
+        return bool(_canonical_url(item.get("evidence_url")))
+    return bool(
+        item.get("search_pass")
+        and item.get("url_verification_status") == "URL_UNVERIFIED"
+    )
+
+
 def deduplicate_market_comparables(
     research: dict[str, Any],
     listing_text: str,
@@ -859,8 +1483,7 @@ def deduplicate_market_comparables(
         dict(item)
         for item in raw_items
         if isinstance(item, dict)
-        and item.get("verified_url") is True
-        and _looks_like_direct_ad_url(item.get("source_url"))
+        and _auditable_market_candidate(item)
     ]
     candidates.sort(key=_quality, reverse=True)
     original = _listing_identity(listing_text)
@@ -888,6 +1511,11 @@ def deduplicate_market_comparables(
         for item in unique
         if _canonical_url(item.get("source_url"))
     }
+    accepted_urls.update(
+        _canonical_url(item.get("evidence_url"))
+        for item in unique
+        if _canonical_url(item.get("evidence_url"))
+    )
     sources = research.get("sources_used")
     if isinstance(sources, list):
         research["sources_used"] = [

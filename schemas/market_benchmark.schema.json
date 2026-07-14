@@ -8,6 +8,7 @@
     "available",
     "confidence",
     "benchmark_scope",
+    "tolerance_stage",
     "classification_threshold_percent",
     "advertised_price_eur",
     "median_eur",
@@ -15,17 +16,21 @@
     "price_view",
     "exchange_rates",
     "accepted_comparables",
+    "eligible_comparables",
     "rejected_comparables",
+    "diagnostic_counts",
+    "search_summary",
     "limitations"
   ],
   "properties": {
-    "schema_version": { "type": "integer", "enum": [1] },
-    "method": { "type": "string", "enum": ["MEDIAN_OF_VERIFIED_TIER_A_B_ASKING_PRICES"] },
+    "schema_version": { "type": "integer", "enum": [2] },
+    "method": { "type": "string", "enum": ["WEIGHTED_MEDIAN_OF_GROUNDED_TIER_A_B_ASKING_PRICES"] },
     "minimum_sample_size": { "type": "integer", "minimum": 3 },
     "available": { "type": "boolean" },
     "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
     "benchmark_scope": { "type": "string", "enum": ["SK_CZ", "EU_MIXED_BACKGROUND"] },
-    "classification_threshold_percent": { "type": "integer", "enum": [12, 15] },
+    "tolerance_stage": { "type": "string", "enum": ["NONE", "STRICT", "EXPANDED_YEAR", "EXPANDED_MILEAGE"] },
+    "classification_threshold_percent": { "type": "integer", "enum": [12, 15, 18, 22] },
     "advertised_price_eur": { "type": ["integer", "null"] },
     "median_eur": { "type": ["integer", "null"] },
     "local_market_median_eur": { "type": ["integer", "null"] },
@@ -46,7 +51,30 @@
       }
     },
     "accepted_comparables": { "type": "array", "items": { "type": "object" } },
+    "eligible_comparables": { "type": "array", "items": { "type": "object" } },
     "rejected_comparables": { "type": "array", "items": { "type": "object" } },
+    "diagnostic_counts": {
+      "type": "object",
+      "required": [
+        "nothing_found",
+        "url_unverified",
+        "year_rejected",
+        "mileage_rejected",
+        "europe_background_only",
+        "full_comparable_accepted",
+        "insufficient_sample"
+      ],
+      "properties": {
+        "nothing_found": { "type": "integer", "minimum": 0 },
+        "url_unverified": { "type": "integer", "minimum": 0 },
+        "year_rejected": { "type": "integer", "minimum": 0 },
+        "mileage_rejected": { "type": "integer", "minimum": 0 },
+        "europe_background_only": { "type": "integer", "minimum": 0 },
+        "full_comparable_accepted": { "type": "integer", "minimum": 0 },
+        "insufficient_sample": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "search_summary": { "type": "object" },
     "limitations": { "type": "array", "items": { "type": "string" } }
   }
 }

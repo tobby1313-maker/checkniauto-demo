@@ -1,0 +1,102 @@
+{
+  "title": "Grounded Portal Market Search Results",
+  "type": "object",
+  "required": ["schema_version", "passes", "candidates", "summary"],
+  "properties": {
+    "schema_version": { "type": "integer", "enum": [1] },
+    "passes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "pass_id",
+          "portal",
+          "language",
+          "market_scope",
+          "status",
+          "citation_count",
+          "candidate_count"
+        ],
+        "properties": {
+          "pass_id": { "type": "string", "enum": ["sk_cz", "mobile_de", "otomoto_pl", "autoscout"] },
+          "portal": { "type": "string" },
+          "language": { "type": "string" },
+          "market_scope": { "type": "string", "enum": ["PUBLIC_SK_CZ", "BACKGROUND_EU"] },
+          "status": {
+            "type": "string",
+            "enum": ["FOUND", "FOUND_WITH_UNVERIFIED_URLS", "SEARCH_RESULTS_FOUND_NOT_STRUCTURED", "NOTHING_FOUND", "ERROR"]
+          },
+          "citation_count": { "type": "integer", "minimum": 0 },
+          "candidate_count": { "type": "integer", "minimum": 0 },
+          "verified_detail_count": { "type": "integer", "minimum": 0 },
+          "verified_background_count": { "type": "integer", "minimum": 0 },
+          "url_unverified_count": { "type": "integer", "minimum": 0 },
+          "error_type": { "type": "string" },
+          "selected_key_label": { "type": "string" },
+          "candidates": { "type": "array", "items": { "$ref": "#/definitions/candidate" } }
+        }
+      }
+    },
+    "candidates": { "type": "array", "items": { "$ref": "#/definitions/candidate" } },
+    "summary": {
+      "type": "object",
+      "required": [
+        "pass_count",
+        "nothing_found_passes",
+        "search_results_found_count",
+        "candidate_count",
+        "url_unverified_count",
+        "verified_detail_count",
+        "verified_background_count"
+      ],
+      "properties": {
+        "pass_count": { "type": "integer", "minimum": 0 },
+        "nothing_found_passes": { "type": "integer", "minimum": 0 },
+        "search_results_found_count": { "type": "integer", "minimum": 0 },
+        "candidate_count": { "type": "integer", "minimum": 0 },
+        "url_unverified_count": { "type": "integer", "minimum": 0 },
+        "verified_detail_count": { "type": "integer", "minimum": 0 },
+        "verified_background_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "definitions": {
+    "candidate": {
+      "type": "object",
+      "required": [
+        "candidate_id",
+        "search_pass",
+        "search_language",
+        "market_scope",
+        "source_url",
+        "claimed_source_url",
+        "evidence_url",
+        "verified_url",
+        "url_verification_status",
+        "background_evidence_verified",
+        "display_in_report",
+        "data_provenance"
+      ],
+      "properties": {
+        "candidate_id": { "type": "string", "minLength": 1 },
+        "search_pass": { "type": "string", "enum": ["sk_cz", "mobile_de", "otomoto_pl", "autoscout"] },
+        "search_language": { "type": "string" },
+        "market_scope": { "type": "string", "enum": ["PUBLIC_SK_CZ", "BACKGROUND_EU"] },
+        "source_url": { "type": "string" },
+        "claimed_source_url": { "type": "string" },
+        "evidence_url": { "type": "string" },
+        "verified_url": { "type": "boolean" },
+        "url_verification_status": {
+          "type": "string",
+          "enum": ["VERIFIED_DETAIL", "VERIFIED_SEARCH_RESULT", "URL_UNVERIFIED"]
+        },
+        "background_evidence_verified": { "type": "boolean" },
+        "display_in_report": { "type": "boolean" },
+        "data_provenance": {
+          "type": "string",
+          "enum": ["GROUNDED_DETAIL", "GROUNDED_SEARCH_RESULT", "UNVERIFIED_MODEL_OUTPUT"]
+        }
+      }
+    }
+  }
+}

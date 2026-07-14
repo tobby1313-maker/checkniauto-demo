@@ -234,6 +234,7 @@
         "benchmark_available": { "type": "boolean" },
         "benchmark_confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
         "benchmark_scope": { "type": "string", "enum": ["SK_CZ", "EU_MIXED_BACKGROUND"] },
+        "benchmark_tolerance_stage": { "type": "string", "enum": ["NONE", "STRICT", "EXPANDED_YEAR", "EXPANDED_MILEAGE"] },
         "benchmark_median_eur": { "type": ["integer", "number", "null"] },
         "local_market_median_eur": { "type": ["integer", "number", "null"] },
         "foreign_background_median_eur": { "type": ["integer", "number", "null"] },
@@ -246,6 +247,18 @@
           "type": "string",
           "enum": ["fair", "rather_expensive", "rather_cheap", "unclear", "requires_manual_verification"]
         }
+      }
+    },
+    "market_search_summary": {
+      "type": "object",
+      "properties": {
+        "pass_count": { "type": "integer" },
+        "nothing_found_passes": { "type": "integer" },
+        "search_results_found_count": { "type": "integer" },
+        "candidate_count": { "type": "integer" },
+        "url_unverified_count": { "type": "integer" },
+        "verified_detail_count": { "type": "integer" },
+        "verified_background_count": { "type": "integer" }
       }
     },
     "market_comparables": {
@@ -268,7 +281,13 @@
           "relevance": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
           "source_name": { "type": "string" },
           "source_url": { "type": "string" },
+          "claimed_source_url": { "type": "string" },
+          "evidence_url": { "type": "string" },
           "verified_url": { "type": "boolean" },
+          "url_verification_status": { "type": "string", "enum": ["VERIFIED_DETAIL", "VERIFIED_SEARCH_RESULT", "URL_UNVERIFIED"] },
+          "background_evidence_verified": { "type": "boolean" },
+          "data_provenance": { "type": "string", "enum": ["GROUNDED_DETAIL", "GROUNDED_SEARCH_RESULT", "UNVERIFIED_MODEL_OUTPUT"] },
+          "search_pass": { "type": "string" },
           "display_in_report": { "type": "boolean" }
         }
       }

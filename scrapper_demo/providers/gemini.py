@@ -278,17 +278,7 @@ Postup researchu:
 8. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Rozlis bezny vstupny servis,
    diagnostiku, podmienene opravy a drahy downside; podmienene opravy nikdy
    neprezentuj ako ocakavany sucet.
-9. Najdi najviac 3-6 co najblizsich aktualnych porovnatelnych ponuk: rovnaka
-   generacia, motor, pohon, prevodovka, podobny rok a najazd. Za najdenu ponuku
-   sa povazuje iba konkretny inzerat, ku ktoremu mas priamy verejny URL detailu.
-   Najprv hladaj na Bazos.SK, Autobazar.EU/Autobazar.SK, Bazos.CZ, Sauto a
-   TipCars. Potom najdi aspon jednu zahranicnu background ponuku na Mobile.de,
-   AutoScout24 alebo Otomoto, ak existuje porovnatelny detail.
-   Pri kazdej uved materialny rozdiel. Ponuku bez priameho URL vynechaj; cenu,
-   rok, najazd ani vybavu nerekonstruuj zo vseobecnej znalosti alebo zo search
-   snippetu bez otvoritelneho detailu. Ak nenajdes ani jednu taku ponuku, napis
-   iba, ze presne porovnatelne inzeraty s priamym URL neboli najdene.
-10. Ak je uvedeny VIN, urob aj lahku samostatnu kontrolu presneho VIN vo vyhladavani
+9. Ak je uvedeny VIN, urob aj lahku samostatnu kontrolu presneho VIN vo vyhladavani
    (hladaj cely retazec v uvodzovkach). Uved iba konkretnu relevantnu verejnu
    zmienku o aukcii, poistnej udalosti, servise alebo inom zazname, ak sa najde.
    Ak sa relevantny verejne indexovany zaznam nenajde, uved to raz neutralne ako
@@ -314,12 +304,6 @@ Pravidla:
 - Vystup udrz pod 1100 slov, ale nevynechaj podporenu vrstvu motora, prevodovky,
   pohonu ani generacie len kvoli strucnosti.
 - URL citacie: pouzi iba odkazy, ktore vyzeraju ako realne existujuce verejne stranky.
-- Pri porovnatelnych autach musi URL smerovat na konkretny detail inzeratu, nie
-  na domovsku stranku, kategoriu, zoznam vysledkov alebo vyhladavaci dopyt.
-- Kazdu porovnatelnu ponuku zapis ako Markdown link
-  `[model (rok, najazd)](priamy-url-inzeratu) - cena - materialny rozdiel`.
-- Bez priameho URL nevypisuj konkretne auto ako najdenu ponuku a nepouzivaj ho
-  na vypocet poctu ponuk, cenoveho rozsahu ani hodnotenia ferovosti ceny.
 - Nepouzivaj presmerovacie URL z Google/Vertex AI ako verejne zdroje. Ak mas iba taky odkaz, uveď nazov zdroja a napis: "URL citacia nie je overitelna."
 - Ak nevies dolozit cenu alebo naklad, napis, ze ide iba o orientacny odhad.
 
@@ -345,10 +329,6 @@ Format:
 ### Zvolavacie a servisne kampane
 - kampan alebo jasne uved, ze spolahlivy zdroj nebol najdeny - potrebna VIN kontrola - URL
 
-### Orientacna cena / trh
-- najviac 3-6 najblizsich konkretnych inzeratov; kazdy musi mat cenu, najazd,
-  podstatny rozdiel a priamy Markdown URL detailu; bez priameho URL ponuku vynechaj
-
 ### Naklady: pravdepodobne vs. podmienene
 - pravdepodobny vstupny servis a diagnostika
 - podmienene opravy iba ak kontrola potvrdi problem; nesucitavaj ich do ocakavaneho totalu
@@ -358,7 +338,7 @@ Format:
 - ak sa nic relevantne nenajde: jedna neutralna veta o vysledku tejto kontroly a odporucanie na manualne overenie
 
 ### Najdolezitejsie webove zistenia pre finalnu analyzu
-- 5 az 8 bodov napriec motorom, prevodovkou/pohonom, generaciou, trhom a nakladmi
+- 5 az 8 bodov napriec motorom, prevodovkou/pohonom, generaciou a nakladmi
 
 Kontext inzeratu:
 
@@ -429,62 +409,101 @@ Kontext inzeratu:
 """
 
 
-def _build_grounded_market_prompt(listing_context: str) -> str:
-    """Build a short rescue prompt dedicated to tiered comparable-ad search."""
+def _build_grounded_market_prompt(
+    listing_context: str,
+    market_pass: str = "sk_cz",
+) -> str:
+    """Build one portal- and language-specific comparable-search prompt."""
     context = listing_context
     if len(context) > GROUNDING_CONTEXT_MAX_CHARS:
         context = context[:GROUNDING_CONTEXT_MAX_CHARS] + "\n\n[Context truncated for market research pass.]"
+    config = {
+        "sk_cz": (
+            "SK_CZ",
+            "slovencine a cestine",
+            "auto.bazos.sk, autobazar.eu, autobazar.sk, auto.bazos.cz, sauto.cz a tipcars.com",
+            "PUBLIC_SK_CZ",
+        ),
+        "mobile_de": (
+            "MOBILE_DE",
+            "nemcine s terminmi Benzin, Automatik, Allrad/4x4 a Leistung",
+            "iba mobile.de",
+            "BACKGROUND_EU",
+        ),
+        "otomoto_pl": (
+            "OTOMOTO_PL",
+            "polstine s terminmi benzyna, automatyczna a naped 4x4",
+            "iba otomoto.pl",
+            "BACKGROUND_EU",
+        ),
+        "autoscout": (
+            "AUTOSCOUT",
+            "jazyku relevantneho trhu; zacni DE/AT a potom skus iny blizky trh",
+            "iba AutoScout24 na relevantnej narodnej domene",
+            "BACKGROUND_EU",
+        ),
+    }.get(market_pass)
+    if config is None:
+        raise ValueError(f"Unknown market search pass: {market_pass}")
+    pass_label, query_language, portals, scope = config
     return f"""Si market-research modul pre analyzu ojazdeneho auta.
 
-Pouzi Google Search grounding a sustred sa na konkretne inzeraty podobnych
-vozidiel. Povodny analyzovany inzerat nepouzivaj ako porovnanie.
+Toto je samostatny search pass {pass_label}. Pouzi Google Search grounding,
+hladaj v {query_language} a pouzi {portals}. Ine portaly nevracaj. Povodny
+analyzovany inzerat nepouzivaj ako porovnanie.
 
-Najprv z kontextu vytiahni znacku, model, generaciu, motor, vykon, prevodovku,
-pohon, rok a najazd. Potom skutocne vykonaj viac roznych search dopytov; po
-jednom prazdnom dopyte sa nevzdavaj. Pouzi aj bezne aliasy: desatinnu bodku aj
-ciarku v objeme, TCe/TDI/dCi a podobne oznacenia, vykon v kW, 4x4/4WD/AWD.
-Najprv vykonaj site-specific dopyty pre SK/CZ portaly v tomto poradi:
-auto.bazos.sk, autobazar.eu/autobazar.sk, auto.bazos.cz, Sauto a TipCars.
-Potom povinne skus rozsirit vzorku o mobile.de, AutoScout24 a Otomoto. Nehladaj
-iba celu presnu vetu z nazvu inzeratu. Cielom su dve oddelene skupiny: konkretne
-SK/CZ ponuky vhodne na odkaz v reporte a zahranicne ponuky iba pre background
-cenovy benchmark.
+Z kontextu vytiahni znacku, model, generaciu, motor, vykon, prevodovku, pohon,
+rok a najazd. Vykonaj viac roznych site-specific dopytov iba pre tento portal.
+Pouzi lokalne aliasy motora, prevodovky a pohonu; po jednom prazdnom dopyte sa
+nevzdavaj.
 
-Pouzi tento rebricek podobnosti:
-- A: rovnaka generacia, motor, prevodovka a pohon; rocnik +/- 2 roky.
+Podobnost:
+- A: rovnaka generacia, motor, prevodovka a pohon; rocnik +/-2 roky.
 - B: rovnaka generacia, motor a prevodovka; pohon alebo vykon sa moze lisit.
-- C: rovnaka generacia, podobny rocnik, palivo a prevodovka; iny motor iba ked
-  sa nenasla ziadna ponuka A/B.
-Najazd moze byt odlisny; rozdiel vzdy napis a uprednostni rozdiel do 35 % alebo
-40 000 km. Uprednostni ponuky A, potom B, C.
+- C: rovnaka generacia, podobny rocnik, palivo a prevodovka.
+Najazd moze byt odlisny. Vrat aj polozky mimo povodneho rozsahu; backend ich
+deterministicky zaradi do strict/expanded-year/expanded-mileage alebo vyradi.
 
-Prisne pravidla:
-- Vrat najviac 8 ponuk: najviac 4 SK/CZ a najviac 4 zahranicne. Ponuku vrat iba
-  vtedy, ked mas priamy verejny URL detailu konkretneho inzeratu. Stacia aj
-  nedavno indexovane ponuky, ak detail stale zobrazuje cenu a parametre; oznac
-  ich ako nedavno indexovane.
-- Nepouzivaj domovsku stranku, kategoriu, zoznam vysledkov, vyhladavaci URL,
-  technicky clanok ani Google/Vertex redirect ako URL porovnania.
-- Nevymyslaj cenu, rok, najazd, vybavu ani URL zo search snippetu bez
-  otvoritelneho detailu.
-- Nevynechaj CZ/PL ponuku iba preto, ze cena nie je v EUR; zachovaj povodnu menu
-  a nevymyslaj prepocet. Backend ju neskor prepocita kurzom ECB; pre CZK pouzije
-  30-dnovy priemer dostupnych referencnych pozorovani.
-  Ponuky mimo SK/CZ oznac jasne ako BACKGROUND_EU, nikdy PUBLIC_SK_CZ.
-- Vyluc poskodene/salvage auta, aukcie, export-only ponuky a ceny uvedene iba
-  netto alebo bez DPH. Neznamu DPH nevymyslaj; beznu zobrazenu koncovu cenu
-  zachovaj ako neznamy retailovy zaklad.
-- Ak najdes rovnake vozidlo na viac portaloch, vrat ho iba raz. Zhodny VIN je
-  definitivny duplikat; inak porovnaj presny najazd, rok, verziu, cenu a
-  predajcu/lokalitu. Nevracaj ani cross-post povodneho analyzovaneho inzeratu.
-- Kazdy platny riadok musi obsahovat Markdown odkaz, cenu v povodnej mene,
-  triedu podobnosti A/B/C, scope PUBLIC_SK_CZ/BACKGROUND_EU a materialny rozdiel.
-- Ak nenajdes ani jeden priamy detail inzeratu, vrat iba vetu:
-  `Presne porovnatelne inzeraty s priamym URL neboli najdene.`
-- Nevypisuj technicke rizika, servis, VIN, zvolavacie akcie ani vseobecne ceny.
-- Vystup udrz pod 350 slov.
+Pravidla proveniencie:
+- URL nikdy nevytvaraj ani nedoplnaj podla sablony.
+- `detail_url` skopiruj iba ak je presne totozny s realnou grounding citaciou
+  detailu konkretneho inzeratu.
+- `evidence_url` musi byt presna grounding citacia z tohto passu.
+- Pre scope {scope} moze byt vysledkova alebo kategoriova stranka iba v
+  `evidence_url`, nie ako overeny detail URL.
+- Pri zahranicnom passe vrat aj search kartu bez detail URL, ak karta priamo
+  obsahuje cenu, rok, najazd a relevantnu konfiguraciu. Pouzi
+  `url_kind=RESULTS_PAGE`; backend ju pouzije iba v skrytom EU benchmarku.
+- Ak vidis detail URL v texte, ale nie je medzi citaciami, zachovaj ju a nastav
+  `url_kind=UNVERIFIED`. Backend ju nezverejni a zaznamena URL ako neoverenu.
+- Nevymyslaj cenu, rok, najazd, parametre ani URL. Zachovaj povodnu menu.
+- Vrat najviac 6 ponuk. Vyluc salvage, aukcie, export-only a netto-only ceny.
 
-## Priamo overitelne porovnatelne inzeraty
+Vrat jeden kompletny JSON objekt bez Markdown komentara:
+{{
+  "search_pass": "{market_pass}",
+  "candidates": [
+    {{
+      "description": "",
+      "year": null,
+      "mileage_km": null,
+      "engine": "",
+      "transmission": "",
+      "drivetrain": "",
+      "price_display": "",
+      "price_eur": null,
+      "price_basis": "gross_asking | net | auction | damaged | export_only | unknown",
+      "source_country": "",
+      "market_scope": "{scope}",
+      "similarity_tier": "A | B | C",
+      "material_difference": "",
+      "detail_url": "",
+      "evidence_url": "",
+      "url_kind": "DETAIL | RESULTS_PAGE | UNVERIFIED"
+    }}
+  ]
+}}
+Google Search citacie musia zostat zachovane poskytovatelom za JSON objektom.
 
 Kontext analyzovaneho vozidla:
 
@@ -578,16 +597,21 @@ def run_grounded_web_research(
     model_candidates = _ordered_unique_models(model_to_use, GEMINI_GROUNDING_FALLBACK_MODELS)
 
     normalized_mode = str(research_mode or "full").strip().lower()
-    market_only = normalized_mode == "market"
+    market_only = normalized_mode == "market" or normalized_mode.startswith("market_")
     identity_only = normalized_mode == "identity"
     if market_only:
-        prompt = _build_grounded_market_prompt(listing_context)
+        market_pass = (
+            "sk_cz"
+            if normalized_mode == "market"
+            else normalized_mode.removeprefix("market_")
+        )
+        prompt = _build_grounded_market_prompt(listing_context, market_pass)
     elif identity_only:
         prompt = _build_grounded_component_identity_prompt(listing_context)
     else:
         prompt = _build_grounded_search_prompt(listing_context)
     tracking_phase = (
-        "market_grounding"
+        f"market_grounding_{market_pass}"
         if market_only
         else "component_identity_grounding"
         if identity_only

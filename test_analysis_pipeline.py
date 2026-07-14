@@ -99,6 +99,37 @@ Cena 6 900 EUR je podozrivo lacná a na spodnej hranici trhu.
         self.assertNotIn("podozrivo nízka", locked.lower())
         self.assertNotIn("chýbajúci vin", locked.lower())
         self.assertIn("nemožno označiť za lacnú", locked)
+
+    def test_market_lock_preserves_url_unverified_search_message(self):
+        report = """# Toyota RAV4
+
+## 📋 Rýchle zhrnutie
+- **Cena:** výhodná.
+
+## 💰 Cena a vyjednávanie
+Nenašli sa porovnateľné vozidlá.
+"""
+        message = "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL."
+
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "listing_facts": {"price": "6900"},
+                "market_assessment": {
+                    "benchmark_available": False,
+                    "benchmark_comparable_count": 0,
+                    "advertised_price_eur": 6900,
+                    "summary": message,
+                },
+                "market_comparables": [],
+            },
+            {},
+            output_language="sk",
+        )
+
+        self.assertIn(message, locked)
+        self.assertNotIn("Nenašli sa porovnateľné vozidlá", locked)
+
     def test_public_report_drops_stray_numeric_or_calibration_score_text(self):
         locked = _lock_report_evidence_claims(
             "# Report\n\nOverall score: 74/100.\n\nThe scorer is UNCALIBRATED.\n",
@@ -296,13 +327,24 @@ Cena 6 900 EUR je podozrivo lacná a na spodnej hranici trhu.
                     )
                 if phase == "web research":
                     return "### Orientacna cena / trh\n- Bez priamych URL.", entries[0]
-                if phase == "market comparable research":
+                if phase == "market research sk_cz":
                     return (
-                        "## Priamo overitelne porovnatelne inzeraty\n"
-                        "- [Sample car (2015, 150 000 km)]"
-                        "(https://auto.bazos.sk/inzerat/123456/sample.php) — 8 900 EUR — podobny najazd.",
+                        '{"search_pass":"sk_cz","candidates":[{'
+                        '"description":"Sample car","year":2015,"mileage_km":150000,'
+                        '"price_eur":8900,"price_basis":"gross_asking",'
+                        '"source_country":"SK","similarity_tier":"A",'
+                        '"detail_url":"https://auto.bazos.sk/inzerat/123456/sample.php",'
+                        '"evidence_url":"https://auto.bazos.sk/inzerat/123456/sample.php"}]}'
+                        "\n\n### Citacie z Google Search\n"
+                        "- [Sample car](https://auto.bazos.sk/inzerat/123456/sample.php)",
                         entries[0],
                     )
+                if phase in {
+                    "market research mobile_de",
+                    "market research otomoto_pl",
+                    "market research autoscout",
+                }:
+                    return '{"candidates":[]}', entries[0]
                 if phase == "text/research analysis":
                     return '{"listing_facts": {}, "vin_check": {}}', entries[0]
                 raise AssertionError(f"Unexpected collected phase: {phase}")
@@ -344,11 +386,14 @@ Cena 6 900 EUR je podozrivo lacná a na spodnej hranici trhu.
             self.assertEqual(phase_positions, sorted(phase_positions))
             self.assertIn("https://auto.bazos.sk/inzerat/123456/sample.php", repository.read_text("sample", "web_research.md"))
             self.assertEqual(
-                collected_phases[:4],
+                collected_phases[:7],
                 [
                     "component identity research",
                     "web research",
-                    "market comparable research",
+                    "market research sk_cz",
+                    "market research mobile_de",
+                    "market research otomoto_pl",
+                    "market research autoscout",
                     "text/research analysis",
                 ],
             )
@@ -357,6 +402,7 @@ Cena 6 900 EUR je podozrivo lacná a na spodnej hranici trhu.
             self.assertTrue(repository.read_text("sample", "component_identity.json"))
             self.assertTrue(repository.read_text("sample", "reliability_research.md"))
             self.assertTrue(repository.read_text("sample", "market_research.md"))
+            self.assertTrue(repository.read_text("sample", "market_search_results.json"))
             self.assertTrue(repository.read_text("sample", "grok_research.json"))
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
             self.assertTrue(repository.read_text("sample", "vision_provider_attempts.json"))

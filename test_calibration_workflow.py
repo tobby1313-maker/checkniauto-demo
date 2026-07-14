@@ -58,6 +58,14 @@ class CalibrationWorkflowTest(unittest.TestCase):
         (job / "component_identity.json").write_text(json.dumps(component_identity), encoding="utf-8")
         (job / "reliability_research.md").write_text("# Reliability\n", encoding="utf-8")
         (job / "market_research.md").write_text("# Market\n", encoding="utf-8")
+        (job / "market_research_sk_cz.md").write_text("{}", encoding="utf-8")
+        (job / "market_research_mobile_de.md").write_text("{}", encoding="utf-8")
+        (job / "market_research_otomoto_pl.md").write_text("{}", encoding="utf-8")
+        (job / "market_research_autoscout.md").write_text("{}", encoding="utf-8")
+        (job / "market_search_results.json").write_text(
+            json.dumps({"schema_version": 1, "passes": [], "candidates": [], "summary": {}}),
+            encoding="utf-8",
+        )
         (job / "grok_research.json").write_text(json.dumps({"listing_facts": listing_facts, "component_identity": component_identity, "vin_check": {"vin_present": True, "format_check": "ok"}}), encoding="utf-8")
         (job / "gemini_vision.json").write_text(json.dumps({"photos_provided": True, "photo_limitations": []}), encoding="utf-8")
         (job / "analysis_result.md").write_text("# Hidden verdict", encoding="utf-8")
@@ -138,6 +146,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("component_identity.json", names)
             self.assertIn("reliability_research.md", names)
             self.assertIn("market_research.md", names)
+            self.assertIn("market_search_results.json", names)
             self.assertIn("analysis_diagnostics.json", names)
             self.assertIn("validation_warnings.json", names)
             self.assertNotIn("vision_provider_attempts.json", names)
@@ -167,6 +176,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("analysis_diagnostics.json", names)
             self.assertIn("validation_warnings.json", names)
             self.assertIn("vision_provider_attempts.json", names)
+            self.assertIn("market_research_mobile_de.md", names)
             self.assertNotIn("expert_label.json", names)
             manifest = json.loads(archive.read("manifest.json"))
             self.assertEqual(manifest["bundle_type"], "debugging")

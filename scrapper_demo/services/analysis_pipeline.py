@@ -45,11 +45,13 @@ from scrapper_demo.component_identity import (
     unknown_component_identity,
 )
 from scrapper_demo.market_comparables import (
+    MARKET_SEARCH_PASS_SPECS,
     build_market_benchmark,
+    build_market_search_results,
     deduplicate_market_comparables,
+    extract_grounded_market_search_pass,
     fetch_ecb_reference_rates,
     is_customer_facing_market_comparable,
-    reconcile_market_comparable_urls,
 )
 from scrapper_demo.validation import (
     _ensure_end_analysis_marker,
@@ -498,6 +500,24 @@ def _lock_report_evidence_claims(
             price_label = f"{int(float(str(price))):,} EUR".replace(",", " ")
         except (TypeError, ValueError):
             price_label = "the advertised price" if language == "en" else "inzerovaná cena"
+        backend_market_message = str(market.get("summary") or "").strip()
+        allowed_market_messages = {
+            "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku.",
+            "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL.",
+            "Nájdené ponuky boli mimo nastavených tolerancií.",
+            "Automatické vyhľadávanie nenašlo použiteľné porovnateľné ponuky.",
+        }
+        if backend_market_message not in allowed_market_messages:
+            backend_market_message = (
+                "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku."
+            )
+        if language == "en":
+            backend_market_message = {
+                "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku.": "Automatic search could not assemble a verified sample.",
+                "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL.": "Offers were found, but their detail URLs could not be verified.",
+                "Nájdené ponuky boli mimo nastavených tolerancií.": "The offers found were outside the configured tolerances.",
+                "Automatické vyhľadávanie nenašlo použiteľné porovnateľné ponuky.": "Automatic search found no usable comparable offers.",
+            }[backend_market_message]
 
         comparable_lines: list[str] = []
         for item in research.get("market_comparables", []) if isinstance(research.get("market_comparables"), list) else []:
@@ -515,14 +535,16 @@ def _lock_report_evidence_claims(
         if language == "en":
             neutral = [
                 f"The advertised price is **{price_label}**.",
-                "There are not enough verified comparable listings to classify it as cheap, expensive, fair, or suspicious. Price position requires manual market verification and must not be treated as evidence of a hidden defect.",
+                backend_market_message
+                + " The price therefore cannot be classified as cheap, expensive, fair, or suspicious and requires manual verification.",
             ]
             quick_price = "- **Price:** unclear — there are not enough verified comparable listings for a market classification."
             neutral_line = "Price position is unverified; insufficient comparable data cannot support a positive or negative claim about the car."
         else:
             neutral = [
                 f"Inzerovaná cena je **{price_label}**.",
-                "Nie je k dispozícii dostatok overených porovnateľných inzerátov, preto ju nemožno označiť za lacnú, drahú, férovú ani podozrivú. Pozíciu ceny treba overiť manuálne a nemožno ju používať ako dôkaz skrytej vady.",
+                backend_market_message
+                + " Preto cenu nemožno označiť za lacnú, drahú, férovú ani podozrivú; pozíciu ceny treba overiť manuálne.",
             ]
             quick_price = "- **Cena:** nejasná — nie je dostatok overených porovnateľných inzerátov na trhové zaradenie."
             neutral_line = "Pozícia ceny nie je overená; nedostatok porovnateľných dát nepodporuje pozitívny ani negatívny záver o aute."
@@ -929,52 +951,6 @@ def multi_model_analysis_events(
                     "targeted_search_attempted": False,
                 }
             )
-            if linked_count < 3 or public_link_count == 0 or background_link_count == 0:
-                diagnostics["market"]["targeted_search_attempted"] = True
-                yield _status_event(
-                    "Building a broader SK/CZ and background EU market sample..."
-                )
-                try:
-                    market_grounded, _market_key = yield from dependencies.collect_gemini(
-                        gemini_key_entries,
-                        "market comparable research",
-                        lambda key: [
-                            dependencies.grounded_research(
-                                key,
-                                grounded_listing_with_identity,
-                                model=GEMINI_GROUNDING_MODEL,
-                                listing_slug=slug,
-                                research_mode="market",
-                            )
-                        ],
-                        retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
-                        same_key_retries=0,
-                    )
-                    if market_grounded:
-                        repository.write_text(slug, "market_research.md", market_grounded)
-                        web_research_text = (
-                            grounded.rstrip()
-                            + "\n\n## Cielene porovnanie trhu\n\n"
-                            + market_grounded.strip()
-                        )
-                    diagnostics["market"]["targeted_direct_citation_count"] = (
-                        _linked_market_comparable_count(
-                            market_grounded or "", market_only=True
-                        )
-                    )
-                    diagnostics["market"]["selected_key_label"] = _selected_key_label(
-                        _market_key
-                    )
-                    if market_grounded and _has_linked_market_comparable(market_grounded, market_only=True):
-                        yield _status_event("Targeted market search found linked comparable ads.")
-                    else:
-                        yield _status_event("Targeted market search found no directly linked comparable ads.")
-                except Exception as market_exc:
-                    dependencies.log(f"Targeted market research warning: {market_exc}")
-                    yield _status_event("Targeted market search unavailable; continuing with verified research.")
-                    diagnostics["market"]["targeted_search_error_type"] = type(
-                        market_exc
-                    ).__name__
             diagnostics["phases"]["grounded_research"] = {
                 "status": "completed",
                 "selected_key_label": _selected_key_label(_grounding_key),
@@ -990,6 +966,95 @@ def multi_model_analysis_events(
             "error_type": type(exc).__name__,
         }
         save_diagnostics()
+
+    # Market discovery is deliberately split into independent portal/language
+    # passes. The text synthesis model is not the authority for the resulting
+    # URLs or candidate list; every item is reconciled here against citations.
+    market_pass_results: list[dict[str, Any]] = []
+    market_sections: list[str] = []
+    diagnostics["market"]["targeted_search_attempted"] = True
+    yield _status_event("Searching comparable cars in separate SK/CZ and European market passes...")
+    for pass_id, pass_spec in MARKET_SEARCH_PASS_SPECS.items():
+        pass_label = str(pass_spec.get("label") or pass_id)
+        yield _status_event(f"Market search: {pass_label}...")
+        market_grounded = ""
+        selected_market_key: GeminiKeyEntry | None = None
+        try:
+            market_grounded, selected_market_key = yield from dependencies.collect_gemini(
+                gemini_key_entries,
+                f"market research {pass_id}",
+                lambda key, current_pass=pass_id: [
+                    dependencies.grounded_research(
+                        key,
+                        grounded_listing_with_identity,
+                        model=GEMINI_GROUNDING_MODEL,
+                        listing_slug=slug,
+                        research_mode=f"market_{current_pass}",
+                    )
+                ],
+                retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+                same_key_retries=0,
+            )
+            pass_result = extract_grounded_market_search_pass(
+                market_grounded, pass_id
+            )
+            pass_result["selected_key_label"] = _selected_key_label(
+                selected_market_key
+            )
+        except Exception as market_exc:
+            dependencies.log(f"Market research {pass_id} warning: {market_exc}")
+            pass_result = {
+                "pass_id": pass_id,
+                "portal": pass_label,
+                "language": pass_spec.get("language", ""),
+                "market_scope": pass_spec.get("market_scope", ""),
+                "status": "ERROR",
+                "error_type": type(market_exc).__name__,
+                "citation_count": 0,
+                "candidate_count": 0,
+                "verified_detail_count": 0,
+                "verified_background_count": 0,
+                "url_unverified_count": 0,
+                "candidates": [],
+            }
+        market_pass_results.append(pass_result)
+        repository.write_text(
+            slug, f"market_research_{pass_id}.md", market_grounded
+        )
+        market_sections.append(
+            f"## Market search pass: {pass_label}\n\n{market_grounded.strip()}"
+        )
+
+    market_search_results = build_market_search_results(market_pass_results)
+    repository.write_json(slug, "market_search_results.json", market_search_results)
+    validation_warnings.extend(
+        dependencies.validate_json_contract(
+            "market_search_results.json",
+            json.dumps(market_search_results, ensure_ascii=False),
+            "market_search_results.schema.json",
+        )
+    )
+    market_research_text = "\n\n".join(market_sections).strip()
+    repository.write_text(slug, "market_research.md", market_research_text)
+    if market_research_text:
+        web_research_text = (
+            (web_research_text.rstrip() + "\n\n") if web_research_text else ""
+        ) + "## Cielené porovnanie trhu podľa portálov\n\n" + market_research_text
+    repository.write_text(slug, "web_research.md", web_research_text)
+    diagnostics["market"].update(
+        {
+            "search_passes": [
+                {
+                    key: value
+                    for key, value in result.items()
+                    if key != "candidates"
+                }
+                for result in market_pass_results
+            ],
+            **market_search_results["summary"],
+        }
+    )
+    save_diagnostics()
 
     if grok_key:
         text_provider = "grok"
@@ -1107,10 +1172,18 @@ def multi_model_analysis_events(
         component_identity,
         vin_light_decode,
     )
+    # Replace, rather than merge, model-produced market candidates. Only the
+    # separately grounded and backend-reconciled portal passes may feed price
+    # benchmarking or customer links.
+    research_data["market_comparables"] = list(
+        market_search_results.get("candidates") or []
+    )
+    research_data["market_search_summary"] = dict(
+        market_search_results.get("summary") or {}
+    )
     try:
         if isinstance(research_data.get("market_comparables"), list):
             comparable_count_before = len(research_data["market_comparables"])
-            research_data = reconcile_market_comparable_urls(research_data, web_research_text)
             research_data = deduplicate_market_comparables(research_data, car_info_text)
             try:
                 exchange_rates = fetch_ecb_reference_rates()
@@ -1141,6 +1214,12 @@ def multi_model_analysis_events(
                         market_benchmark.get("rejected_comparables") or []
                     ),
                     "benchmark_available": market_benchmark.get("available") is True,
+                    "benchmark_tolerance_stage": market_benchmark.get(
+                        "tolerance_stage"
+                    ),
+                    "benchmark_diagnostic_counts": market_benchmark.get(
+                        "diagnostic_counts"
+                    ),
                 }
             )
             diagnostics["phases"]["text_research"] = {

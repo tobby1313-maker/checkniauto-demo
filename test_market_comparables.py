@@ -5,12 +5,223 @@ from scrapper_demo.market_comparables import (
     build_market_benchmark,
     customer_link_priority,
     deduplicate_market_comparables,
+    extract_grounded_market_search_pass,
     is_customer_facing_market_comparable,
     reconcile_market_comparable_urls,
 )
 
 
 class MarketComparableDeduplicationTests(unittest.TestCase):
+    def test_grounded_detail_url_is_accepted_only_on_exact_citation_match(self):
+        url = "https://auto.bazos.sk/inzerat/123456/toyota-rav4.php"
+        grounded = (
+            '{"candidates":[{"description":"Toyota RAV4","year":2008,'
+            '"mileage_km":130000,"price_eur":7500,"source_country":"SK",'
+            '"similarity_tier":"A","price_basis":"gross_asking",'
+            f'"detail_url":"{url}","evidence_url":"{url}"}}]}}'
+            "\n\n### Citacie z Google Search\n"
+            f"- [Toyota RAV4]({url})\n"
+        )
+
+        result = extract_grounded_market_search_pass(grounded, "sk_cz")
+
+        item = result["candidates"][0]
+        self.assertEqual(item["source_url"], url)
+        self.assertTrue(item["verified_url"])
+        self.assertEqual(item["url_verification_status"], "VERIFIED_DETAIL")
+
+    def test_model_invented_url_is_retained_as_unverified_diagnostic(self):
+        invented = "https://auto.bazos.sk/inzerat/999999/invented.php"
+        cited = "https://auto.bazos.sk/inzerat/123456/real.php"
+        grounded = (
+            '{"candidates":[{"description":"Toyota RAV4","year":2008,'
+            '"mileage_km":130000,"price_eur":7500,"source_country":"SK",'
+            '"similarity_tier":"A","price_basis":"gross_asking",'
+            f'"detail_url":"{invented}","evidence_url":"{cited}"}}]}}'
+            "\n\n### Citacie z Google Search\n"
+            f"- [Real result]({cited})\n"
+        )
+
+        result = extract_grounded_market_search_pass(grounded, "sk_cz")
+
+        item = result["candidates"][0]
+        self.assertEqual(item["source_url"], "")
+        self.assertEqual(item["claimed_source_url"], invented)
+        self.assertEqual(item["url_verification_status"], "URL_UNVERIFIED")
+        self.assertEqual(result["url_unverified_count"], 1)
+
+    def test_mobile_results_card_without_detail_url_is_background_evidence(self):
+        results_url = "https://suchen.mobile.de/auto/toyota-rav-4-automat.html"
+        grounded = (
+            '{"candidates":[{"description":"Toyota RAV4 2.0 Automatik 4x4",'
+            '"year":2008,"mileage_km":149500,"price_eur":9850,'
+            '"source_country":"DE","similarity_tier":"A",'
+            '"price_basis":"gross_asking","detail_url":"",'
+            f'"evidence_url":"{results_url}","url_kind":"RESULTS_PAGE"}}]}}'
+            "\n\n### Citacie z Google Search\n"
+            f"- [Mobile results]({results_url})\n"
+        )
+
+        result = extract_grounded_market_search_pass(grounded, "mobile_de")
+
+        item = result["candidates"][0]
+        self.assertFalse(item["verified_url"])
+        self.assertTrue(item["background_evidence_verified"])
+        self.assertEqual(item["data_provenance"], "GROUNDED_SEARCH_RESULT")
+        self.assertFalse(item["display_in_report"])
+
+    @staticmethod
+    def _benchmark_candidate(index, *, year=2008, mileage=130000, price=8000):
+        return {
+            "description": f"Toyota RAV4 comparable {index}",
+            "year": year,
+            "mileage_km": mileage,
+            "price_eur": price,
+            "source_country": "DE",
+            "market_scope": "BACKGROUND_EU",
+            "similarity_tier": "A",
+            "price_basis": "gross_asking",
+            "evidence_url": f"https://suchen.mobile.de/auto/toyota-rav-4-{index}.html",
+            "background_evidence_verified": True,
+            "data_provenance": "GROUNDED_SEARCH_RESULT",
+            "search_pass": "mobile_de",
+            "url_verification_status": "VERIFIED_SEARCH_RESULT",
+            "verified_url": False,
+        }
+
+    def test_tolerance_expands_year_before_mileage_and_lowers_weight(self):
+        research = {
+            "listing_facts": {"year": 2008, "mileage_km": 122000},
+            "market_assessment": {"advertised_price_eur": 6900},
+            "market_comparables": [
+                self._benchmark_candidate(1, mileage=130000),
+                self._benchmark_candidate(2, mileage=145000),
+                self._benchmark_candidate(3, year=2012, mileage=135000),
+            ],
+        }
+        deduplicate_market_comparables(research, "# Other listing")
+
+        benchmark = build_market_benchmark(research, "# Other listing")
+
+        self.assertTrue(benchmark["available"])
+        self.assertEqual(benchmark["tolerance_stage"], "EXPANDED_YEAR")
+        expanded = next(
+            item for item in benchmark["accepted_comparables"]
+            if item["tolerance_stage"] == "EXPANDED_YEAR"
+        )
+        self.assertLess(expanded["weight"], 0.75)
+
+    def test_just_outside_mileage_limit_enters_expanded_mileage_stage(self):
+        research = {
+            "listing_facts": {"year": 2008, "mileage_km": 122000},
+            "market_assessment": {"advertised_price_eur": 6900},
+            "market_comparables": [
+                self._benchmark_candidate(1, mileage=130000),
+                self._benchmark_candidate(2, mileage=145000),
+                self._benchmark_candidate(3, mileage=165000),
+            ],
+        }
+        deduplicate_market_comparables(research, "# Other listing")
+
+        benchmark = build_market_benchmark(research, "# Other listing")
+
+        self.assertTrue(benchmark["available"])
+        self.assertEqual(benchmark["tolerance_stage"], "EXPANDED_MILEAGE")
+        expanded = next(
+            item for item in benchmark["accepted_comparables"]
+            if item["tolerance_stage"] == "EXPANDED_MILEAGE"
+        )
+        self.assertLess(expanded["weight"], 0.5)
+
+    def test_zero_local_sample_can_use_hidden_european_background(self):
+        research = {
+            "listing_facts": {"year": 2008, "mileage_km": 122000},
+            "market_assessment": {"advertised_price_eur": 6900},
+            "market_comparables": [
+                self._benchmark_candidate(1, mileage=126000, price=8999),
+                self._benchmark_candidate(2, mileage=149500, price=9850),
+                self._benchmark_candidate(3, mileage=130700, price=7500),
+            ],
+        }
+        deduplicate_market_comparables(research, "# Other listing")
+
+        benchmark = build_market_benchmark(research, "# Other listing")
+
+        self.assertTrue(benchmark["available"])
+        self.assertEqual(benchmark["benchmark_scope"], "EU_MIXED_BACKGROUND")
+        self.assertEqual(benchmark["diagnostic_counts"]["europe_background_only"], 3)
+        self.assertEqual(research["market_assessment"]["public_comparable_count"], 0)
+
+    def test_local_verified_details_are_counted_as_full_comparables(self):
+        comparables = [
+            {
+                "description": f"Toyota RAV4 local {index}",
+                "year": 2008,
+                "mileage_km": 125000 + index * 1000,
+                "price_eur": 7000 + index * 200,
+                "source_country": "SK",
+                "market_scope": "PUBLIC_SK_CZ",
+                "similarity_tier": "A",
+                "price_basis": "gross_asking",
+                "source_url": f"https://auto.bazos.sk/inzerat/{1000 + index}/rav4.php",
+                "verified_url": True,
+                "url_verification_status": "VERIFIED_DETAIL",
+                "search_pass": "sk_cz",
+            }
+            for index in range(3)
+        ]
+        research = {
+            "listing_facts": {"year": 2008, "mileage_km": 122000},
+            "market_assessment": {"advertised_price_eur": 6900},
+            "market_comparables": comparables,
+        }
+        deduplicate_market_comparables(research, "# Other listing")
+
+        benchmark = build_market_benchmark(research, "# Other listing")
+
+        self.assertEqual(benchmark["benchmark_scope"], "SK_CZ")
+        self.assertEqual(benchmark["diagnostic_counts"]["full_comparable_accepted"], 3)
+        self.assertEqual(benchmark["diagnostic_counts"]["europe_background_only"], 0)
+
+    def test_market_diagnostics_separate_url_year_and_mileage_rejections(self):
+        unverified_local = {
+            "description": "Unverified local Toyota",
+            "year": 2008,
+            "mileage_km": 130000,
+            "price_eur": 7000,
+            "source_country": "SK",
+            "market_scope": "PUBLIC_SK_CZ",
+            "similarity_tier": "A",
+            "price_basis": "gross_asking",
+            "search_pass": "sk_cz",
+            "url_verification_status": "URL_UNVERIFIED",
+            "verified_url": False,
+        }
+        far_year = self._benchmark_candidate(2, year=2015, mileage=130000)
+        far_mileage = self._benchmark_candidate(3, year=2008, mileage=250000)
+        research = {
+            "listing_facts": {"year": 2008, "mileage_km": 122000},
+            "market_assessment": {"advertised_price_eur": 6900},
+            "market_search_summary": {
+                "search_results_found_count": 3,
+                "candidate_count": 3,
+                "nothing_found_passes": 0,
+            },
+            "market_comparables": [unverified_local, far_year, far_mileage],
+        }
+        deduplicate_market_comparables(research, "# Other listing")
+
+        benchmark = build_market_benchmark(research, "# Other listing")
+
+        self.assertFalse(benchmark["available"])
+        self.assertEqual(benchmark["diagnostic_counts"]["url_unverified"], 1)
+        self.assertEqual(benchmark["diagnostic_counts"]["year_rejected"], 1)
+        self.assertEqual(benchmark["diagnostic_counts"]["mileage_rejected"], 1)
+        self.assertEqual(
+            research["market_assessment"]["summary"],
+            "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL.",
+        )
+
     def test_czk_uses_30_calendar_day_ecb_average_and_other_currency_latest(self):
         payload = b"""<?xml version='1.0' encoding='UTF-8'?>
 <Envelope xmlns='urn:gesmes'><Cube>
@@ -386,7 +597,7 @@ r.v. 5/2020
         self.assertEqual(benchmark["foreign_background_median_eur"], 9000)
         self.assertEqual(research["market_assessment"]["price_view"], "fair")
 
-    def test_stale_narrative_urls_are_replaced_by_current_grounding_citations(self):
+    def test_mismatched_narrative_urls_are_not_repaired_from_citations(self):
         research = {
             "market_assessment": {"available": True},
             "market_comparables": [
@@ -421,13 +632,14 @@ r.v. 5/2020
 
         result = reconcile_market_comparable_urls(research, grounded)
 
-        self.assertIn("/detail/", result["market_comparables"][0]["source_url"])
-        self.assertIn("221171808", result["market_comparables"][1]["source_url"])
-        self.assertEqual(result["market_comparables"][2]["source_url"], "")
-        self.assertFalse(result["market_comparables"][2]["verified_url"])
+        for item in result["market_comparables"]:
+            self.assertEqual(item["source_url"], "")
+            self.assertFalse(item["verified_url"])
+            self.assertEqual(item["url_verification_status"], "URL_UNVERIFIED")
+            self.assertTrue(item["claimed_source_url"])
 
         deduplicated = deduplicate_market_comparables(result, "# Other listing")
-        self.assertEqual(len(deduplicated["market_comparables"]), 2)
+        self.assertEqual(len(deduplicated["market_comparables"]), 0)
 
     def test_unverified_market_sources_are_removed_from_source_registry(self):
         research = {

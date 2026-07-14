@@ -28,27 +28,41 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("Samostatne vyhladaj prevodovku", prompt)
         self.assertIn("Generacia, karoseria a podvozok", prompt)
         self.assertIn("Zvolavacie a servisne kampane", prompt)
-        self.assertIn("najviac 3-6 co najblizsich aktualnych porovnatelnych ponuk", prompt)
-        self.assertIn("aspon jednu zahranicnu background ponuku", prompt)
-        self.assertIn("iba konkretny inzerat", prompt)
-        self.assertIn("Bez priameho URL nevypisuj konkretne auto", prompt)
+        self.assertNotIn("najblizsich aktualnych porovnatelnych ponuk", prompt)
+        self.assertNotIn("Orientacna cena / trh", prompt)
         self.assertIn("podmienene opravy nikdy", prompt)
         self.assertIn("lahku samostatnu kontrolu presneho VIN", prompt)
         self.assertIn("cely retazec v uvodzovkach", prompt)
 
-    def test_market_fallback_prompt_is_short_and_requires_direct_ad_urls(self):
+    def test_market_fallback_prompt_is_portal_specific_and_provenance_locked(self):
         prompt = llm_client._build_grounded_market_prompt(
             "Suzuki Vitara 1.6 VVT Elegance 2WD automatic, 2015, 240513 km"
         )
 
-        self.assertIn("rebricek podobnosti", prompt)
+        self.assertIn("samostatny search pass SK_CZ", prompt)
         self.assertIn("A: rovnaka generacia, motor, prevodovka a pohon", prompt)
-        self.assertIn("site-specific dopyty", prompt)
-        self.assertIn("CZ/PL ponuku", prompt)
-        self.assertIn("mobile.de, AutoScout24 a Otomoto", prompt)
-        self.assertIn("priamy verejny URL detailu", prompt)
-        self.assertIn("Povodny analyzovany inzerat nepouzivaj", prompt)
-        self.assertIn("Vystup udrz pod 350 slov", prompt)
+        self.assertIn("site-specific dopyt", prompt)
+        self.assertIn("URL nikdy nevytvaraj", prompt)
+        self.assertIn("evidence_url", prompt)
+        self.assertIn("analyzovany inzerat nepouzivaj", prompt)
+        self.assertIn("jeden kompletny JSON objekt", prompt)
+
+    def test_each_foreign_market_pass_uses_its_own_portal_and_language(self):
+        mobile = llm_client._build_grounded_market_prompt("Toyota RAV4", "mobile_de")
+        otomoto = llm_client._build_grounded_market_prompt("Toyota RAV4", "otomoto_pl")
+        autoscout = llm_client._build_grounded_market_prompt("Toyota RAV4", "autoscout")
+
+        self.assertIn("samostatny search pass MOBILE_DE", mobile)
+        self.assertIn("nemcine", mobile)
+        self.assertIn("iba mobile.de", mobile)
+        self.assertNotIn("iba otomoto.pl", mobile)
+        self.assertIn("samostatny search pass OTOMOTO_PL", otomoto)
+        self.assertIn("polstine", otomoto)
+        self.assertIn("iba otomoto.pl", otomoto)
+        self.assertNotIn("iba mobile.de", otomoto)
+        self.assertIn("samostatny search pass AUTOSCOUT", autoscout)
+        self.assertIn("relevantneho trhu", autoscout)
+        self.assertIn("iba AutoScout24", autoscout)
 
     def test_market_fallback_accepts_direct_ads_from_citation_block_only(self):
         citation_output = (
