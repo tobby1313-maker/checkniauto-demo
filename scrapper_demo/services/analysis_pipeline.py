@@ -692,16 +692,7 @@ def _lock_report_evidence_claims(
     vin_check: dict[str, Any] = raw_vin_check if isinstance(raw_vin_check, dict) else {}
     text = _lock_registration_age_claims(text, listing_facts, language=language)
     vin_missing = not str(listing_facts.get("vin") or "").strip() and vin_check.get("vin_present") is not True
-    vehicle_findings = risk.get("vehicle_specific_findings") if isinstance(risk.get("vehicle_specific_findings"), list) else []
-    raw_rules = risk.get("applied_rules")
-    positive_rules = [
-        item
-        for item in (raw_rules if isinstance(raw_rules, list) else [])
-        if isinstance(item, dict)
-        and int(item.get("points") or 0) > 0
-        and item.get("rule") not in {"missing_or_weak_photos"}
-    ]
-    if vin_missing and not vehicle_findings and not positive_rules:
+    if vin_missing:
         rewritten = []
         for line in text.splitlines():
             folded = _fold_market_text(line)
@@ -1151,6 +1142,7 @@ def multi_model_analysis_events(
     # URLs or candidate list; every item is reconciled here against citations.
     market_pass_results: list[dict[str, Any]] = []
     market_sections: list[str] = []
+    market_quota_exhausted = False
     diagnostics["market"]["targeted_search_attempted"] = True
     yield _status_event("Searching comparable cars in separate SK/CZ and European market passes...")
     for pass_id, pass_spec in MARKET_SEARCH_PASS_SPECS.items():
@@ -1158,38 +1150,14 @@ def multi_model_analysis_events(
         yield _status_event(f"Market search: {pass_label}...")
         market_grounded = ""
         selected_market_key: GeminiKeyEntry | None = None
-        try:
-            market_grounded, selected_market_key = yield from dependencies.collect_gemini(
-                gemini_key_entries,
-                f"market research {pass_id}",
-                lambda key, current_pass=pass_id: [
-                    dependencies.grounded_research(
-                        key,
-                        grounded_listing_with_identity,
-                        model=GEMINI_MARKET_GROUNDING_MODEL,
-                        listing_slug=slug,
-                        research_mode=f"market_{current_pass}",
-                    )
-                ],
-                retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
-                same_key_retries=0,
-            )
-            _promote_selected_key(gemini_key_entries, selected_market_key)
-            pass_result = extract_grounded_market_search_pass(
-                market_grounded, pass_id
-            )
-            pass_result["selected_key_label"] = _selected_key_label(
-                selected_market_key
-            )
-        except Exception as market_exc:
-            dependencies.log(f"Market research {pass_id} warning: {market_exc}")
+        if market_quota_exhausted:
             pass_result = {
                 "pass_id": pass_id,
                 "portal": pass_label,
                 "language": pass_spec.get("language", ""),
                 "market_scope": pass_spec.get("market_scope", ""),
-                "status": "ERROR",
-                "error_type": type(market_exc).__name__,
+                "status": "SKIPPED_AFTER_RATE_LIMIT",
+                "error_type": "RateLimitError",
                 "citation_count": 0,
                 "candidate_count": 0,
                 "verified_detail_count": 0,
@@ -1197,6 +1165,48 @@ def multi_model_analysis_events(
                 "url_unverified_count": 0,
                 "candidates": [],
             }
+        else:
+            try:
+                market_grounded, selected_market_key = yield from dependencies.collect_gemini(
+                    gemini_key_entries,
+                    f"market research {pass_id}",
+                    lambda key, current_pass=pass_id: [
+                        dependencies.grounded_research(
+                            key,
+                            grounded_listing_with_identity,
+                            model=GEMINI_MARKET_GROUNDING_MODEL,
+                            listing_slug=slug,
+                            research_mode=f"market_{current_pass}",
+                        )
+                    ],
+                    retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+                    same_key_retries=0,
+                )
+                _promote_selected_key(gemini_key_entries, selected_market_key)
+                pass_result = extract_grounded_market_search_pass(
+                    market_grounded, pass_id
+                )
+                pass_result["selected_key_label"] = _selected_key_label(
+                    selected_market_key
+                )
+            except Exception as market_exc:
+                dependencies.log(f"Market research {pass_id} warning: {market_exc}")
+                if isinstance(market_exc, RateLimitError):
+                    market_quota_exhausted = True
+                pass_result = {
+                    "pass_id": pass_id,
+                    "portal": pass_label,
+                    "language": pass_spec.get("language", ""),
+                    "market_scope": pass_spec.get("market_scope", ""),
+                    "status": "ERROR",
+                    "error_type": type(market_exc).__name__,
+                    "citation_count": 0,
+                    "candidate_count": 0,
+                    "verified_detail_count": 0,
+                    "verified_background_count": 0,
+                    "url_unverified_count": 0,
+                    "candidates": [],
+                }
         market_pass_results.append(pass_result)
         repository.write_text(
             slug, f"market_research_{pass_id}.md", market_grounded

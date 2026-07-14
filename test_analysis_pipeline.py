@@ -130,6 +130,33 @@ Cena 6 900 EUR je podozrivo lacná a na spodnej hranici trhu.
         self.assertIn("- **Hodnotenie:** 🟢 STOJÍ ZA OBHLIADKU", locked)
         self.assertNotIn("🟠 RIEŠIŤ LEN S VÝHRADAMI", locked)
 
+    def test_missing_vin_is_not_biggest_risk_when_minor_concern_exists(self):
+        report = """# VW T-Roc
+
+## Rýchle zhrnutie
+- **Hodnotenie:** 🟢 STOJÍ ZA OBHLIADKU
+- **Najväčšie riziko:** Úplná absencia VIN znemožňuje overenie histórie.
+"""
+
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "listing_facts": {"vin": ""},
+                "vin_check": {"vin_present": False},
+                "market_assessment": {"benchmark_available": False},
+            },
+            {
+                "allowed_final_verdict": "🟢 STOJÍ ZA OBHLIADKU",
+                "applied_rules": [
+                    {"rule": "visible_minor_damage", "points": 1}
+                ],
+            },
+            output_language="sk",
+        )
+
+        self.assertIn("nie je potvrdená konkrétna zásadná vada", locked)
+        self.assertNotIn("Úplná absencia VIN", locked)
+
     def test_registration_age_claim_is_calculated_deterministically(self):
         report = "- **Riziko:** 159 000 km za necelé 2 roky prevádzky."
 

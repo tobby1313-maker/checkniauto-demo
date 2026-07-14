@@ -194,7 +194,7 @@ GEMINI_BACKUP_API_KEY=<optional-backup-key>
 # non-final: gemini-2.5-flash -> gemini-3.5-flash -> gemini-3.1-flash-lite
 # final synthesis: gemini-3.5-flash -> gemini-2.5-flash -> gemini-3.1-flash-lite
 GEMINI_GROUNDING_MODEL=gemini-2.5-flash
-GEMINI_MARKET_GROUNDING_MODEL=gemini-3.1-flash-lite
+GEMINI_MARKET_GROUNDING_MODEL=gemini-2.5-flash
 GEMINI_TEXT_RESEARCH_MODEL=gemini-2.5-flash
 GEMINI_VISION_MODEL=gemini-2.5-flash
 GEMINI_FINAL_MODEL=gemini-3.5-flash
@@ -223,7 +223,7 @@ temp directory in `scrapper-demo/Auta`.
 | `GEMINI_ADVANCED_FLASH_MODEL` | `gemini-3.5-flash` | Stronger Gemini Flash model used by final synthesis defaults. |
 | `GEMINI_FLASH_LITE_MODEL` | `gemini-3.1-flash-lite` | Base Gemini Flash Lite model used by low-cost extraction defaults. |
 | `GEMINI_GROUNDING_MODEL` | `gemini-2.5-flash` | Primary Gemini model for grounded web research. |
-| `GEMINI_MARKET_GROUNDING_MODEL` | `gemini-3.1-flash-lite` | Lower-cost Gemini model for the four portal-specific market-grounding passes. |
+| `GEMINI_MARKET_GROUNDING_MODEL` | value of `GEMINI_GROUNDING_MODEL` | Gemini model for the four portal-specific market-grounding passes. Override only when that model has a separate usable quota. |
 | `GEMINI_TEXT_RESEARCH_MODEL` | `gemini-2.5-flash` | Primary Gemini model for structured text/listing research extraction. |
 | `GEMINI_VISION_MODEL` | `gemini-2.5-flash` | Primary Gemini model for photo/vision extraction. |
 | `GEMINI_FINAL_MODEL` | `gemini-3.5-flash` | Primary Gemini model for final buyer-facing synthesis. |
