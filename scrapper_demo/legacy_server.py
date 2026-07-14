@@ -1035,7 +1035,11 @@ def admin_logout():
 def token_dashboard():
     if not _admin_authenticated():
         return redirect("/admin/login")
-    return send_from_directory(_runtime_web_dir(), "token-dashboard.html")
+    response = send_from_directory(_runtime_web_dir(), "token-dashboard.html")
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 def api_token_usage():

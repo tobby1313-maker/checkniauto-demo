@@ -92,6 +92,8 @@ class CalibrationWorkflowTest(unittest.TestCase):
         dashboard = self.client.get("/token-dashboard.html")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Download debugging bundle", dashboard.data)
+        self.assertEqual(dashboard.headers["Cache-Control"], "no-store, max-age=0")
+        self.assertEqual(dashboard.headers["Pragma"], "no-cache")
         dashboard.close()
         self.assertEqual(self.client.get("/api/token-usage").status_code, 200)
 
