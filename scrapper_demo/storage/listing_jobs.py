@@ -53,7 +53,7 @@ ARTIFACT_LABELS = {
     "reliability_research.md": "Grounded reliability research",
     "market_research.md": "Direct market search diagnostics",
     "market_research_sk_cz.md": "Direct local SK/CZ market search",
-    "market_research_mobile_de.md": "Legacy grounded Mobile.de market search",
+    "market_research_mobile_de.md": "Direct Mobile.de background market search",
     "market_research_otomoto_pl.md": "Legacy grounded Otomoto market search",
     "market_research_autoscout.md": "Legacy grounded AutoScout24 market search",
     "market_search_results.json": "Verified market search candidates",

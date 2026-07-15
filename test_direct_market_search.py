@@ -5,6 +5,8 @@ from scrapper_demo.direct_market_search import (
     derive_bazos_identity,
     parse_bazos_search_page,
     parse_local_portal_search_page,
+    parse_mobile_de_search_page,
+    search_all_marketplaces,
     search_bazos_sk_cz,
     search_local_marketplaces,
 )
@@ -206,6 +208,70 @@ class DirectMarketSearchTests(unittest.TestCase):
             {attempt["portal"] for attempt in result["source_attempts"]},
             {"bazos_sk", "bazos_cz", "autobazar_sk", "autobazar_eu", "sauto_cz"},
         )
+
+    def test_mobile_de_parser_creates_hidden_background_comparable(self):
+        listing = {
+            "title": "Volkswagen Tiguan 2.0 TSI 4Motion DSG",
+            "year": 2014,
+            "mileage_km": 205350,
+            "engine": "2.0 TSI",
+            "transmission": "DSG",
+            "drivetrain": "4X4",
+            "description_excerpt": "Volkswagen Tiguan 2.0 TSI 4Motion DSG",
+            "source_url": "https://auto.bazos.sk/inzerat/1/tiguan.php",
+        }
+        identity = derive_bazos_identity(listing)
+        search_url = "https://suchen.mobile.de/auto/volkswagen-tiguan-2-0-tsi.html"
+        html = """
+        <article class="result-card">
+          <a href="/fahrzeuge/details.html?id=123456789&scopeId=C">
+            Volkswagen Tiguan 2.0 TSI DSG 4MOTION Track &amp; Style
+          </a>
+          <div>9.899 € • EZ 04/2013 • 170.000 km • 155 kW (211 PS) • Benzin</div>
+        </article>
+        """
+
+        candidates, counts = parse_mobile_de_search_page(
+            html,
+            search_url=search_url,
+            identity=identity,
+            listing=listing,
+        )
+
+        self.assertEqual(counts["result_card_count"], 1)
+        self.assertEqual(len(candidates), 1)
+        item = candidates[0]
+        self.assertIn("/fahrzeuge/details.html?id=123456789", item["source_url"])
+        self.assertEqual(item["source_country"], "DE")
+        self.assertEqual(item["market_scope"], "BACKGROUND_EU")
+        self.assertEqual(item["search_pass"], "mobile_de")
+        self.assertEqual(item["price_eur"], 9899)
+        self.assertEqual(item["year"], 2013)
+        self.assertEqual(item["mileage_km"], 170000)
+        self.assertEqual(item["similarity_tier"], "A")
+        self.assertFalse(item["display_in_report"])
+
+    def test_all_marketplaces_adds_mobile_de_as_separate_background_pass(self):
+        mobile_html = """
+        <article>
+          <a href="/fahrzeuge/details.html?id=987654321">Volkswagen T-Roc 1.5 TSI DSG FWD</a>
+          <div>18.500 € • EZ 2022 • 145.000 km • Benzin</div>
+        </article>
+        """
+
+        def fetch(url, timeout):
+            return mobile_html if "suchen.mobile.de" in url else ""
+
+        passes = search_all_marketplaces(
+            self.listing,
+            timeout=3.0,
+            fetch_html=fetch,
+        )
+
+        self.assertEqual([item["pass_id"] for item in passes], ["sk_cz", "mobile_de"])
+        self.assertEqual(passes[1]["status"], "FOUND")
+        self.assertEqual(passes[1]["candidate_count"], 1)
+        self.assertFalse(passes[1]["candidates"][0]["display_in_report"])
 
 
 if __name__ == "__main__":

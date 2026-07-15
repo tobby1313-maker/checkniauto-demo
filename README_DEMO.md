@@ -36,7 +36,8 @@ The analysis pipeline is:
    defect on the listed vehicle or directly lowers its score.
    Market discovery does not use a language model. The backend derives a
    narrow make/model query from the scraped title and makes bounded direct
-   searches on Bazos SK/CZ, Autobazar.sk, Autobazar.EU, and Sauto.cz. It parses
+   searches on Bazos SK/CZ, Autobazar.sk, Autobazar.EU, and Sauto.cz, plus a
+   separate Mobile.de background search. It parses
    visible result cards and keeps only the exact detail URL present in each
    card; it never constructs a detail URL from a template. The analyzed ad,
    non-vehicle offers, and model mismatches are removed before benchmarking.
@@ -45,10 +46,10 @@ The analysis pipeline is:
    Only these local SK/CZ portals can produce customer-facing links. Any
    other-country observation is background-only and must be Tier A with the
    same transmission, engine, and drivetrain, year within +/-1, and mileage
-   within `max(25,000 km, 15%)` of the analyzed listing. Mobile.de, AutoScout24,
-   and Otomoto are not fetched directly; if their grounded observations exist,
-   the same tight background gate applies and their individual links remain
-   hidden. Local links appear only in the price and negotiation section.
+   within `max(25,000 km, 15%)` of the analyzed listing. Mobile.de is fetched
+   only for background price evidence; its detail links are never shown to
+   customers. AutoScout24 and Otomoto are not fetched directly. Local links
+   appear only in the price and negotiation section.
    Structured candidates are deduplicated across portals by VIN or a
    conservative year/mileage/version/price/seller fingerprint, and cross-posts
    of the analyzed listing are removed. Non-EUR prices are normalized by ECB
@@ -58,10 +59,11 @@ The analysis pipeline is:
    and mileage limits, then widen the year range, and only then widen mileage.
    Foreign background rows never use those widened stages.
    Expanded records receive lower weights and wider price-classification
-   thresholds. Three A/B retail observations are still required; C-tier, net,
+   thresholds. Three A/B retail observations from local or tightly matched
+   background sources are still required; C-tier, net,
    auction, damaged, export-only, duplicate, and non-normalizable offers are
-   excluded. If fewer than three verified A/B local observations survive, the
-   price conclusion remains unavailable. The full search audit is stored in
+   excluded. If fewer than three verified A/B observations survive, the price
+   conclusion remains unavailable. The full search audit is stored in
    `market_search_results.json`; staged acceptance, rejection reasons, weights,
    and diagnostic counts are stored in `market_benchmark.json`. Asking prices
    are not transaction prices, so market price never changes the technical

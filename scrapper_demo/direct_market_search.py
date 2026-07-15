@@ -14,7 +14,7 @@ import re
 import unicodedata
 from datetime import date
 from typing import Any, Callable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -770,3 +770,246 @@ def search_local_marketplaces(
             "source_attempts": attempts,
         }
     ]
+
+
+def _mobile_detail_url(value: Any, base_url: str) -> str:
+    """Keep only exact Mobile.de detail URLs found in a result card."""
+    raw_url = urljoin(base_url, str(value or "").strip())
+    try:
+        parsed = urlparse(raw_url)
+    except ValueError:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if not (host == "mobile.de" or host.endswith(".mobile.de")):
+        return ""
+    path = parsed.path.lower()
+    if path.startswith("/fahrzeuge/details.html"):
+        listing_ids = parse_qs(parsed.query).get("id") or []
+        if any(re.fullmatch(r"\d+", value) for value in listing_ids):
+            return parsed._replace(fragment="").geturl()
+    if "/auto-inserat/" in path:
+        return _canonical_url(raw_url)
+    return ""
+
+
+def _mobile_search_url(listing: dict[str, Any], identity: dict[str, str]) -> str:
+    listing_text = " ".join(
+        str(listing.get(key) or "")
+        for key in ("title", "description_excerpt", "engine")
+    )
+    engine = _engine(listing_text)
+    engine_slug = re.sub(r"[^a-z0-9]+", "-", _fold(engine)).strip("-")
+    query_slug = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        _fold(f"{identity['make']} {identity['model']} {engine_slug}"),
+    ).strip("-")
+    return f"https://suchen.mobile.de/auto/{query_slug}.html"
+
+
+def parse_mobile_de_search_page(
+    html: str,
+    *,
+    search_url: str,
+    identity: dict[str, str],
+    listing: dict[str, Any],
+    max_candidates: int = 30,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Parse exact Mobile.de detail links for the hidden EU benchmark."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    candidates: list[dict[str, Any]] = []
+    counters = {
+        "result_card_count": 0,
+        "non_vehicle_filtered_count": 0,
+        "model_mismatch_count": 0,
+        "self_listing_filtered_count": 0,
+        "parsed_candidate_count": 0,
+    }
+    model_compact = _compact(identity.get("model"))
+    seen_urls: set[str] = set()
+    for anchor in soup.find_all("a", href=True):
+        source_url = _mobile_detail_url(anchor.get("href"), search_url)
+        if not source_url or source_url in seen_urls:
+            continue
+        seen_urls.add(source_url)
+        counters["result_card_count"] += 1
+        image = anchor.find("img")
+        title = " ".join(
+            str(
+                anchor.get_text(" ", strip=True)
+                or anchor.get("title")
+                or anchor.get("aria-label")
+                or (image.get("alt") if image is not None else "")
+                or ""
+            ).split()
+        )
+        card_text = _portal_card_text(anchor)
+        combined = f"{title} {card_text}".strip()
+        if any(marker in _fold(combined) for marker in _NON_VEHICLE_TITLE_MARKERS):
+            counters["non_vehicle_filtered_count"] += 1
+            continue
+        if model_compact and model_compact not in _compact(combined):
+            counters["model_mismatch_count"] += 1
+            continue
+
+        price_amount, currency, price_display = _portal_price(combined)
+        year = _first_year(combined)
+        mileage = _first_mileage(combined)
+        engine = _engine(combined)
+        transmission = _transmission(combined)
+        drive = _drivetrain(combined)
+        similarity_tier, material_difference = _similarity(listing, combined)
+        candidates.append(
+            {
+                "candidate_id": _portal_candidate_id("mobile_de", source_url, len(candidates)),
+                "description": title or combined[:180],
+                "listing_title": title or combined[:180],
+                "year": year,
+                "mileage_km": mileage,
+                "engine": engine,
+                "transmission": transmission,
+                "drivetrain": drive,
+                "price_eur": price_amount if currency == "EUR" else None,
+                "price_display": price_display,
+                "price_basis": "gross_asking",
+                "source_country": "DE",
+                "similarity_tier": similarity_tier,
+                "material_difference": material_difference,
+                "location": "",
+                "search_pass": "mobile_de",
+                "search_language": "de",
+                "market_scope": "BACKGROUND_EU",
+                "source_portal": "mobile_de",
+                "source_url": source_url,
+                "claimed_source_url": source_url,
+                "evidence_url": search_url,
+                "verified_url": True,
+                "url_verification_status": "VERIFIED_DETAIL",
+                "background_evidence_verified": False,
+                "display_in_report": False,
+                "data_provenance": "DIRECT_PORTAL_SEARCH",
+            }
+        )
+        if len(candidates) >= max_candidates:
+            break
+    counters["parsed_candidate_count"] = len(candidates)
+    return candidates, counters
+
+
+def search_mobile_de(
+    listing: dict[str, Any],
+    *,
+    timeout: float = 8.0,
+    fetch_html: Callable[[str, float], str] | None = None,
+) -> list[dict[str, Any]]:
+    """Run one bounded Mobile.de background-only search."""
+    identity = derive_bazos_identity(listing)
+    if not identity:
+        return [
+            {
+                "pass_id": "mobile_de",
+                "portal": "Mobile.de",
+                "language": "de",
+                "market_scope": "BACKGROUND_EU",
+                "search_method": "DIRECT_PORTAL_HTML",
+                "status": "ERROR",
+                "error_type": "SEARCH_IDENTITY_UNAVAILABLE",
+                "citation_count": 0,
+                "candidate_count": 0,
+                "verified_detail_count": 0,
+                "verified_background_count": 0,
+                "url_unverified_count": 0,
+                "candidates": [],
+                "source_attempts": [],
+            }
+        ]
+
+    search_url = _mobile_search_url(listing, identity)
+    loader = fetch_html or _fetch_html
+    try:
+        html = loader(search_url, timeout)
+        candidates, counters = parse_mobile_de_search_page(
+            html,
+            search_url=search_url,
+            identity=identity,
+            listing=listing,
+        )
+        status = (
+            "FOUND"
+            if candidates
+            else "SEARCH_RESULTS_FOUND_NOT_STRUCTURED"
+            if counters["result_card_count"]
+            else "NOTHING_FOUND"
+        )
+        attempt = {
+            "portal": "mobile_de",
+            "search_url": search_url,
+            "status": "SUCCESS",
+            **counters,
+        }
+        return [
+            {
+                "pass_id": "mobile_de",
+                "portal": "Mobile.de",
+                "language": "de",
+                "market_scope": "BACKGROUND_EU",
+                "search_method": "DIRECT_PORTAL_HTML",
+                "search_query": identity["query"],
+                "status": status,
+                "error_type": "",
+                "citation_count": counters["result_card_count"],
+                "candidate_count": len(candidates),
+                "verified_detail_count": len(candidates),
+                "verified_background_count": 0,
+                "url_unverified_count": 0,
+                "candidates": candidates,
+                "source_attempts": [attempt],
+            }
+        ]
+    except Exception as exc:
+        return [
+            {
+                "pass_id": "mobile_de",
+                "portal": "Mobile.de",
+                "language": "de",
+                "market_scope": "BACKGROUND_EU",
+                "search_method": "DIRECT_PORTAL_HTML",
+                "search_query": identity["query"],
+                "status": "ERROR",
+                "error_type": type(exc).__name__,
+                "citation_count": 0,
+                "candidate_count": 0,
+                "verified_detail_count": 0,
+                "verified_background_count": 0,
+                "url_unverified_count": 0,
+                "candidates": [],
+                "source_attempts": [
+                    {
+                        "portal": "mobile_de",
+                        "search_url": search_url,
+                        "status": "ERROR",
+                        "error_type": type(exc).__name__,
+                        "result_card_count": 0,
+                        "parsed_candidate_count": 0,
+                    }
+                ],
+            }
+        ]
+
+
+def search_all_marketplaces(
+    listing: dict[str, Any],
+    *,
+    timeout: float = 8.0,
+    fetch_html: Callable[[str, float], str] | None = None,
+) -> list[dict[str, Any]]:
+    """Search customer-facing SK/CZ portals plus hidden Mobile.de background."""
+    return search_local_marketplaces(
+        listing,
+        timeout=timeout,
+        fetch_html=fetch_html,
+    ) + search_mobile_de(
+        listing,
+        timeout=timeout,
+        fetch_html=fetch_html,
+    )

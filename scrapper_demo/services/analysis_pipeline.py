@@ -5,7 +5,7 @@ import os
 import re
 import unicodedata
 from urllib.parse import urlparse
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -44,7 +44,7 @@ from scrapper_demo.component_identity import (
     parse_first_json_object,
     unknown_component_identity,
 )
-from scrapper_demo.direct_market_search import search_local_marketplaces
+from scrapper_demo.direct_market_search import search_all_marketplaces
 from scrapper_demo.market_comparables import (
     build_market_benchmark,
     build_market_search_results,
@@ -89,7 +89,7 @@ class AnalysisPipelineDependencies:
     normalize_gemini_keys: Callable[..., list[GeminiKeyEntry]] = normalize_gemini_key_entries
     collect_gemini: Callable[..., Any] = collect_gemini_with_key_fallback
     grounded_research: Callable[..., str] = run_grounded_web_research
-    direct_market_search: Callable[[dict[str, Any]], list[dict[str, Any]]] = search_local_marketplaces
+    direct_market_search: Callable[[dict[str, Any]], list[dict[str, Any]]] = search_all_marketplaces
     call_gemini: Callable[..., Any] = _call_gemini
     gemini_retry_status: Callable[..., str] = gemini_retry_status
     calculate_risk_score: Callable[..., RiskScoreResult] = calculate_risk_score
@@ -491,6 +491,33 @@ def _replace_report_section(
     return report_text
 
 
+def _comparable_price_label(item: Mapping[str, Any], *, language: str) -> str:
+    """Format a comparable price for customers without leaking source currency."""
+    normalized = item.get("normalized_price_eur")
+    if normalized in (None, "") and item.get("price_eur") not in (None, ""):
+        normalized = item.get("price_eur")
+    try:
+        amount = int(round(float(normalized)))
+    except (TypeError, ValueError):
+        return ""
+    if amount <= 0:
+        return ""
+
+    currency = str(item.get("original_currency") or "").strip().upper()
+    if not currency:
+        display = str(item.get("price_display") or "").casefold()
+        currency = (
+            "CZK"
+            if "czk" in display or "kč" in display or re.search(r"\bkc\b", display)
+            else "EUR"
+        )
+    label = f"{amount:,} EUR".replace(",", " ")
+    if currency == "EUR":
+        return label
+    prefix = "pribli\u017ene " if language == "sk" else "approximately "
+    return prefix + label
+
+
 def _lock_report_evidence_claims(
     report_text: str,
     text_research: Any,
@@ -548,9 +575,8 @@ def _lock_report_evidence_claims(
             label = str(
                 item.get("description") or item.get("title") or "Porovnateľný inzerát"
             ).strip()
-            price_display = str(item.get("price_display") or "").strip()
-            difference = str(item.get("material_difference") or "").strip()
-            suffix = " — ".join(value for value in (price_display, difference) if value)
+            price_display = _comparable_price_label(item, language=language)
+            suffix = price_display
             comparable_lines.append(f"- [{label}]({url})" + (f" — {suffix}" if suffix else ""))
             if len(comparable_lines) >= 5:
                 break
@@ -660,7 +686,7 @@ def _lock_report_evidence_claims(
                 continue
             url = str(item.get("source_url") or "").strip()
             label = str(item.get("description") or item.get("title") or "Porovnateľný inzerát").strip()
-            price_display = str(item.get("price_display") or "").strip()
+            price_display = _comparable_price_label(item, language=language)
             public_links.append(
                 f"- [{label}]({url})" + (f" — {price_display}" if price_display else "")
             )
@@ -1030,7 +1056,7 @@ def multi_model_analysis_events(
         "models": {
             "component_identity_grounding": GEMINI_GROUNDING_MODEL,
             "reliability_grounding": GEMINI_GROUNDING_MODEL,
-            "market_search": "direct-bazos-sk-cz-v1",
+            "market_search": "direct-local-sk-cz-and-mobile-background-v2",
             "text_research": GEMINI_TEXT_RESEARCH_MODEL,
             "vision": GEMINI_VISION_MODEL,
             "final_synthesis": GEMINI_FINAL_MODEL,
@@ -1178,7 +1204,7 @@ def multi_model_analysis_events(
     # card parsing preserves exact local-portal detail URLs and keeps foreign
     # observations out of the customer-facing link path.
     diagnostics["market"]["targeted_search_attempted"] = True
-    yield _status_event("Searching local SK/CZ marketplaces directly for comparable cars...")
+    yield _status_event("Searching local SK/CZ marketplaces and Mobile.de for comparable cars...")
     try:
         market_pass_results = dependencies.direct_market_search(listing_context_data)
     except Exception as market_exc:
@@ -1223,8 +1249,56 @@ def multi_model_analysis_events(
                 + ", "
                 + str(attempt.get("search_url") or "")
             )
+    for background_pass in market_pass_results[1:]:
+        if not isinstance(background_pass, dict):
+            continue
+        market_lines.extend(
+            (
+                "",
+                f"# Background {background_pass.get('portal') or 'market search'}",
+                "",
+                f"- Query: {background_pass.get('search_query') or 'unavailable'}",
+                f"- Status: {background_pass.get('status') or 'ERROR'}",
+                f"- Result cards: {int(background_pass.get('citation_count') or 0)}",
+                f"- Verified background candidates: {int(background_pass.get('verified_detail_count') or 0)}",
+            )
+        )
+        for attempt in background_pass.get("source_attempts") or []:
+            if isinstance(attempt, dict):
+                market_lines.append(
+                    "- "
+                    + str(attempt.get("portal") or "mobile_de")
+                    + ": "
+                    + str(attempt.get("status") or "ERROR")
+                    + f", cards={int(attempt.get('result_card_count') or 0)}"
+                    + f", candidates={int(attempt.get('parsed_candidate_count') or 0)}"
+                    + ", "
+                    + str(attempt.get("search_url") or "")
+                )
     market_sections = ["\n".join(market_lines)]
     repository.write_text(slug, "market_research_sk_cz.md", market_sections[0])
+    for background_pass in market_pass_results[1:]:
+        if not isinstance(background_pass, dict) or background_pass.get("pass_id") != "mobile_de":
+            continue
+        mobile_lines = [
+            "# Direct Mobile.de background market search",
+            "",
+            f"- Query: {background_pass.get('search_query') or 'unavailable'}",
+            f"- Status: {background_pass.get('status') or 'ERROR'}",
+            f"- Result cards: {int(background_pass.get('citation_count') or 0)}",
+            f"- Verified background candidates: {int(background_pass.get('verified_detail_count') or 0)}",
+        ]
+        for attempt in background_pass.get("source_attempts") or []:
+            if isinstance(attempt, dict):
+                mobile_lines.append(
+                    "- mobile_de: "
+                    + str(attempt.get("status") or "ERROR")
+                    + f", cards={int(attempt.get('result_card_count') or 0)}"
+                    + f", candidates={int(attempt.get('parsed_candidate_count') or 0)}"
+                    + ", "
+                    + str(attempt.get("search_url") or "")
+                )
+        repository.write_text(slug, "market_research_mobile_de.md", "\n".join(mobile_lines))
 
     market_search_results = build_market_search_results(market_pass_results)
     repository.write_json(slug, "market_search_results.json", market_search_results)

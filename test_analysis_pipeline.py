@@ -305,6 +305,45 @@ Voľný text z modelu.
         self.assertIn(selected_url, locked)
         self.assertNotIn(rejected_url, locked)
 
+    def test_public_comparable_prices_are_shown_as_approximate_eur(self):
+        report = """# VW Tiguan
+
+## \U0001f4b0 Cena a vyjedn\u00e1vanie
+Vo\u013En\u00fd text z modelu.
+"""
+        url = "https://www.sauto.cz/osobni/detail/volkswagen/tiguan/210123456"
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "market_assessment": {
+                    "benchmark_available": False,
+                    "benchmark_comparable_count": 0,
+                    "advertised_price_eur": 11800,
+                    "summary": "N\u00e1jden\u00e9 ponuky nezostavili overen\u00fa vzorku presnej konfigur\u00e1cie vozidla.",
+                },
+                "market_comparables": [
+                    {
+                        "description": "Volkswagen Tiguan 2.0 TSI DSG 4x4",
+                        "source_url": url,
+                        "verified_url": True,
+                        "display_in_report": True,
+                        "market_scope": "PUBLIC_SK_CZ",
+                        "normalized_price_eur": 10204,
+                        "original_currency": "CZK",
+                        "price_display": "249 990 CZK",
+                        "material_difference": "same visible engine/transmission/drivetrain attributes",
+                    }
+                ],
+            },
+            {},
+            output_language="sk",
+        )
+
+        self.assertIn("pribli\u017ene 10 204 EUR", locked)
+        self.assertNotIn("249 990 CZK", locked)
+        self.assertNotIn("same visible engine/transmission/drivetrain attributes", locked)
+        self.assertIn(url, locked)
+
     def test_public_report_drops_stray_numeric_or_calibration_score_text(self):
         locked = _lock_report_evidence_claims(
             "# Report\n\nOverall score: 74/100.\n\nThe scorer is UNCALIBRATED.\n",
