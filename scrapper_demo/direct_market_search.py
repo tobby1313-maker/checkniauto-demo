@@ -514,6 +514,83 @@ def _fetch_html(url: str, timeout: float) -> str:
     return response.text
 
 
+def _fetch_mobile_de_html(url: str, timeout: float) -> str:
+    """Fetch a Mobile.de result page with a short cookie/bootstrap request.
+
+    Mobile.de commonly applies access controls to plain one-shot HTTP clients.
+    A session with normal browser navigation headers gives the portal a chance
+    to establish its cookies before the actual search request.  This remains
+    an HTTP-only fallback; it does not pretend that an access-denied response
+    contains market data.
+    """
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;"
+                "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+            ),
+            "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Referer": "https://www.google.com/",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "cross-site",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+        }
+    )
+    try:
+        session.get(
+            "https://suchen.mobile.de/",
+            timeout=min(max(float(timeout), 1.0), 4.0),
+            allow_redirects=True,
+        )
+    except requests.RequestException:
+        # The result request below is the authoritative attempt.  A failed
+        # bootstrap must not hide its status or response diagnostics.
+        pass
+
+    response = session.get(url, timeout=timeout, allow_redirects=True)
+    response.raise_for_status()
+    if not response.encoding or response.encoding.lower() == "iso-8859-1":
+        response.encoding = response.apparent_encoding or "utf-8"
+    return response.text
+
+
+def _request_error_details(exc: Exception) -> dict[str, Any]:
+    """Return compact, non-sensitive request diagnostics for debug artifacts."""
+    details: dict[str, Any] = {"error_type": type(exc).__name__}
+    response = getattr(exc, "response", None)
+    if response is not None:
+        status_code = getattr(response, "status_code", None)
+        if status_code is not None:
+            details["http_status"] = int(status_code)
+        response_url = str(getattr(response, "url", "") or "")
+        if response_url:
+            details["final_url"] = response_url
+        try:
+            preview = BeautifulSoup(
+                str(getattr(response, "text", "") or ""),
+                "html.parser",
+            ).get_text(" ", strip=True)
+        except Exception:
+            preview = ""
+        if preview:
+            details["response_preview"] = preview[:240]
+    if "http_status" not in details:
+        message = str(exc).strip()
+        if message:
+            details["error_message"] = message[:240]
+    return details
+
+
 def search_bazos_sk_cz(
     listing: dict[str, Any],
     *,
@@ -925,7 +1002,7 @@ def search_mobile_de(
         ]
 
     search_url = _mobile_search_url(listing, identity)
-    loader = fetch_html or _fetch_html
+    loader = fetch_html or _fetch_mobile_de_html
     try:
         html = loader(search_url, timeout)
         candidates, counters = parse_mobile_de_search_page(
@@ -967,6 +1044,7 @@ def search_mobile_de(
             }
         ]
     except Exception as exc:
+        error_details = _request_error_details(exc)
         return [
             {
                 "pass_id": "mobile_de",
@@ -976,7 +1054,7 @@ def search_mobile_de(
                 "search_method": "DIRECT_PORTAL_HTML",
                 "search_query": identity["query"],
                 "status": "ERROR",
-                "error_type": type(exc).__name__,
+                **error_details,
                 "citation_count": 0,
                 "candidate_count": 0,
                 "verified_detail_count": 0,
@@ -988,7 +1066,7 @@ def search_mobile_de(
                         "portal": "mobile_de",
                         "search_url": search_url,
                         "status": "ERROR",
-                        "error_type": type(exc).__name__,
+                        **error_details,
                         "result_card_count": 0,
                         "parsed_candidate_count": 0,
                     }

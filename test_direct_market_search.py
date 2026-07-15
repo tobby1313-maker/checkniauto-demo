@@ -1,5 +1,7 @@
 import unittest
 
+import requests
+
 from scrapper_demo.direct_market_search import (
     bazos_search_url,
     derive_bazos_identity,
@@ -9,6 +11,7 @@ from scrapper_demo.direct_market_search import (
     search_all_marketplaces,
     search_bazos_sk_cz,
     search_local_marketplaces,
+    search_mobile_de,
 )
 
 
@@ -272,6 +275,23 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertEqual(passes[1]["status"], "FOUND")
         self.assertEqual(passes[1]["candidate_count"], 1)
         self.assertFalse(passes[1]["candidates"][0]["display_in_report"])
+
+    def test_mobile_de_preserves_http_access_diagnostics(self):
+        response = requests.Response()
+        response.status_code = 403
+        response.url = "https://suchen.mobile.de/auto/volkswagen-tiguan-2-0-tsi.html"
+        response._content = b"<html><title>Zugriff verweigert / Access denied</title></html>"
+        response.encoding = "utf-8"
+
+        def fetch(url, timeout):
+            raise requests.HTTPError("403 Client Error", response=response)
+
+        result = search_mobile_de(self.listing, timeout=3.0, fetch_html=fetch)[0]
+
+        self.assertEqual(result["status"], "ERROR")
+        self.assertEqual(result["http_status"], 403)
+        self.assertIn("Access denied", result["response_preview"])
+        self.assertEqual(result["source_attempts"][0]["http_status"], 403)
 
 
 if __name__ == "__main__":

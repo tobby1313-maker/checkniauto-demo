@@ -49,6 +49,7 @@ from scrapper_demo.market_comparables import (
     build_market_benchmark,
     build_market_search_results,
     deduplicate_market_comparables,
+    extract_grounded_market_search_pass,
     fetch_ecb_reference_rates,
     is_customer_facing_market_comparable,
 )
@@ -1228,6 +1229,92 @@ def multi_model_analysis_events(
             }
         ]
 
+    # Mobile.de often blocks server-side HTTP clients with 403. If the direct
+    # pass cannot provide a useful sample, reuse the already configured Gemini
+    # grounding path for a portal-specific background-only search. The parser
+    # accepts only exact Mobile.de grounding citations, and the benchmark
+    # still applies its deterministic Tier A/year/mileage gates afterwards.
+    mobile_pass = next(
+        (
+            item
+            for item in market_pass_results
+            if isinstance(item, dict) and item.get("pass_id") == "mobile_de"
+        ),
+        None,
+    )
+    if mobile_pass is not None and int(mobile_pass.get("candidate_count") or 0) < 3:
+        yield _status_event("Mobile.de direct access limited; trying grounded background search...")
+        direct_attempts = list(mobile_pass.get("source_attempts") or [])
+        try:
+            mobile_grounded_text, mobile_grounding_key = yield from dependencies.collect_gemini(
+                gemini_key_entries,
+                "Mobile.de background market search",
+                lambda key: [
+                    dependencies.grounded_research(
+                        key,
+                        grounded_listing_with_identity,
+                        model=GEMINI_GROUNDING_MODEL,
+                        listing_slug=slug,
+                        research_mode="market_mobile_de",
+                    )
+                ],
+                retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+                same_key_retries=1,
+                same_key_retry_exceptions=(GroundingTransientError,),
+            )
+            grounded_mobile_pass = extract_grounded_market_search_pass(
+                mobile_grounded_text,
+                "mobile_de",
+            )
+            fallback_attempt = {
+                "portal": "mobile_de_grounded",
+                "search_url": "Google Search grounding (mobile.de only)",
+                "status": grounded_mobile_pass.get("status") or "NOTHING_FOUND",
+                "result_card_count": int(grounded_mobile_pass.get("citation_count") or 0),
+                "parsed_candidate_count": int(grounded_mobile_pass.get("candidate_count") or 0),
+                "verified_detail_count": int(
+                    grounded_mobile_pass.get("verified_detail_count") or 0
+                ),
+                "selected_key_label": _selected_key_label(mobile_grounding_key),
+            }
+            direct_diagnostics = {
+                key: mobile_pass.get(key)
+                for key in (
+                    "status",
+                    "error_type",
+                    "http_status",
+                    "final_url",
+                    "response_preview",
+                    "error_message",
+                )
+                if mobile_pass.get(key) not in (None, "")
+            }
+            grounded_mobile_pass["search_query"] = mobile_pass.get("search_query") or ""
+            grounded_mobile_pass["search_method"] = "GOOGLE_SEARCH_GROUNDING_FALLBACK"
+            grounded_mobile_pass["direct_attempt"] = direct_diagnostics
+            grounded_mobile_pass["source_attempts"] = direct_attempts + [fallback_attempt]
+            market_pass_results = [
+                grounded_mobile_pass if item is mobile_pass else item
+                for item in market_pass_results
+            ]
+            if int(grounded_mobile_pass.get("candidate_count") or 0):
+                yield _status_event("Mobile.de grounded background search ready.")
+            else:
+                yield _status_event("Mobile.de grounding returned no structured comparable ads.")
+        except Exception as mobile_grounding_exc:
+            dependencies.log(f"Mobile.de grounded fallback warning: {mobile_grounding_exc}")
+            mobile_pass["grounded_fallback_error_type"] = type(mobile_grounding_exc).__name__
+            mobile_pass.setdefault("source_attempts", []).append(
+                {
+                    "portal": "mobile_de_grounded",
+                    "search_url": "Google Search grounding (mobile.de only)",
+                    "status": "ERROR",
+                    "error_type": type(mobile_grounding_exc).__name__,
+                    "result_card_count": 0,
+                    "parsed_candidate_count": 0,
+                }
+            )
+
     direct_pass = market_pass_results[0] if market_pass_results else {}
     market_lines = [
         "# Direct local SK/CZ market search",
@@ -1288,6 +1375,23 @@ def multi_model_analysis_events(
             f"- Result cards: {int(background_pass.get('citation_count') or 0)}",
             f"- Verified background candidates: {int(background_pass.get('verified_detail_count') or 0)}",
         ]
+        for key, label in (
+            ("http_status", "HTTP status"),
+            ("final_url", "Final URL"),
+            ("response_preview", "Response preview"),
+            ("error_message", "Error message"),
+        ):
+            value = background_pass.get(key)
+            if value:
+                mobile_lines.append(f"- {label}: {value}")
+        direct_attempt = background_pass.get("direct_attempt")
+        if isinstance(direct_attempt, dict):
+            mobile_lines.append(
+                "- Direct attempt: "
+                + str(direct_attempt.get("status") or "ERROR")
+                + (f", HTTP {direct_attempt['http_status']}" if direct_attempt.get("http_status") else "")
+                + (f", {direct_attempt['error_type']}" if direct_attempt.get("error_type") else "")
+            )
         for attempt in background_pass.get("source_attempts") or []:
             if isinstance(attempt, dict):
                 mobile_lines.append(
@@ -1298,6 +1402,15 @@ def multi_model_analysis_events(
                     + ", "
                     + str(attempt.get("search_url") or "")
                 )
+                for key, label in (
+                    ("http_status", "HTTP status"),
+                    ("final_url", "Final URL"),
+                    ("response_preview", "Response preview"),
+                    ("error_message", "Error message"),
+                ):
+                    value = attempt.get(key)
+                    if value:
+                        mobile_lines.append(f"  - {label}: {value}")
         repository.write_text(slug, "market_research_mobile_de.md", "\n".join(mobile_lines))
 
     market_search_results = build_market_search_results(market_pass_results)

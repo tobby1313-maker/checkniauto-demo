@@ -16,8 +16,11 @@ The demo supports two input flows:
 - Manual analysis for any other marketplace by pasting listing text, entering a
   price, and uploading up to 12 photos.
 
-Automatic `mobile.de` scraping is not implemented in this repository. Use
-manual mode for `mobile.de` listings.
+`mobile.de` is searched automatically as a background-only source for price
+benchmarking. Its detail links are never shown to customers. If the portal
+returns an access-denied response, the exact HTTP status and compact response
+preview are saved in `market_research_mobile_de.md`; no blocked page is
+treated as a valid comparable.
 
 The analysis pipeline is:
 
