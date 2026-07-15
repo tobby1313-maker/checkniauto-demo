@@ -1539,6 +1539,12 @@ def _multi_model_analysis_events(
                     "attempt_number": attempt_number,
                     "schema_valid": schema_status,
                     "usage": {
+                        "estimated_input_tokens": sum(
+                            int(item.get("input_tokens") or 0) for item in selected
+                        ),
+                        "estimated_visible_output_tokens": sum(
+                            int(item.get("output_tokens") or 0) for item in selected
+                        ),
                         "provider_input_tokens": sum(
                             int(item["actual_input_tokens"])
                             for item in selected
@@ -1585,26 +1591,33 @@ def _multi_model_analysis_events(
                     ),
                     "provider_calls": [
                         {
-                            key: item.get(key)
-                            for key in (
-                                "id",
-                                "model",
-                                "status",
-                                "attempt",
-                                "retry_reason",
-                                "actual_input_tokens",
-                                "actual_output_tokens",
-                                "actual_thinking_tokens",
-                                "cached_input_tokens",
-                                "actual_total_tokens",
-                                "usage_source",
-                                "estimated_cost",
-                                "duration_ms",
-                                "finish_reason",
-                                "output_chars",
-                                "provider_request_id",
-                                "error",
-                            )
+                            **{
+                                key: item.get(key)
+                                for key in (
+                                    "id",
+                                    "model",
+                                    "status",
+                                    "attempt",
+                                    "retry_reason",
+                                    "visible_output_tokens",
+                                    "thinking_tokens",
+                                    "total_tokens",
+                                    "actual_input_tokens",
+                                    "actual_output_tokens",
+                                    "actual_thinking_tokens",
+                                    "cached_input_tokens",
+                                    "actual_total_tokens",
+                                    "usage_source",
+                                    "estimated_cost",
+                                    "duration_ms",
+                                    "finish_reason",
+                                    "output_chars",
+                                    "provider_request_id",
+                                    "error",
+                                )
+                            },
+                            "estimated_input_tokens": item.get("input_tokens"),
+                            "estimated_visible_output_tokens": item.get("output_tokens"),
                         }
                         for item in selected
                     ],

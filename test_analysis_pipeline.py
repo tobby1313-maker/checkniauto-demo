@@ -4,6 +4,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
@@ -606,14 +607,69 @@ Vo\u013En\u00fd text z modelu.
                 extract_kb_blocks=lambda value: [],
             )
 
-            events = list(
-                multi_model_analysis_events(
-                    "sample",
-                    "",
-                    ["gemini-key"],
-                    dependencies=dependencies,
+            fake_text_provider_entries = [
+                {
+                    "id": "failed-call",
+                    "model": "gemini-2.5-flash",
+                    "phase": "text_research",
+                    "status": "rate_limited",
+                    "attempt": 1,
+                    "retry_reason": "model_fallback",
+                    "input_tokens": 9281,
+                    "output_tokens": 0,
+                    "actual_input_tokens": None,
+                    "actual_output_tokens": None,
+                    "actual_thinking_tokens": None,
+                    "cached_input_tokens": None,
+                    "actual_total_tokens": None,
+                    "visible_output_tokens": 0,
+                    "thinking_tokens": 0,
+                    "total_tokens": 9281,
+                    "usage_source": "estimated",
+                    "estimated_cost": 0.0,
+                    "duration_ms": 306,
+                    "error": "quota",
+                },
+                {
+                    "id": "successful-fallback",
+                    "model": "gemini-3.5-flash",
+                    "phase": "text_research",
+                    "status": "success",
+                    "attempt": 2,
+                    "retry_reason": "model_fallback",
+                    "input_tokens": 11443,
+                    "output_tokens": 6760,
+                    "actual_input_tokens": 11443,
+                    "actual_output_tokens": 6760,
+                    "actual_thinking_tokens": None,
+                    "cached_input_tokens": None,
+                    "actual_total_tokens": 18203,
+                    "visible_output_tokens": 6760,
+                    "thinking_tokens": 0,
+                    "total_tokens": 18203,
+                    "usage_source": "provider",
+                    "estimated_cost": 0.078005,
+                    "duration_ms": 32507,
+                    "finish_reason": "STOP",
+                    "output_chars": 20162,
+                },
+            ]
+
+            def fake_requests_for_run(run_id, *, phase=None):
+                return fake_text_provider_entries if phase == "text_research" else []
+
+            with patch(
+                "scrapper_demo.services.analysis_pipeline.default_tracker.get_requests_for_run",
+                side_effect=fake_requests_for_run,
+            ):
+                events = list(
+                    multi_model_analysis_events(
+                        "sample",
+                        "",
+                        ["gemini-key"],
+                        dependencies=dependencies,
+                    )
                 )
-            )
 
             phase_positions = [
                 next(index for index, event in enumerate(events) if marker in event)
@@ -642,6 +698,17 @@ Vo\u013En\u00fd text z modelu.
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
             self.assertTrue(repository.read_text("sample", "vision_provider_attempts.json"))
             self.assertTrue(repository.read_text("sample", "text_research_provider_attempts.json"))
+            text_attempts = json.loads(
+                repository.read_text("sample", "text_research_provider_attempts.json")
+            )
+            self.assertEqual(
+                text_attempts["attempts"][0]["usage"]["estimated_input_tokens"],
+                20724,
+            )
+            self.assertEqual(
+                text_attempts["attempts"][0]["provider_calls"][0]["estimated_input_tokens"],
+                9281,
+            )
             usage_summary = json.loads(repository.read_text("sample", "ai_usage_summary.json"))
             self.assertIn("analysis_run_id", usage_summary)
             self.assertEqual(usage_summary["call_count"], 0)
