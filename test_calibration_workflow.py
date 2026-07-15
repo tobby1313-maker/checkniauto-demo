@@ -150,6 +150,8 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("analysis_diagnostics.json", names)
             self.assertIn("validation_warnings.json", names)
             self.assertNotIn("vision_provider_attempts.json", names)
+            self.assertNotIn("text_research_provider_attempts.json", names)
+            self.assertNotIn("ai_usage_summary.json", names)
             self.assertIn("reproducibility/risk_policy_v2.json", names)
             self.assertIn(
                 "reproducibility/prompts/grok_final_synthesis_system.md", names
@@ -163,6 +165,8 @@ class CalibrationWorkflowTest(unittest.TestCase):
 
     def test_debugging_bundle_contains_complete_outputs_and_no_expert_label(self):
         job = self._job("debug-case")
+        (job / "text_research_provider_attempts.json").write_text("{}", encoding="utf-8")
+        (job / "ai_usage_summary.json").write_text("{}", encoding="utf-8")
 
         bundle = create_debugging_bundle(job, "debug-case")
         self.addCleanup(bundle.unlink, missing_ok=True)
@@ -176,6 +180,8 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("analysis_diagnostics.json", names)
             self.assertIn("validation_warnings.json", names)
             self.assertIn("vision_provider_attempts.json", names)
+            self.assertIn("text_research_provider_attempts.json", names)
+            self.assertIn("ai_usage_summary.json", names)
             self.assertIn("market_research_mobile_de.md", names)
             self.assertNotIn("expert_label.json", names)
             manifest = json.loads(archive.read("manifest.json"))

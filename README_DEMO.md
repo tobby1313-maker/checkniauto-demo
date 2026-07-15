@@ -255,6 +255,7 @@ temp directory in `scrapper-demo/Auta`.
 | `SCRAPPER_TOKEN_USAGE_PATH` | `<Auta>/token_usage.json` | Token usage JSON storage path. |
 | `SCRAPPER_TOKEN_INPUT_COST_PER_1M` | `1.5` | Optional token cost estimate input rate. |
 | `SCRAPPER_TOKEN_OUTPUT_COST_PER_1M` | `9.00` | Optional token cost estimate output rate. |
+| `SCRAPPER_TOKEN_MODEL_RATES_JSON` | empty | Optional JSON map of exact per-model `input_per_1m` and `output_per_1m` rates; unknown models use the labeled fallback rates above. |
 | `SCRAPPER_TOKEN_COST_CURRENCY` | `EUR` | Currency label for token cost estimates. |
 
 For a Google AI Studio/free Gemini key, keep `DEMO_ANALYSIS_PROFILE=quality_optimized`.
@@ -423,6 +424,11 @@ has two administrator-only exports:
   sanitized model/finish/token diagnostics and the raw initial/recovery outputs
   needed to debug truncated provider JSON. It has no expert label and must not
   be shown to a reviewer before independent labelling.
+
+  The debugging bundle also includes the sanitized `text_research_provider_attempts.json`
+  and `ai_usage_summary.json` artifacts. They contain per-attempt usage, retry,
+  grounding, coverage, duration, and estimated-cost telemetry without API keys or
+  raw research/model output.
 
 Diagnostic artifact routes, raw results, telemetry, and both exports share the
 same signed administrator session. The endpoints are

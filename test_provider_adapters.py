@@ -14,10 +14,11 @@ from scrapper_demo.providers.errors import (
 
 
 class FakeResponse:
-    def __init__(self, status_code, *, text="", lines=None):
+    def __init__(self, status_code, *, text="", lines=None, headers=None):
         self.status_code = status_code
         self.text = text
         self._lines = list(lines or [])
+        self.headers = dict(headers or {})
         self.encoding = None
 
     def iter_lines(self):
@@ -266,6 +267,29 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(events[-1]["finish_reason"], "STOP")
         self.assertEqual(events[-1]["actual_total_tokens"], 18)
         self.assertNotIn("api_key", events[-1])
+
+    def test_gemini_preserves_zero_usage_cached_tokens_and_request_id(self):
+        response = FakeResponse(
+            200,
+            headers={"x-goog-request-id": "request-123"},
+            lines=[
+                b'data: {"candidates":[{"content":{"parts":[{"text":"complete"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":0,"candidatesTokenCount":0,"thoughtsTokenCount":0,"cachedContentTokenCount":0,"totalTokenCount":0}}',
+                b"data: [DONE]",
+            ],
+        )
+        with (
+            patch.object(gemini.requests, "post", return_value=response),
+            patch.object(gemini.default_tracker, "record_request") as record_request,
+            patch.object(gemini, "safe_log"),
+        ):
+            list(gemini.stream_generate("secret-key", "system", "user", phase="vision"))
+
+        self.assertEqual(record_request.call_args.kwargs["actual_input_tokens"], 0)
+        self.assertEqual(record_request.call_args.kwargs["actual_output_tokens"], 0)
+        self.assertEqual(record_request.call_args.kwargs["actual_thinking_tokens"], 0)
+        self.assertEqual(record_request.call_args.kwargs["cached_input_tokens"], 0)
+        self.assertEqual(record_request.call_args.kwargs["actual_total_tokens"], 0)
+        self.assertEqual(record_request.call_args.kwargs["provider_request_id"], "request-123")
 
     def test_generation_profile_sets_phase_specific_limits_and_legacy_rollback(self):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):

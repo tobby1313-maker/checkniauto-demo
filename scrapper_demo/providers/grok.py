@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterator
+from typing import Any
 
 import requests
 
@@ -22,6 +23,20 @@ GROK_FALLBACK_MODELS = [
     "grok-2-latest",
     "grok-2",
 ]
+
+
+def _usage_value(
+    usage: dict[str, Any],
+    *names: str,
+    previous: int | None = None,
+) -> int | None:
+    for name in names:
+        if name in usage and usage[name] is not None:
+            try:
+                return int(usage[name])
+            except (TypeError, ValueError):
+                continue
+    return previous
 
 
 def analyze_with_grok(
@@ -190,6 +205,13 @@ def _call_grok(
 
         # Parse OpenAI-compatible SSE stream
         full_text = ""
+        actual_prompt_tokens = None
+        actual_output_tokens = None
+        actual_thinking_tokens = None
+        cached_input_tokens = None
+        actual_total_tokens = None
+        provider_request_id = None
+        finish_reason_seen = ""
         for line in response.iter_lines():
             if isinstance(line, bytes):
                 try:
@@ -205,10 +227,41 @@ def _call_grok(
 
             try:
                 data = json.loads(data_str)
+                provider_request_id = data.get("id") or provider_request_id
 
                 if "error" in data:
                     error_msg = data["error"].get("message", str(data["error"]))
                     raise ConnectionError(f"Grok API error: {error_msg}")
+
+                usage = data.get("usage") or {}
+                if isinstance(usage, dict):
+                    actual_prompt_tokens = _usage_value(
+                        usage, "prompt_tokens", previous=actual_prompt_tokens
+                    )
+                    actual_output_tokens = _usage_value(
+                        usage,
+                        "completion_tokens",
+                        "output_tokens",
+                        previous=actual_output_tokens,
+                    )
+                    actual_total_tokens = _usage_value(
+                        usage, "total_tokens", previous=actual_total_tokens
+                    )
+                    prompt_details = usage.get("prompt_tokens_details") or {}
+                    completion_details = usage.get("completion_tokens_details") or {}
+                    if isinstance(prompt_details, dict):
+                        cached_input_tokens = _usage_value(
+                            prompt_details,
+                            "cached_tokens",
+                            previous=cached_input_tokens,
+                        )
+                    if isinstance(completion_details, dict):
+                        actual_thinking_tokens = _usage_value(
+                            completion_details,
+                            "reasoning_tokens",
+                            "thinking_tokens",
+                            previous=actual_thinking_tokens,
+                        )
 
                 choices = data.get("choices", [])
                 if choices:
@@ -220,6 +273,7 @@ def _call_grok(
 
                     finish_reason = choices[0].get("finish_reason", "")
                     if finish_reason and finish_reason != "null" and finish_reason not in (None, ""):
+                        finish_reason_seen = str(finish_reason)
                         if finish_reason == "length":
                             yield "\n\n⚠️ Analyza dosiahla limit tokenov. Vystup je neuplny."
 
@@ -232,6 +286,17 @@ def _call_grok(
             listing_slug=listing_slug,
             input_tokens=input_tokens,
             output_tokens=estimate_output_tokens(full_text),
+            actual_input_tokens=actual_prompt_tokens,
+            actual_output_tokens=actual_output_tokens,
+            actual_thinking_tokens=actual_thinking_tokens,
+            cached_input_tokens=cached_input_tokens,
+            actual_total_tokens=actual_total_tokens,
+            provider_request_id=provider_request_id,
+            finish_reason=finish_reason_seen or "STOP",
+            output_chars=len(full_text),
+            max_output_tokens=65536,
+            thinking_mode="provider_default",
+            grounding_enabled=False,
             status="success",
             duration_ms=round((time.perf_counter() - started_at) * 1000),
         )

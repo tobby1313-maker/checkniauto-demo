@@ -1,505 +1,334 @@
-# Candid review
+# Gemini optimization plan for Scrapper - DEMO
+
+## 1. Cieľ
+
+Znížiť cenu, tokeny a opakovanie v Gemini pipeline bez straty technickej
+kvality, slovenského výstupu, evidence trailu, vision pokrytia, risk scorera a
+prísnej market/link policy.
+
+Plán je určený pre aktuálny Python/Flask projekt s priamymi Gemini REST
+requestmi, dočasnými `Auta/<slug>/` priečinkami a bez perzistentnej databázy.
+Normálna pipeline má jeden `text_research` request; druhý je iba jednorazový
+recovery pri neplatnom JSON.
+
+## 2. Rozsah
+
+| Implementovať teraz | Odložiť |
+|---|---|
+| Presný usage a cost audit | Databázový component cache |
+| Centrálne phase policies a budgety | Background queue/object storage |
+| Menší research packet | Distribuovanú idempotenciu |
+| Lacnejší JSON recovery | Úplný frontendový report renderer |
+| Podmienený Mobile.de grounding | Druhý high-resolution vision pass |
+| Kratší final prompt/report | Prechod na Google SDK |
+| Image dedup a attachment cap | Zmenu risk/market pravidiel |
+| Cost/quality evaluation a rollback | Viac samostatných feature flags |
+
+Cache nemá zmysel implementovať pred perzistentnou DB a concurrency lockom;
+Render filesystem je dočasný.
 
-This is a functioning research prototype, not a production-ready product. It tackles a real problem, but the current system produces conclusions with more confidence and precision than its evidence justifies. The two biggest blockers are trustworthiness and privacy—not UI polish.
+## 3. Overený baseline
 
-I inspected the live Suzuki report, its public artifacts and token telemetry, the backend, scrapers, prompts, schemas, frontend, documentation, and tests. All 58 tests pass. No files were modified.
+Projekt už má environment-configured modely, phase output settings, obmedzené
+thinking, JSON schémy, maximálne jeden text/vision recovery, bounded API-key
+retry, compact final context, image collages/dedup, rollback profil a
+calibration CLI. Tieto časti sa nemajú implementovať druhýkrát.
 
-## Verified findings
+Posledný Tiguan debug run ukázal:
 
-### 1. User data and internal artifacts are publicly exposed
+- vision: 5 986 actual input a 2 051 actual output tokenov,
+- final report: približne 2 564 output tokenov,
+- vision nepotreboval recovery,
+- 89 market kandidátov v `grok_research.json` pridal backend, takže veľkosť
+  súboru nereprezentuje modelový research output,
+- text initial/recovery usage nie je v debug balíku dostatočne oddelený.
+
+Preto musí byť prvým krokom observability bez zmeny výstupu.
+
+## 4. Ciele
 
-**Severity: Critical · Effort: Medium**
+- Každý AI request má run ID, phase, model, attempt, status, retry reason,
+  duration a usage source.
+- Provider input, visible output, thinking, cached a total tokens sa ukladajú,
+  ak ich response poskytne.
+- Estimate a actual usage sú jasne oddelené.
+- Bežný run má jeden text-research request.
+- Research V2: medián `<= 2 500`, po kalibrácii cieľ `<= 2 200` output tokenov.
+- Final: bežne `<= 9 000` actual input a medián `<= 2 400` output tokenov.
+- Vision: medián `<= 1 800` output tokenov bez straty relevantného pokrytia.
+- Mobile grounding sa nespustí pri troch strict eligible lokálnych ponukách.
+- Medián ceny cache-miss analýzy klesne aspoň o 35 % bez quality regression.
 
-What is wrong:
+Absolútny cieľ `<= 0,12 EUR` sa potvrdí až po 20 presne zmeraných behoch s
+model-specific cenami a grounding charges. Cache-hit cieľ sa odkladá s DB.
 
-- Every completed analysis is listed globally through `/api/demo/listings`.
-- Anyone can access the listing text, uploaded/scraped photos, raw model output, research JSON, vision JSON, risk score, and legacy prompt input.
-- The public token dashboard exposes model usage, latency, estimated costs, listing slugs, live progress, and the server filesystem path.
-- `_check_demo_access()` provides no access control at all.
+## 5. Cieľová pipeline
 
-Evidence:
+```text
+listing facts + VIN light decode
+  -> component identity grounding
+  -> reliability grounding
+  -> direct SK/CZ market search
+  -> strict local eligibility precheck
+     -> Mobile.de fallback iba ak treba
+  -> compact research normalization JSON
+  -> vision JSON
+  -> deterministic benchmark + risk score
+  -> compact final context
+  -> final Markdown report
+```
 
-- [`_check_demo_access()` returns `None`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:800>).
-- [`ANALYSIS_ARTIFACTS`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:424>) includes `raw_data.json`, `analysis_request.md`, raw model output, and all intermediate model artifacts.
-- Public artifact routes are intentionally exposed in [`web_server.py`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:1105>).
-- The frontend’s “previous analyses” drawer loads the global listing collection from [`index.html`](<D:/VS Projekty/Scrapper - DEMO/web/index.html:2729>).
-- The live [token endpoint](https://checkniauto.onrender.com/api/token-usage?limit=5) exposes cost, model, latency, slug, and `/tmp/scrapper-demo/Auta/token_usage.json`.
-- The live [artifact listing](https://checkniauto.onrender.com/api/demo/listings/suzuki-grand-vitara-24-benzin-facelift-model/artifacts) confirms the raw files are public.
+## 6. Fáza 1 — Usage a cost observability
 
-Why it matters:
+Táto fáza nemení prompt, model ani report.
 
-Manual input explicitly invites VINs, seller information, listing text, and user-supplied photos. A user would reasonably assume these are private unless they explicitly share them. Instead, they are discoverable through a global dashboard. This is a serious privacy, trust, and potentially regulatory problem. Publishing the prompt input and raw outputs also exposes internal implementation details.
+### Zmeny
 
-Concrete improvement:
+Rozšíriť `token_tracker.py` o spätne kompatibilné polia:
 
-- Give each visitor an anonymous private session.
-- Generate random, unguessable job IDs rather than human-readable slugs.
-- Enforce ownership on every listing, photo, report, and artifact request.
-- Make sharing opt-in through a separate expiring share token.
-- Put token telemetry and raw artifacts behind administrator authentication.
-- Publish a clear privacy and retention notice before manual uploads.
-- Delete private jobs automatically after a stated period.
+- `analysis_run_id`, `phase`, `attempt`, `retry_reason`,
+- `visible_output_tokens`, `thinking_tokens`, `cached_input_tokens`,
+- `total_tokens`, `usage_source`, `thinking_mode`,
+- `max_output_tokens`, `grounding_enabled`, `provider_request_id`,
+- model-specific `estimated_cost`.
 
----
+Pravidlá:
 
-### 2. The report’s evidence chain is not trustworthy enough
+- provider hodnota `0` sa nesmie cez `or` nahradiť odhadom,
+- failed request bez usage nie je potvrdený billable request,
+- thinking patrí do billable output estimate,
+- cached tokens sa nepočítajú dvakrát,
+- neznámy model používa označený fallback rate,
+- staré `token_usage.json` záznamy zostanú čitateľné.
 
-**Severity: Critical · Effort: Large**
+V `providers/gemini.py` zachovať parsing existujúcich token fields. Cached usage,
+request ID a Interactions/grounding usage mapovať iba podľa reálneho REST
+payloadu; nevymýšľať SDK fields.
 
-What is wrong:
+Pridať:
 
-The public report presents exact repair costs, failure intervals, market prices, and comparable vehicles while deliberately removing source names and links. The user cannot distinguish well-supported information from weak forum evidence or model-generated synthesis.
+- `text_research_provider_attempts.json` s initial/recovery usage, finish reason,
+  output chars, schema status a sanitized error,
+- `ai_usage_summary.json` s call countom, usage/cost podľa phase, retries,
+  recoveries, grounding countom, actual coverage a duration.
 
-The live report says four comparable vehicles establish a €10,300–€11,500 market range. In the underlying JSON, all four “comparables” point to the same Bazoš category-search URL—not exact listings. That does not demonstrate that the individual vehicles existed with those specifications and prices.
+Raw research outputs patria iba do admin debugging bundle, nie do blind
+calibration bundle.
 
-Evidence:
+### Testy a exit gate
 
-- The final prompt explicitly says not to print URLs, source names, or citations in [`grok_final_synthesis_system.md`](<D:/VS Projekty/Scrapper - DEMO/prompts/grok_final_synthesis_system.md:28>).
-- [`analysis_normalizer._remove_public_hyperlinks()`](<D:/VS Projekty/Scrapper - DEMO/analysis_normalizer.py:95>) strips links again.
-- The live report gives exact failure thresholds such as “from 100,000 km” and precise repair ranges without public attribution.
-- Underlying sources include owner forums and repair-service pages, but the final output flattens these into authoritative-looking statements.
-- Competitors already provide record-backed mileage, damage, ownership, and market information from structured databases: [carVertical](https://www.carvertical.com/gb/features), [Cebia](https://sk.cebia.com/), and [autoDNA](https://www.autodna.com/).
+Rozšíriť token tracker, provider, grounding, pipeline, dashboard a bundle testy o
+explicit zero, thinking, cached, missing usage, retries, legacy entries a
+initial/recovery artefakty.
 
-Why it matters:
+Fáza je hotová, keď jeden live interný run vysvetľuje každý request a rozdiel
+medzi provider usage a dashboard cenou bez zmeny reportu.
 
-A buyer may negotiate, reject a vehicle, or spend money based on these claims. Hiding sources makes the output easier to read but materially less trustworthy. “Grounded search” is not equivalent to verified evidence.
+## 7. Fáza 2 — Policies, budgety a Research V2
 
-Concrete improvement:
+### Centrálna policy
 
-- Keep source links visible in a compact evidence drawer.
-- Require every model-level risk, repair estimate, recall, and comparable to reference an exact source record.
-- Accept market comparables only when an exact listing URL, capture timestamp, price, year, mileage, and drivetrain were extracted.
-- Omit the market conclusion if fewer than three valid comparables exist.
-- Label evidence explicitly as seller claim, photo observation, model-level inspection point, official data, or unverified estimate.
-- Prefer official service schedules and recall databases over forums and generic repair pages.
+Vytvoriť `scrapper_demo/ai_policy.py` s immutable policy: max input/output,
+visible target, temperature, thinking mode a max attempts.
 
----
+Počiatočné safety ceilings:
 
-### 3. The “deterministic” risk score is logically flawed and uncalibrated
+| Phase | Max input | Max output | Visible target |
+|---|---:|---:|---:|
+| identity grounding | 5 000 | API/prompt bound | 600 |
+| reliability grounding | 8 000 | API/prompt bound | 2 500 |
+| text research | 10 000 | 4 000 | 2 500 |
+| text recovery | 8 000 | 3 200 | 2 200 |
+| vision | 8 000 + images | 4 000 | 1 800 |
+| vision recovery | 8 000 + images | 3 500 | 1 600 |
+| final synthesis | 9 000 normal | 6 000 shared | 2 400 |
 
-**Severity: Critical · Effort: Large**
+Sprísňovať ich jednotlivo až po Fáze 1. `legacy` profil zachová súčasné stropy.
 
-What is wrong:
+### Token counting a compaction
 
-The score is deterministic, but that does not make it correct. It translates loosely structured model output into an arbitrary point total without demonstrated calibration against real purchase outcomes or expert assessments.
+Pridať `check_and_compact_input(...) -> BudgetResult` s pre/post countom,
+counting method, vykonanými úpravami a final contents.
 
-There is a concrete production bug: Gemini described the Suzuki’s exterior and interior as being in very good condition but assigned those positive observations severity `minor`. The scorer treats every `minor` or `medium` observation as damage and added a `visible_minor_damage` penalty.
+Pre text/final overiť Gemini REST `countTokens`. Pri výpadku použiť lokálny
+odhad s warningom, nie automaticky zastaviť analýzu.
 
-Evidence:
+Poradie kompakcie: duplicitné inštrukcie; raw web pri normalized findings;
+duplicitné listing/identity dáta; opakované claims/risks; low-priority source
+prose; dlhý seller description; voliteľné low-impact položky.
 
-- [`minor_damage = _has_visual_severity(... {"minor", "medium"})`](<D:/VS Projekty/Scrapper - DEMO/risk_scorer.py:149>) does not inspect whether the observation is positive or negative.
-- The live vision JSON described “very good visual condition” and “exceptionally clean” interior with `severity: "minor"`.
-- The resulting live risk score added one point for “visible minor damage.”
-- Any high-confidence expensive generic model risk adds two points in [`risk_scorer.py`](<D:/VS Projekty/Scrapper - DEMO/risk_scorer.py:165>).
-- Age or mileage adds another generic point, and missing seller metadata adds another at [`risk_scorer.py`](<D:/VS Projekty/Scrapper - DEMO/risk_scorer.py:189>).
-- Score thresholds in [`_verdict_for_score()`](<D:/VS Projekty/Scrapper - DEMO/risk_scorer.py:262>) are hand-authored rather than validated.
+Nikdy neodstrániť VIN/conflict, cenu/menu/DPH, rok, kilometre,
+engine/transmission/drivetrain resolution, high-impact evidence, benchmark
+limitations alebo backend verdict constraint.
 
-Why it matters:
+### Research V2
 
-The orange verdict appears objective because it is “backend-calculated,” but its inputs are model-generated, inconsistently typed, and occasionally misinterpreted. This can create false confidence and false negatives or positives.
+Vytvoriť `schemas/research_model_output.schema.json`. Model vracia iba:
 
-Concrete improvement:
+- evidence summary,
+- seller claims, unknowns, conflicts a consistency checks,
+- safety/recall,
+- web findings a technical risks,
+- expected costs a risk flags,
+- source references.
 
-- Separate observation polarity from severity.
-- Only vehicle-specific evidence should directly worsen the purchase verdict.
-- Generic model risks should generate inspection actions, not automatically penalize the vehicle.
-- Do not score missing parser fields such as seller type unless they are genuinely buyer-relevant.
-- Build a reviewed evaluation set of real listings and expert assessments.
-- Measure false-positive risk flags and verdict agreement before presenting a categorical recommendation.
+Model už negeneruje canonical listing facts, component identity, local VIN
+decode, market comparables/median, price view, risk score/verdict ani
+buyer-facing report.
 
-Until that exists, replace the five-color verdict with something more honest, such as “insufficient evidence,” “worth inspecting,” or “do not proceed before resolving X.”
+Pipeline z modelového packetu a backend listing/identity/VIN/market artefaktov
+vytvorí kompatibilný canonical `grok_research.json` pre risk scorer a final.
 
----
+Array limity: claims 4, unknowns 4, conflicts 3, checks 4, web findings 5,
+technical risks 6, costs 6, flags 4, sources 8. Rovnaký problém sa neopakuje vo
+viacerých arrays; cost môže odkázať na risk ID.
 
-### 4. Validation looks stronger than it is
+### Recovery
 
-**Severity: Critical · Effort: Medium**
+Recovery je iba pri syntax/schema/truncation chybe, nerobí nový search, používa
+menší packet a má maximum jeden pokus. Druhé zlyhanie vytvorí schema-valid
+unavailable fallback; final report uvedie limitation a nepoužije unsupported
+high-impact claims.
 
-What is wrong:
+### Testy a exit gate
 
-Schemas exist, but they are not actually enforced. Validation checks only whether top-level required fields are present. It does not validate types, enum values, nested fields, evidence relationships, or factual consistency. All failures are non-blocking warnings, and the report is still published.
+Pridať `test_ai_policy.py` a testy budget hraníc, compaction priority,
+kritických hodnôt, count fallbacku, Research V2 merge, jedného recovery,
+double-failure fallbacku a Tiguan-like fixture.
 
-Evidence:
+Gate: research medián `<= 2 500` a žiadne zhoršenie schema validity,
+identity/risk/report testov.
 
-- [`_soft_validate_json_contract()`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:2390>) reads only the schema’s `required` array.
-- [`_soft_validate_final_report()`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:2737>) checks headings, markers, a verdict substring, links, and a few regex patterns.
-- Warnings are written to `validation_warnings.json`; they do not prevent publication or trigger regeneration.
-- The live report says a 2011 vehicle is 13 years old in July 2026.
-- The live API’s parsed specifications contain `"-----------": "-------"` because [`parse_car_info_md()`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:262>) accepts the Markdown delimiter row as data.
-- `vin_decoded.json` attempts to decode `"N/A"` as a VIN because [`main._run_vin_decoding()`](<D:/VS Projekty/Scrapper - DEMO/main.py:290>) treats placeholder text as a real value.
-- The report calls Czech origin a positive indicator of better service history, which is unsupported.
-- The report says visual wear is consistent with 98,000 km despite no odometer being visible.
+## 8. Fáza 3 — Grounding, final a vision
 
-Why it matters:
+### Conditional Mobile.de grounding
 
-The project gives the impression that output contracts and deterministic controls protect users. In reality, they mainly protect formatting.
+V `market_comparables.py` vytvoriť strict eligibility helper spoločný pre
+precheck aj finálny benchmark:
 
-Concrete improvement:
+1. direct SK/CZ search,
+2. dedup a strict eligible count,
+3. pri `>= 3` lokálnych ponukách Mobile grounding skipnúť,
+4. pri `< 3` skúsiť Mobile direct HTTP,
+5. pri stále nedostatočnej tight vzorke povoliť jeden grounded pass.
 
-- Use full JSON Schema validation.
-- Reject or regenerate malformed model output.
-- Add cross-field rules for age, VIN placeholders, mileage, source URLs, and observation polarity.
-- Require provenance for every high-impact claim.
-- Prevent publication when the final verdict conflicts with structured evidence.
-- Add regression fixtures from actual production failures, including this Suzuki result.
+Foreign records zostávajú background-only. Diagnostika uloží reason, local
+eligible count, direct/grounded Mobile count a skipped/needed status.
 
----
+Identity a reliability grounding nezlučovať. Skipnú sa až po zavedení
+bezpečného, versioned a perzistentného component cache.
 
-### 5. The experience is too slow, expensive, and verbose for the value delivered
+### Final prompt/report
 
-**Severity: Important · Effort: Large**
+Skrátiť približne 23 600-znakový final prompt: odstrániť duplicitné pravidlá,
+pevné minimálne počty a backendom vynucovaný boilerplate. Zachovať section
+order, verdict lock, evidence categories, market link policy, limitations,
+language a zákaz tvrdení o skrytom stave/histórii.
 
-What is wrong:
+Summary má najviac tri rozhodujúce body; risk sa vysvetlí raz; cost naň stručne
+odkáže; seller question sa pridá iba ak môže zmeniť rozhodnutie; conclusion
+neopakuje celý report. Markdown generation zatiaľ zostáva.
 
-The live analysis took roughly three minutes from scraping to final report. It made four Gemini calls, used approximately 55,000 estimated tokens, and cost about €0.42 at the configured rates. The resulting report is approximately 16.7 KB and repeats the same risks in the summary, technical risks, cons, questions, costs, and conclusion.
+### Vision payload
 
-The landing copy promises a “concise analysis.”
+Presunúť perceptual dedup pred gallery-size vetvenie, aby fungoval aj nad 20
+fotografií. Metadata rozšíriť o original/unique/duplicate/selected count,
+selection reason a coverage.
 
-Evidence:
+Pridať `AI_MAX_VISION_ATTACHMENTS`, default 5; po evaloch skúsiť 4 (tri overview
++ jeden detail). Zachovať dashboard, odometer, visible damage a engine bay.
+Nespúšťať automatický druhý high-resolution request.
 
-- Live artifacts run from 12:04:23 to 12:07:29.
-- The public [token endpoint](https://checkniauto.onrender.com/api/token-usage?limit=5) reports 55,483 estimated tokens and €0.41777.
-- The pipeline serially performs grounded research, text extraction, vision, scoring, and final synthesis in [`_multi_model_analysis_events()`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:3483>).
-- The final prompt forces 4–6 main risks, 2–4 additional checks, 5–8 cons, 3–8 cost rows, and 5–7 inspection questions. That requirement itself creates repetition.
-- The UI uses a simulated progress animation that advances toward 92%, rather than a meaningful ETA.
+### Testy a exit gates
 
-Why it matters:
+- tri strict lokálne ponuky -> žiadny Mobile grounding,
+- dve -> fallback povolený,
+- nerelevantné cards sa nepočítajú,
+- foreign links zostanú skryté a benchmark sa refaktorom nezmení,
+- final zachová sections, verdict a SK/CZ link policy,
+- final input bežne `<= 9 000`, output medián `<= 2 400`,
+- image dedup funguje aj nad 20 obrázkov a rešpektuje cap/no-images/recovery.
 
-Most users will tolerate waiting when the result is uniquely reliable. This result is primarily a long pre-purchase checklist with uncertain evidence. Three minutes and €0.42 per run are poor economics for public, anonymous usage.
+## 9. Fáza 4 — Evaluation a rollout
 
-Concrete improvement:
+Použiť najmenej 20 anonymizovaných calibration bundles: rôzne palivá,
+prevodovky, vek, kilometre, VIN/no-VIN, fotografie a dostupnosť market
+benchmarku; minimálne tri známe production regressions.
 
-- Produce an immediate first-stage result: extracted facts, missing information, and three highest-value checks.
-- Make deeper research optional.
-- Remove forced section and bullet counts.
-- Collapse repeated content into a decision summary with expandable evidence.
-- Establish explicit latency and cost budgets.
-- Avoid a second prose-generation pass when deterministic templates can render structured results.
+Rozšíriť `calibration_cli` o AI cost report. Pre case zaznamenať call count,
+retries/recoveries, actual/estimated tokeny, grounding count, duration,
+model-specific cost, schema validity, identity agreement, unsupported claims,
+report completeness, market-link violations a expert rating slovenčiny.
 
----
+Výstup: JSON a Markdown, legacy/optimized rozdiel, median, p90 a maximum. Unit
+testy nikdy nerobia live provider calls.
 
-### 6. The runtime architecture cannot support real usage
+Rozšíriť `DEMO_ANALYSIS_PROFILE`:
 
-**Severity: Critical · Effort: Large**
+- `legacy` — núdzový rollback,
+- `quality_optimized` — súčasná cesta,
+- `cost_optimized` — nový packet, budgety a prompty.
 
-What is wrong:
+Rollout: telemetry bez behavior change; offline eval; niekoľko interných live
+porovnaní; nový profil iba pre interné jobs; po splnení gates nový default;
+`quality_optimized` ponechať aspoň jedno release obdobie. Customer shadow run
+sa nesmie spustiť ani účtovať dvakrát.
 
-The deployment runs one Gunicorn worker and permits one global analysis job. Each analysis keeps an SSE request open for minutes. Rate limits, progress, concurrency, and job state are in process memory. Reports are stored on an ephemeral filesystem.
+Quality gates: všetky testy prejdú; identity/schema quality neklesne; nepribudnú
+unsupported high-impact claims; market policy a report completeness zostanú;
+medián ceny klesne aspoň o 35 %; retry/recovery náklady sú viditeľné.
 
-Cancellation is also incomplete: aborting the browser request closes the stream, but the scraper subprocess is not terminated on generator cancellation. The semaphore may be released while the child process continues writing files.
+## 10. Súbory a test scope
 
-Evidence:
+| Súbor | Zodpovednosť |
+|---|---|
+| `scrapper_demo/ai_policy.py` | Phase policies a budget helper |
+| `providers/gemini.py`, `providers/retry.py` | Usage, attempts, REST diagnostics |
+| `token_tracker.py` | Model cost a run summary |
+| `services/analysis_pipeline.py` | Research V2 a conditional grounding |
+| `legacy_server.py` | Context compaction/final builder |
+| `market_comparables.py` | Shared strict eligibility helper |
+| `services/image_service.py` | Global dedup a attachment cap |
+| `prompts/*.md`, `schemas/*.json` | Menšie kontrakty |
+| `storage/listing_jobs.py`, `calibration*.py` | Artefakty a eval |
+| `web/token-dashboard.html`, `README_DEMO.md` | Observability a dokumentácia |
 
-- The `Procfile` uses one worker.
-- `_demo_job_lock` is a process-local semaphore in [`web_server.py`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:181>).
-- New concurrent jobs receive an immediate 429 in [`_stream_with_demo_limits()`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:3890>).
-- Rate limiting is an in-memory dictionary in [`_check_demo_rate_limit()`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:804>).
-- The scraper subprocess is started at [`web_server.py`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:3942>) without a `finally` block that terminates it when the client disconnects.
-- “Saved” analyses are temporary, with cleanup happening only when another analysis begins.
+Test scope: usage/cost; policy/budget/compaction; Research V2 merge;
+initial/recovery/fallback; rate limit/backup key; Mobile required/skipped; final
+context/report; image dedup/cap/no-images; bundle privacy a profile rollback.
+Live tests sú iba manuálne alebo opt-in.
 
-Why it matters:
+## 11. Implementačné poradie
 
-The second simultaneous user gets rejected. Restarts reset limits and progress. Jobs disappear. Multiple workers would produce inconsistent state. Cancellation can waste tokens and compute.
+1. `usage-observability`
+2. `phase-policy`
+3. `research-packet-v2`
+4. `research-budgets`
+5. `conditional-market-grounding`
+6. `final-prompt`
+7. `vision-payload`
+8. `ai-evaluation`
 
-Concrete improvement:
+Každý krok musí byť samostatne revertovateľný. Prompt, backend kontrakt a
+dashboard redesign nemajú byť v jednom veľkom commite.
 
-Use a real background-job model:
+## 12. Definition of done
 
-- Persistent job records in a database.
-- Object storage for photos and reports.
-- A queue with one or more workers.
-- Polling or resumable event streams by job ID.
-- Distributed rate limiting.
-- Explicit job cancellation that terminates child work.
-- Retry/idempotency controls per pipeline stage.
+1. Každý request má run, phase a attempt.
+2. Dashboard rozlišuje provider usage od estimate.
+3. Thinking/cached/total tokens sa ukladajú, keď existujú.
+4. Text model generuje iba research-owned packet a backend canonical JSON.
+5. Normálny run nemá duplicitný text research; recovery je maximálne jeden.
+6. Tokenové ciele platia na 20-case datasete.
+7. Mobile grounding sa spúšťa iba pri nedostatočnej lokálnej vzorke.
+8. Vision neposiela známe duplicity a rešpektuje cap.
+9. Report, risk scorer, benchmark, link policy a validácia zostávajú funkčné.
+10. Medián ceny klesne aspoň o 35 % bez material quality regression.
+11. `quality_optimized` umožňuje okamžitý rollback.
+12. README dokumentuje policies, artefakty, env vars, eval a rollback.
 
----
+## 13. Prvý krok
 
-### 7. The codebase contains too many products and eras in one server
-
-**Severity: Important · Effort: Large**
-
-What is wrong:
-
-`web_server.py` is 4,499 lines and combines:
-
-- Public demo API.
-- Private listing CRUD.
-- Local folder operations.
-- Knowledge-base management.
-- Three LLM providers.
-- Markdown rendering.
-- Image processing and collages.
-- Report normalization and validation.
-- Token monitoring.
-- Legacy analysis flows.
-
-There is unreachable legacy pipeline code after an unconditional `return` in `api_analyze()`. `main.py` advertises `mobile.de`, but `Mobile_de.py` is absent. `DEMO_SKIP_KB` skips KB inclusion in one path, while final analysis still contains KB autosave code.
-
-Why it matters:
-
-The public/private route gate is compensating for an architecture boundary that should exist at build/deployment level. Every change risks breaking unrelated behavior. Dead paths rot without being noticed.
-
-Concrete improvement:
-
-- Create a public demo application containing only public routes.
-- Move analysis orchestration into a service module.
-- Give providers a small common interface.
-- Move file/job storage behind a repository abstraction.
-- Delete unreachable pipelines, local Explorer routes, KB autosave, and absent `mobile.de` support from the demo.
-- Consolidate shared scraper behavior.
-
----
-
-### 8. Scraping and ingestion remain fragile
-
-**Severity: Important · Effort: Medium**
-
-What is wrong:
-
-There are three large standalone scraper scripts with duplicated network, image-download, and filesystem behavior. There are no scraper fixture tests. Dependencies are unpinned. Image uploads are checked by extension, not by actual content.
-
-Evidence:
-
-- `Autobazar_eu.py`, `Autobazar_sk.py`, and `Bazos.py` total roughly 1,500 lines.
-- No tests exercise their selectors against stored HTML fixtures.
-- [`requirements.txt`](<D:/VS Projekty/Scrapper - DEMO/requirements.txt:1>) contains no versions.
-- Manual upload validation in [`_create_manual_listing_from_form()`](<D:/VS Projekty/Scrapper - DEMO/web_server.py:944>) trusts the filename extension.
-- The live specification-parser delimiter bug shows ingestion defects propagate into the product.
-
-Why it matters:
-
-A marketplace markup change can silently degrade the report. Without fixtures, failures will be discovered by users. Unpinned dependencies make deployments non-reproducible.
-
-Concrete improvement:
-
-- Add captured HTML fixtures and expected normalized listing objects for every marketplace.
-- Create a common scraper result model.
-- Validate uploaded images by decoding them before storage.
-- Set per-image byte and pixel limits.
-- Pin dependencies and introduce automated CI.
-- Monitor extraction completeness and reject suspiciously incomplete scrapes.
-
----
-
-### 9. The differentiation is not yet compelling
-
-**Severity: Important · Effort: Medium**
-
-What is wrong:
-
-The product does not verify vehicle history, legal status, real mileage, accident records, servicing, or the physical condition of the car. It repeatedly tells the user to purchase Cebia/carVertical and arrange a physical inspection. Those services already own the highest-value evidence.
-
-Checkni Auto’s genuinely differentiated capability is narrower: localized listing triage that combines seller claims, model-specific inspection points, visible photo observations, and questions for the seller.
-
-Why it matters:
-
-Calling it an “AI car check before buying” suggests more certainty than it provides. Users may treat it as a substitute for history data or inspection when it is really a screening assistant.
-
-Concrete improvement:
-
-Position it as:
-
-> “A pre-screening assistant that helps you decide whether a listing is worth a VIN report and physical inspection.”
-
-Then integrate or hand off clearly to structured history and inspection services. Do not compete on claims they can verify and you cannot.
-
----
-
-### 10. Important user expectations are not addressed in the interface
-
-**Severity: Important · Effort: Medium**
-
-What is wrong:
-
-The landing page does not disclose:
-
-- That uploaded content becomes publicly visible.
-- How long it is retained.
-- That AI output may be wrong.
-- That the service is not a vehicle-history check or inspection.
-- Which evidence is verified.
-- Approximate analysis duration.
-- Why the rate limit or global concurrency rejection exists.
-
-The URL, price, and manual-text fields also lack useful client-side required validation. Some English UI strings remain Slovak, and several failure/cancellation messages are hard-coded outside the translation table.
-
-Concrete improvement:
-
-Add clear pre-submit expectations, evidence labels, privacy terms, retention, latency estimate, and a concise limitation statement. Make validation immediate and make the language implementation complete.
-
-## Features to remove, simplify, or postpone
-
-Remove from the public deployment:
-
-- Token dashboard and raw artifacts.
-- Global “previous analyses” list.
-- Private CRUD and knowledge-base routes.
-- KB autosave.
-- Local folder-opening route.
-- Legacy prompt artifact.
-- Unsupported `mobile.de` claims and paths.
-
-Simplify:
-
-- Use one LLM provider until quality is measured.
-- Reduce the report to summary, evidence, missing facts, and inspection checklist.
-- Replace forced 4–8 item sections with only supported findings.
-- Replace simulated percentage progress with named stages and elapsed time.
-
-Postpone:
-
-- PDF export.
-- Public sharing beyond explicit private share links.
-- Multiple provider routing.
-- Knowledge-base generation.
-- “Fair price” verdicts until exact comparable capture is reliable.
-- Categorical buy/no-buy scoring until calibrated.
-
-## Assumptions that appear wrong
-
-- Grounded search results are equivalent to verified evidence.
-- More report sections create more value.
-- Users want every generic failure mode for a model.
-- Photo wear can meaningfully validate mileage.
-- A deterministic formula automatically makes a verdict objective.
-- Missing seller metadata should worsen the vehicle score.
-- Users will accept three-minute analyses and global single-job capacity.
-- Temporary filesystem data can be presented as “saved analyses.”
-- Users understand that manual uploads are public.
-- Exact-looking cost estimates are useful even when their basis is weak.
-
-## Things that look finished but are incomplete
-
-- **Risk scoring:** deterministic but uncalibrated and currently misreads positive vision observations.
-- **Validation:** schema-shaped, but not full schema enforcement and not blocking.
-- **Cancellation:** stops the browser stream, not necessarily the scraper/model work.
-- **Saved analyses:** temporary and globally public.
-- **Bilingual UI:** incomplete translation coverage.
-- **Market comparison:** exact-looking but not backed by exact comparable URLs.
-- **VIN handling:** placeholder `"N/A"` is decoded as a malformed VIN.
-- **Demo isolation:** route-gated, but private and legacy functionality remains in the same application.
-- **Testing:** 58 passing tests, but no scraper fixtures, browser E2E tests, privacy tests, concurrency tests, or report-accuracy evaluation.
-
-## Overengineering
-
-The project is overengineered around managing LLM instability:
-
-- Large regex-based report normalizer.
-- Prompt constraints specifying exact section counts and shapes.
-- Multiple provider fallbacks.
-- Collage and overview-sheet machinery.
-- Raw artifact renderer and public observability UI.
-- Dual private/public product in one 4,499-line server.
-- Post-generation rewriting of photo sections.
-
-Some of this work is technically competent, but it is solving the wrong layer. The priority should be evidence integrity, user privacy, and a smaller report—not increasingly elaborate control over generated prose.
-
-## Future problems created by the current implementation
-
-- Markdown and folders acting as a database will become difficult to migrate and query.
-- Human-readable slugs will collide and are unsuitable authorization identifiers.
-- In-memory state prevents horizontal scaling.
-- Provider-specific logic is intertwined with orchestration.
-- Scraper drift can silently poison every downstream phase.
-- Public raw artifacts create permanent pressure against changing prompts and schemas.
-- Adding more scoring rules will create an opaque pseudo-scientific model.
-- Regex-based normalization will accumulate exceptions instead of improving upstream contracts.
-
-## Three strongest parts
-
-1. **Pipeline traceability.** The separation of research, vision, scoring, raw synthesis, and public output makes failures inspectable. This is genuinely useful engineering, but the artifacts must be private.
-
-2. **Intent to separate evidence from verdict.** A backend-controlled risk layer is the right instinct. The current implementation needs redesign and calibration, but the architectural goal is better than letting an LLM freely invent the final rating.
-
-3. **Practical localized workflow.** Slovak/Czech marketplace ingestion, manual fallback, photo analysis, and seller questions address an actual regional buyer workflow rather than being a generic chatbot wrapper.
-
-## Three weakest parts
-
-1. Evidence quality and report trustworthiness.
-2. Public-data/privacy architecture.
-3. Runtime scalability and maintainability.
-
-## Unverified assumptions and unanswered questions
-
-I could not verify:
-
-- The visual design, responsive behavior, keyboard flow, or real click interaction because the interactive browser was unavailable.
-- Real user demand, retention, conversion, or willingness to pay; no analytics or research evidence is present.
-- Accuracy against mechanic-reviewed vehicles or known post-purchase outcomes.
-- The exact existence of the four market comparables at generation time; only a category URL is retained.
-- Marketplace scraping terms, image-republishing rights, or data-protection compliance.
-- Production environment variables beyond what public endpoints reveal.
-- Behavior under real concurrent load or deployment restarts.
-
-Important product questions still unanswered:
-
-- Is this a free lead-generation tool, a paid report, or a companion to an inspection service?
-- Who is the primary user: first-time buyer, enthusiast, dealer, or inspection professional?
-- What outcome defines correctness: avoiding bad cars, saving inspection costs, improving negotiation, or increasing user confidence?
-- Will you integrate licensed history data, or remain a pre-screening product?
-
-## Honest overall assessment
-
-| Area | Score | Assessment |
-|---|---:|---|
-| Product idea | 7/10 | Used-car buyers have a real information and confidence problem. Listing triage is useful, but the product must be positioned below VIN history and physical inspection. |
-| Current execution | 4/10 | It completes an impressive end-to-end flow, but the live output exposes factual, scoring, privacy, and scope problems. |
-| User experience | 4/10 | Input is simple and the summary is useful, but the process is slow, the report is repetitive, evidence is hidden, and privacy expectations are violated. |
-| Technical quality | 3/10 | There are useful tests and careful artifact separation, but the monolithic server, soft validation, fragile storage, duplicated scrapers, dead code, and in-memory state dominate. |
-| Production readiness | 2/10 | Public private-data exposure, one-job capacity, ephemeral storage, uncalibrated verdicts, and missing operational architecture prevent responsible production use. |
-
-## Highest-priority improvements
-
-1. **Make every analysis private by default.** Add ownership, random IDs, explicit share tokens, protected operations tooling, and clear retention rules.
-
-2. **Build a verifiable evidence chain.** Exact source records, visible citations, source-quality labels, exact market comparables, and fail-closed behavior for unsupported claims.
-
-3. **Replace or recalibrate the verdict system.** Fix observation semantics, stop scoring generic model risks as vehicle defects, and validate against expert-reviewed cases.
-
-4. **Move analysis into durable background jobs.** Queue, database, object storage, resumable progress, reliable cancellation, and distributed limits.
-
-5. **Narrow the product and codebase.** One provider, fewer supported marketplaces initially, a much shorter report, no public debug surface, and no private/legacy/KB code in the demo application.
-
-## Recommended next iteration
-
-The next iteration should be a focused private pre-screening tool.
-
-It should contain:
-
-- One or two well-tested marketplaces plus manual input.
-- Private anonymous jobs with expiring explicit share links.
-- A structured facts section separating seller claims from verified facts.
-- At most three source-backed model inspection points.
-- Photo observations that never imply hidden condition or mileage validation.
-- A missing-information checklist.
-- Exact comparable links or no price judgment.
-- A concise seller/inspection checklist.
-- Visible evidence and confidence for every meaningful conclusion.
-- Background processing with accurate stage progress.
-- Full schema enforcement and production-failure regression fixtures.
-- A reviewed evaluation dataset with measurable accuracy, latency, and cost.
-
-It should exclude:
-
-- Public raw artifacts and token telemetry.
-- Global saved-analysis browsing.
-- KB generation/autosave.
-- Multiple model providers.
-- Long-form “premium” reports.
-- Unsupported precise market ranges.
-- PDF export until the content is trustworthy.
-- A categorical buying verdict until it is calibrated.
-
-Success should look like:
-
-- Zero cross-user data exposure.
-- At least 95% of high-impact claims linked to valid evidence.
-- No invented or category-level market comparables.
-- Median completion under 60 seconds and p95 under 120 seconds.
-- Materially lower cost per analysis.
-- Low false-positive red flags on an expert-reviewed listing set.
-- Users can state the three next actions after reading the first screen.
-- The product consistently helps users decide whether to reject the listing, request more information, purchase a history report, or arrange an inspection.
-
-No code was changed. All 58 tests passed; Git still reports the pre-existing modification to `token_tracker.py`.
+Implementovať iba Fázu 1. Po jednom úplne zmeranom internom rune uložiť
+baseline a až potom potvrdiť output ceilings Fázy 2. Bez tejto brány by sa
+optimalizovalo podľa nepresných odhadov.

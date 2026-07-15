@@ -40,7 +40,11 @@ PUBLIC_ARTIFACTS = (
     "analysis_result.md",
 )
 
-INTERNAL_ARTIFACTS = PUBLIC_ARTIFACTS + ("kb_autosave.json",)
+INTERNAL_ARTIFACTS = PUBLIC_ARTIFACTS + (
+    "kb_autosave.json",
+    "text_research_provider_attempts.json",
+    "ai_usage_summary.json",
+)
 
 ARTIFACT_LABELS = {
     "raw_data.json": "Scraped raw JSON",

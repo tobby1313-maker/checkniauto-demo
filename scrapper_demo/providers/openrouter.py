@@ -6,6 +6,7 @@ import json
 import os
 import time
 from collections.abc import Iterator
+from typing import Any
 
 import requests
 
@@ -26,6 +27,20 @@ OPENROUTER_FALLBACK_MODELS = [
     "nvidia/nemotron-3-super-120b-a12b:free",
     "openrouter/free",
 ]
+
+
+def _usage_value(
+    usage: dict[str, Any],
+    *names: str,
+    previous: int | None = None,
+) -> int | None:
+    for name in names:
+        if name in usage and usage[name] is not None:
+            try:
+                return int(usage[name])
+            except (TypeError, ValueError):
+                continue
+    return previous
 
 
 def _openrouter_model_candidates(model: str | None = None) -> list[str]:
@@ -195,6 +210,11 @@ def _call_openrouter(
             full_text = ""
             actual_prompt_tokens = None
             actual_output_tokens = None
+            actual_thinking_tokens = None
+            cached_input_tokens = None
+            actual_total_tokens = None
+            provider_request_id = None
+            finish_reason_seen = ""
             stream_error = ""
             for line in response.iter_lines():
                 if isinstance(line, bytes):
@@ -214,6 +234,8 @@ def _call_openrouter(
                 except json.JSONDecodeError:
                     continue
 
+                provider_request_id = data.get("id") or provider_request_id
+
                 if "error" in data:
                     error_info = data["error"]
                     if isinstance(error_info, dict):
@@ -223,8 +245,34 @@ def _call_openrouter(
                     break
 
                 usage = data.get("usage") or {}
-                actual_prompt_tokens = usage.get("prompt_tokens") or actual_prompt_tokens
-                actual_output_tokens = usage.get("completion_tokens") or actual_output_tokens
+                if isinstance(usage, dict):
+                    actual_prompt_tokens = _usage_value(
+                        usage, "prompt_tokens", previous=actual_prompt_tokens
+                    )
+                    actual_output_tokens = _usage_value(
+                        usage,
+                        "completion_tokens",
+                        "output_tokens",
+                        previous=actual_output_tokens,
+                    )
+                    actual_total_tokens = _usage_value(
+                        usage, "total_tokens", previous=actual_total_tokens
+                    )
+                    prompt_details = usage.get("prompt_tokens_details") or {}
+                    completion_details = usage.get("completion_tokens_details") or {}
+                    if isinstance(prompt_details, dict):
+                        cached_input_tokens = _usage_value(
+                            prompt_details,
+                            "cached_tokens",
+                            previous=cached_input_tokens,
+                        )
+                    if isinstance(completion_details, dict):
+                        actual_thinking_tokens = _usage_value(
+                            completion_details,
+                            "reasoning_tokens",
+                            "thinking_tokens",
+                            previous=actual_thinking_tokens,
+                        )
 
                 choices = data.get("choices", [])
                 if not choices:
@@ -238,6 +286,7 @@ def _call_openrouter(
 
                 finish_reason = choices[0].get("finish_reason", "")
                 if finish_reason == "length":
+                    finish_reason_seen = "length"
                     yield "\n\nAnalyza dosiahla limit tokenov. Vystup je neuplny."
 
             if stream_error:
@@ -271,6 +320,15 @@ def _call_openrouter(
                 output_tokens=estimate_output_tokens(full_text),
                 actual_input_tokens=actual_prompt_tokens,
                 actual_output_tokens=actual_output_tokens,
+                actual_thinking_tokens=actual_thinking_tokens,
+                cached_input_tokens=cached_input_tokens,
+                actual_total_tokens=actual_total_tokens,
+                provider_request_id=provider_request_id,
+                finish_reason=finish_reason_seen or "STOP",
+                output_chars=len(full_text),
+                max_output_tokens=32768,
+                thinking_mode="provider_default",
+                grounding_enabled=False,
                 status="success",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
             )

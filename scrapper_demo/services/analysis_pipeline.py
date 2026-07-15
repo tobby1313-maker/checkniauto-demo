@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import unicodedata
 from urllib.parse import urlparse
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -59,7 +60,15 @@ from scrapper_demo.validation import (
     _soft_validate_json_contract,
     _write_validation_warnings,
 )
-from token_tracker import estimate_output_tokens, estimate_request_tokens
+from token_tracker import (
+    analysis_run_context,
+    current_tracking_value,
+    default_tracker,
+    estimate_output_tokens,
+    estimate_request_tokens,
+    new_analysis_run_id,
+    tracking_context,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1019,7 +1028,7 @@ def _read_vin_light_decode(repository: ListingJobRepositoryProtocol, slug: str) 
     }
 
 
-def multi_model_analysis_events(
+def _multi_model_analysis_events(
     slug: str,
     grok_key: str,
     gemini_keys: Sequence[str],
@@ -1049,6 +1058,7 @@ def multi_model_analysis_events(
     car_info_text = repository.read_text(slug, "car_info.md", default="") or ""
     diagnostics: dict[str, Any] = {
         "schema_version": 1,
+        "analysis_run_id": current_tracking_value("analysis_run_id", ""),
         "started_at": datetime.now().isoformat(timespec="seconds"),
         "completed_at": "",
         "build_commit": os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT") or "",
@@ -1087,22 +1097,28 @@ def multi_model_analysis_events(
     )
     try:
         yield _status_event("Identifying generation, engine, transmission, and drivetrain...")
-        identity_grounded, _identity_key = yield from dependencies.collect_gemini(
-            gemini_key_entries,
-            "component identity research",
-            lambda key: [
-                dependencies.grounded_research(
-                    key,
-                    grounding_listing_context,
-                    model=GEMINI_GROUNDING_MODEL,
-                    listing_slug=slug,
-                    research_mode="identity",
-                )
-            ],
-            retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
-            same_key_retries=1,
-            same_key_retry_exceptions=(GroundingTransientError,),
-        )
+        with tracking_context(
+            phase="component_identity_grounding",
+            attempt=1,
+            retry_reason=None,
+            grounding_enabled=True,
+        ):
+            identity_grounded, _identity_key = yield from dependencies.collect_gemini(
+                gemini_key_entries,
+                "component identity research",
+                lambda key: [
+                    dependencies.grounded_research(
+                        key,
+                        grounding_listing_context,
+                        model=GEMINI_GROUNDING_MODEL,
+                        listing_slug=slug,
+                        research_mode="identity",
+                    )
+                ],
+                retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+                same_key_retries=1,
+                same_key_retry_exceptions=(GroundingTransientError,),
+            )
         _promote_selected_key(gemini_key_entries, _identity_key)
         repository.write_text(
             slug, "component_identity_research.md", identity_grounded
@@ -1147,21 +1163,27 @@ def multi_model_analysis_events(
     web_research_text = ""
     try:
         yield _status_event("Preparing web research via Gemini Google Search...")
-        grounded, _grounding_key = yield from dependencies.collect_gemini(
-            gemini_key_entries,
-            "web research",
-            lambda key: [
-                dependencies.grounded_research(
-                    key,
-                    grounded_listing_with_identity,
-                    model=GEMINI_GROUNDING_MODEL,
-                    listing_slug=slug,
-                )
-            ],
-            retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
-            same_key_retries=1,
-            same_key_retry_exceptions=(GroundingTransientError,),
-        )
+        with tracking_context(
+            phase="grounding",
+            attempt=1,
+            retry_reason=None,
+            grounding_enabled=True,
+        ):
+            grounded, _grounding_key = yield from dependencies.collect_gemini(
+                gemini_key_entries,
+                "web research",
+                lambda key: [
+                    dependencies.grounded_research(
+                        key,
+                        grounded_listing_with_identity,
+                        model=GEMINI_GROUNDING_MODEL,
+                        listing_slug=slug,
+                    )
+                ],
+                retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+                same_key_retries=1,
+                same_key_retry_exceptions=(GroundingTransientError,),
+            )
         _promote_selected_key(gemini_key_entries, _grounding_key)
         if grounded:
             web_research_text = grounded
@@ -1246,22 +1268,28 @@ def multi_model_analysis_events(
         yield _status_event("Mobile.de direct access limited; trying grounded background search...")
         direct_attempts = list(mobile_pass.get("source_attempts") or [])
         try:
-            mobile_grounded_text, mobile_grounding_key = yield from dependencies.collect_gemini(
-                gemini_key_entries,
-                "Mobile.de background market search",
-                lambda key: [
-                    dependencies.grounded_research(
-                        key,
-                        grounded_listing_with_identity,
-                        model=GEMINI_GROUNDING_MODEL,
-                        listing_slug=slug,
-                        research_mode="market_mobile_de",
-                    )
-                ],
-                retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
-                same_key_retries=1,
-                same_key_retry_exceptions=(GroundingTransientError,),
-            )
+            with tracking_context(
+                phase="market_grounding_mobile_de",
+                attempt=1,
+                retry_reason="mobile_direct_insufficient",
+                grounding_enabled=True,
+            ):
+                mobile_grounded_text, mobile_grounding_key = yield from dependencies.collect_gemini(
+                    gemini_key_entries,
+                    "Mobile.de background market search",
+                    lambda key: [
+                        dependencies.grounded_research(
+                            key,
+                            grounded_listing_with_identity,
+                            model=GEMINI_GROUNDING_MODEL,
+                            listing_slug=slug,
+                            research_mode="market_mobile_de",
+                        )
+                    ],
+                    retry_exceptions=(ApiKeyError, RateLimitError, GroundingTransientError),
+                    same_key_retries=1,
+                    same_key_retry_exceptions=(GroundingTransientError,),
+                )
             grounded_mobile_pass = extract_grounded_market_search_pass(
                 mobile_grounded_text,
                 "mobile_de",
@@ -1476,34 +1504,133 @@ def multi_model_analysis_events(
         text_research_web_context,
         component_identity,
     )
+
+    def save_text_research_attempts(
+        *,
+        initial_valid: bool | None = None,
+        recovery_valid: bool | None = None,
+    ) -> None:
+        """Persist sanitized initial/recovery usage, never provider raw text."""
+        provider_entries = default_tracker.get_requests_for_run(
+            str(current_tracking_value("analysis_run_id") or ""),
+            phase="text_research",
+        )
+        attempts: list[dict[str, Any]] = []
+        def is_recovery_entry(item: dict[str, Any]) -> bool:
+            return "json_recovery" in str(item.get("retry_reason") or "").lower()
+
+        for attempt_number, label, schema_status in (
+            (1, "initial", initial_valid),
+            (2, "recovery", recovery_valid),
+        ):
+            if label == "recovery" and not any(
+                is_recovery_entry(item)
+                for item in provider_entries
+            ) and schema_status is None:
+                continue
+            selected = [
+                item
+                for item in provider_entries
+                if is_recovery_entry(item) == (label == "recovery")
+            ]
+            attempts.append(
+                {
+                    "attempt": label,
+                    "attempt_number": attempt_number,
+                    "schema_valid": schema_status,
+                    "usage": {
+                        "provider_input_tokens": sum(
+                            int(item["actual_input_tokens"])
+                            for item in selected
+                            if item.get("actual_input_tokens") is not None
+                        ),
+                        "provider_visible_output_tokens": sum(
+                            int(item["actual_output_tokens"])
+                            for item in selected
+                            if item.get("actual_output_tokens") is not None
+                        ),
+                        "provider_thinking_tokens": sum(
+                            int(item["actual_thinking_tokens"])
+                            for item in selected
+                            if item.get("actual_thinking_tokens") is not None
+                        ),
+                        "provider_cached_input_tokens": sum(
+                            int(item["cached_input_tokens"])
+                            for item in selected
+                            if item.get("cached_input_tokens") is not None
+                        ),
+                        "estimated_cost": round(
+                            sum(float(item.get("estimated_cost") or 0) for item in selected),
+                            6,
+                        ),
+                    },
+                    "finish_reason": next(
+                        (
+                            item.get("finish_reason")
+                            for item in reversed(selected)
+                            if item.get("finish_reason")
+                        ),
+                        None,
+                    ),
+                    "output_chars": sum(
+                        int(item.get("output_chars") or 0) for item in selected
+                    ),
+                    "error": next(
+                        (
+                            str(item.get("error"))[:500]
+                            for item in reversed(selected)
+                            if item.get("error")
+                        ),
+                        None,
+                    ),
+                    "provider_calls": [
+                        {
+                            key: item.get(key)
+                            for key in (
+                                "id",
+                                "model",
+                                "status",
+                                "attempt",
+                                "retry_reason",
+                                "actual_input_tokens",
+                                "actual_output_tokens",
+                                "actual_thinking_tokens",
+                                "cached_input_tokens",
+                                "actual_total_tokens",
+                                "usage_source",
+                                "estimated_cost",
+                                "duration_ms",
+                                "finish_reason",
+                                "output_chars",
+                                "provider_request_id",
+                                "error",
+                            )
+                        }
+                        for item in selected
+                    ],
+                }
+            )
+        repository.write_json(
+            slug,
+            "text_research_provider_attempts.json",
+            {
+                "schema_version": 1,
+                "analysis_run_id": current_tracking_value("analysis_run_id", ""),
+                "provider": text_provider,
+                "attempt_count": len(attempts),
+                "attempts": attempts,
+            },
+        )
+
     input_tokens = dependencies.estimate_request_tokens(text_research_system_prompt, text_research_content)
     yield _token_event(input_tokens, 0)
     if text_provider == "gemini":
-        text_research_json_text, _text_key = yield from dependencies.collect_gemini(
-            gemini_key_entries,
-            "text/research analysis",
-            lambda key: dependencies.call_gemini(
-                key,
-                text_research_system_prompt,
-                text_research_content,
-                image_data_list=None,
-                model=GEMINI_TEXT_RESEARCH_MODEL,
-                listing_slug=slug,
-                phase="text_research",
-            ),
-        )
-    else:
-        try:
-            for chunk in dependencies.stream_text_model(text_provider, text_api_key, text_research_system_prompt, text_research_content, listing_slug=slug):
-                text_research_json_text += chunk
-        except (RateLimitError, ConnectionError) as exc:
-            if text_provider != "openrouter":
-                raise
-            dependencies.log(f"OpenRouter text/research failed; falling back to Gemini: {exc}")
-            yield _status_event("OpenRouter text/research unavailable; falling back to Gemini.")
-            text_provider = "gemini"
-            text_api_key = ""
-            text_model_name = dependencies.model_display_name(text_provider)
+        with tracking_context(
+            phase="text_research",
+            attempt=1,
+            retry_reason=None,
+            grounding_enabled=False,
+        ):
             text_research_json_text, _text_key = yield from dependencies.collect_gemini(
                 gemini_key_entries,
                 "text/research analysis",
@@ -1517,10 +1644,49 @@ def multi_model_analysis_events(
                     phase="text_research",
                 ),
             )
+    else:
+        try:
+            with tracking_context(
+                phase="text_research",
+                attempt=1,
+                retry_reason=None,
+                grounding_enabled=False,
+            ):
+                for chunk in dependencies.stream_text_model(text_provider, text_api_key, text_research_system_prompt, text_research_content, listing_slug=slug):
+                    text_research_json_text += chunk
+        except (RateLimitError, ConnectionError) as exc:
+            if text_provider != "openrouter":
+                raise
+            dependencies.log(f"OpenRouter text/research failed; falling back to Gemini: {exc}")
+            yield _status_event("OpenRouter text/research unavailable; falling back to Gemini.")
+            text_provider = "gemini"
+            text_api_key = ""
+            text_model_name = dependencies.model_display_name(text_provider)
+            with tracking_context(
+                phase="text_research",
+                attempt=1,
+                retry_reason="openrouter_fallback",
+                grounding_enabled=False,
+            ):
+                text_research_json_text, _text_key = yield from dependencies.collect_gemini(
+                    gemini_key_entries,
+                    "text/research analysis",
+                    lambda key: dependencies.call_gemini(
+                        key,
+                        text_research_system_prompt,
+                        text_research_content,
+                        image_data_list=None,
+                        model=GEMINI_TEXT_RESEARCH_MODEL,
+                        listing_slug=slug,
+                        phase="text_research",
+                    ),
+                )
     try:
         research_data = dependencies.safe_model_json(text_research_json_text)
     except Exception:
         research_data = {"_parse_error": True}
+    initial_research_valid = not _research_parse_failed(research_data)
+    save_text_research_attempts(initial_valid=initial_research_valid)
     if _research_parse_failed(research_data):
         yield _status_event("Text/research JSON was incomplete; retrying once with a compact recovery response...")
         recovery_content = (
@@ -1531,29 +1697,43 @@ def multi_model_analysis_events(
             "Return one complete JSON object and close every array/object."
         )
         try:
-            text_research_json_text, _text_key = yield from dependencies.collect_gemini(
-                gemini_key_entries,
-                "text/research JSON recovery",
-                lambda key: dependencies.call_gemini(
-                    key,
-                    text_research_system_prompt,
-                    recovery_content,
-                    image_data_list=None,
-                    model=GEMINI_TEXT_RESEARCH_MODEL,
-                    listing_slug=slug,
-                    phase="text_research",
-                ),
-            )
+            with tracking_context(
+                phase="text_research",
+                attempt=2,
+                retry_reason="json_recovery",
+                grounding_enabled=False,
+            ):
+                text_research_json_text, _text_key = yield from dependencies.collect_gemini(
+                    gemini_key_entries,
+                    "text/research JSON recovery",
+                    lambda key: dependencies.call_gemini(
+                        key,
+                        text_research_system_prompt,
+                        recovery_content,
+                        image_data_list=None,
+                        model=GEMINI_TEXT_RESEARCH_MODEL,
+                        listing_slug=slug,
+                        phase="text_research",
+                    ),
+                )
             research_data = dependencies.safe_model_json(text_research_json_text)
         except Exception as recovery_exc:
             dependencies.log(f"Text/research JSON recovery failed: {recovery_exc}")
             research_data = {"_parse_error": True}
         if _research_parse_failed(research_data):
+            save_text_research_attempts(
+                initial_valid=initial_research_valid,
+                recovery_valid=False,
+            )
             repository.write_text(slug, "grok_research.json", text_research_json_text)
             yield _error_event(
                 "Text/research analysis returned incomplete JSON twice. Analysis stopped before creating an unreliable report."
             )
             return
+        save_text_research_attempts(
+            initial_valid=initial_research_valid,
+            recovery_valid=True,
+        )
     research_data = _merge_backend_evidence(
         research_data,
         listing_context_data,
@@ -1714,21 +1894,27 @@ def multi_model_analysis_events(
         initial_error = ""
         current_vision_partial_output = ""
         try:
-            vision_result_json, _vision_key = yield from dependencies.collect_gemini(
-                gemini_key_entries,
-                "vision analysis",
-                lambda key: dependencies.call_gemini(
-                    key,
-                    vision_system_prompt,
-                    vision_content,
-                    image_data_list=image_data_list,
-                    model=GEMINI_VISION_MODEL,
-                    listing_slug=slug,
-                    allow_image_text_fallback=False,
-                    phase="vision",
-                    diagnostics_callback=record_vision_provider_event,
-                ),
-            )
+            with tracking_context(
+                phase="vision",
+                attempt=1,
+                retry_reason=None,
+                grounding_enabled=False,
+            ):
+                vision_result_json, _vision_key = yield from dependencies.collect_gemini(
+                    gemini_key_entries,
+                    "vision analysis",
+                    lambda key: dependencies.call_gemini(
+                        key,
+                        vision_system_prompt,
+                        vision_content,
+                        image_data_list=image_data_list,
+                        model=GEMINI_VISION_MODEL,
+                        listing_slug=slug,
+                        allow_image_text_fallback=False,
+                        phase="vision",
+                        diagnostics_callback=record_vision_provider_event,
+                    ),
+                )
         except Exception as exc:
             dependencies.log(f"Gemini vision error: {exc}")
             initial_error = f"{type(exc).__name__}: {exc}"[:500]
@@ -1764,23 +1950,29 @@ def multi_model_analysis_events(
             recovery_error = ""
             current_vision_partial_output = ""
             try:
-                recovery_result, recovery_key = yield from dependencies.collect_gemini(
-                    gemini_key_entries,
-                    "vision JSON recovery",
-                    lambda key: dependencies.call_gemini(
-                        key,
-                        vision_system_prompt,
-                        recovery_content,
-                        image_data_list=image_data_list,
-                        model=GEMINI_VISION_MODEL,
-                        listing_slug=slug,
-                        allow_image_text_fallback=False,
-                        phase="vision",
-                        max_output_tokens=6000,
-                        temperature=0.0,
-                        diagnostics_callback=record_vision_provider_event,
-                    ),
-                )
+                with tracking_context(
+                    phase="vision",
+                    attempt=2,
+                    retry_reason="json_recovery",
+                    grounding_enabled=False,
+                ):
+                    recovery_result, recovery_key = yield from dependencies.collect_gemini(
+                        gemini_key_entries,
+                        "vision JSON recovery",
+                        lambda key: dependencies.call_gemini(
+                            key,
+                            vision_system_prompt,
+                            recovery_content,
+                            image_data_list=image_data_list,
+                            model=GEMINI_VISION_MODEL,
+                            listing_slug=slug,
+                            allow_image_text_fallback=False,
+                            phase="vision",
+                            max_output_tokens=6000,
+                            temperature=0.0,
+                            diagnostics_callback=record_vision_provider_event,
+                        ),
+                    )
                 if recovery_key:
                     _vision_key = recovery_key
             except Exception as exc:
@@ -1957,55 +2149,12 @@ def multi_model_analysis_events(
             attempt_text = ""
             attempt_output_tokens = 0
             try:
-                for chunk in dependencies.call_gemini(
-                    entry["key"],
-                    final_system_prompt,
-                    final_content,
-                    image_data_list=None,
-                    model=GEMINI_FINAL_MODEL,
-                    listing_slug=slug,
-                    fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
+                with tracking_context(
                     phase="final_synthesis",
+                    attempt=index + 1,
+                    retry_reason="api_key_fallback" if index else None,
+                    grounding_enabled=False,
                 ):
-                    attempt_text += chunk
-                    attempt_output_tokens += dependencies.estimate_output_tokens(chunk)
-                    if chunk:
-                        yield _text_event(chunk)
-                    if attempt_output_tokens >= next_token_update:
-                        yield _token_event(final_input_tokens, attempt_output_tokens)
-                        next_token_update += 250
-                full_report = attempt_text
-                output_tokens = attempt_output_tokens
-                final_done = True
-                break
-            except (ApiKeyError, RateLimitError) as exc:
-                if attempt_text or index >= len(gemini_key_entries) - 1:
-                    raise
-                status = dependencies.gemini_retry_status(entry, gemini_key_entries[index + 1], "final synthesis", exc)
-                yield _status_event(status)
-
-        if not final_done:
-            raise RateLimitError("Gemini final synthesis failed for all configured API keys.")
-    else:
-        try:
-            for chunk in dependencies.stream_text_model(text_provider, text_api_key, final_system_prompt, final_content, listing_slug=slug):
-                full_report += chunk
-                output_tokens += dependencies.estimate_output_tokens(chunk)
-                if chunk:
-                    yield _text_event(chunk)
-                if output_tokens >= next_token_update:
-                    yield _token_event(final_input_tokens, output_tokens)
-                    next_token_update += 250
-        except (RateLimitError, ConnectionError) as exc:
-            if text_provider != "openrouter" or full_report:
-                raise
-            dependencies.log(f"OpenRouter final synthesis failed; falling back to Gemini: {exc}")
-            yield _status_event("OpenRouter final synthesis unavailable; falling back to Gemini.")
-            final_done = False
-            for index, entry in enumerate(gemini_key_entries):
-                attempt_text = ""
-                attempt_output_tokens = 0
-                try:
                     for chunk in dependencies.call_gemini(
                         entry["key"],
                         final_system_prompt,
@@ -2023,6 +2172,67 @@ def multi_model_analysis_events(
                         if attempt_output_tokens >= next_token_update:
                             yield _token_event(final_input_tokens, attempt_output_tokens)
                             next_token_update += 250
+                full_report = attempt_text
+                output_tokens = attempt_output_tokens
+                final_done = True
+                break
+            except (ApiKeyError, RateLimitError) as exc:
+                if attempt_text or index >= len(gemini_key_entries) - 1:
+                    raise
+                status = dependencies.gemini_retry_status(entry, gemini_key_entries[index + 1], "final synthesis", exc)
+                yield _status_event(status)
+
+        if not final_done:
+            raise RateLimitError("Gemini final synthesis failed for all configured API keys.")
+    else:
+        try:
+            with tracking_context(
+                phase="final_synthesis",
+                attempt=1,
+                retry_reason=None,
+                grounding_enabled=False,
+            ):
+                for chunk in dependencies.stream_text_model(text_provider, text_api_key, final_system_prompt, final_content, listing_slug=slug):
+                    full_report += chunk
+                    output_tokens += dependencies.estimate_output_tokens(chunk)
+                    if chunk:
+                        yield _text_event(chunk)
+                    if output_tokens >= next_token_update:
+                        yield _token_event(final_input_tokens, output_tokens)
+                        next_token_update += 250
+        except (RateLimitError, ConnectionError) as exc:
+            if text_provider != "openrouter" or full_report:
+                raise
+            dependencies.log(f"OpenRouter final synthesis failed; falling back to Gemini: {exc}")
+            yield _status_event("OpenRouter final synthesis unavailable; falling back to Gemini.")
+            final_done = False
+            for index, entry in enumerate(gemini_key_entries):
+                attempt_text = ""
+                attempt_output_tokens = 0
+                try:
+                    with tracking_context(
+                        phase="final_synthesis",
+                        attempt=index + 2,
+                        retry_reason="provider_fallback",
+                        grounding_enabled=False,
+                    ):
+                        for chunk in dependencies.call_gemini(
+                            entry["key"],
+                            final_system_prompt,
+                            final_content,
+                            image_data_list=None,
+                            model=GEMINI_FINAL_MODEL,
+                            listing_slug=slug,
+                            fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
+                            phase="final_synthesis",
+                        ):
+                            attempt_text += chunk
+                            attempt_output_tokens += dependencies.estimate_output_tokens(chunk)
+                            if chunk:
+                                yield _text_event(chunk)
+                            if attempt_output_tokens >= next_token_update:
+                                yield _token_event(final_input_tokens, attempt_output_tokens)
+                                next_token_update += 250
                     full_report = attempt_text
                     output_tokens = attempt_output_tokens
                     final_done = True
@@ -2097,3 +2307,45 @@ def multi_model_analysis_events(
             dependencies.log(f"KB autosave error: {exc}")
 
     yield _done_event(slug, kb_blocks, saved_kb)
+
+
+def multi_model_analysis_events(
+    slug: str,
+    grok_key: str,
+    gemini_keys: Sequence[str],
+    output_language: str = "sk",
+    openrouter_key: str = "",
+    *,
+    dependencies: AnalysisPipelineDependencies,
+) -> Iterator[str]:
+    """Run one analysis inside a scoped telemetry run context."""
+    analysis_run_id = new_analysis_run_id()
+    started_at = time.perf_counter()
+    try:
+        with analysis_run_context(analysis_run_id):
+            yield from _multi_model_analysis_events(
+                slug,
+                grok_key,
+                gemini_keys,
+                output_language,
+                openrouter_key,
+                dependencies=dependencies,
+            )
+    finally:
+        try:
+            dependencies.repository.job_dir(slug, require=True)
+            dependencies.repository.write_json(
+                slug,
+                "ai_usage_summary.json",
+                default_tracker.summarize_run(
+                    analysis_run_id,
+                    duration_ms=round((time.perf_counter() - started_at) * 1000),
+                ),
+            )
+        except Exception as exc:
+            # Usage telemetry must never turn a completed/failed analysis into
+            # a different pipeline outcome.
+            try:
+                dependencies.log(f"AI usage summary warning: {exc}")
+            except Exception:
+                pass

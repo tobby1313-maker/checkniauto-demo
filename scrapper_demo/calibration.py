@@ -51,6 +51,8 @@ DEBUGGING_FILES = (
     "grok_research.json",
     "gemini_vision.json",
     "vision_provider_attempts.json",
+    "text_research_provider_attempts.json",
+    "ai_usage_summary.json",
     "risk_score.json",
     "validation_warnings.json",
     "analysis_diagnostics.json",

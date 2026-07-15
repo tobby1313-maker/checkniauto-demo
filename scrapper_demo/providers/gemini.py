@@ -12,6 +12,7 @@ from typing import Any
 import requests
 
 from token_tracker import (
+    current_tracking_value,
     default_tracker,
     estimate_output_tokens,
     estimate_request_tokens,
@@ -93,6 +94,49 @@ def _emit_provider_diagnostics(
     except Exception:
         # Diagnostics must never change provider behavior.
         pass
+
+
+def _usage_value(
+    usage: dict[str, Any],
+    *names: str,
+    previous: int | None = None,
+) -> int | None:
+    """Read REST usage fields while preserving an explicit numeric zero."""
+    for name in names:
+        if name in usage and usage[name] is not None:
+            try:
+                return int(usage[name])
+            except (TypeError, ValueError):
+                continue
+    return previous
+
+
+def _response_request_id(response: Any, data: dict[str, Any] | None = None) -> str | None:
+    """Extract only request identifiers actually exposed by HTTP/REST data."""
+    headers = getattr(response, "headers", {}) or {}
+    for name in ("x-goog-request-id", "x-request-id", "request-id"):
+        value = headers.get(name) or headers.get(name.title())
+        if value:
+            return str(value)
+    if isinstance(data, dict):
+        for name in ("id", "requestId", "request_id", "responseId", "response_id"):
+            value = data.get(name)
+            if value:
+                return str(value)
+    return None
+
+
+def _thinking_mode_for_request(phase: str | None, model: str | None) -> str:
+    config = _thinking_config(phase, model)
+    if not config:
+        return "default"
+    if config.get("thinkingBudget") == 0:
+        return "off"
+    if config.get("thinkingLevel"):
+        return str(config["thinkingLevel"])
+    if config.get("thinkingBudget") is not None:
+        return f"budget:{config['thinkingBudget']}"
+    return "configured"
 
 
 def _generation_settings(
@@ -650,7 +694,7 @@ def run_grounded_web_research(
     unavailable_models = []
     rate_limited_models = []
 
-    for candidate_model in model_candidates:
+    for candidate_index, candidate_model in enumerate(model_candidates):
         started_at = time.perf_counter()
         input_tokens = estimate_text_tokens(prompt)
         payload = {
@@ -683,6 +727,8 @@ def run_grounded_web_research(
                 status="timeout",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error="Google Search grounding timeout.",
+                attempt=candidate_index + 1,
+                grounding_enabled=True,
             )
             raise GroundingTransientError("Google Search grounding casovy limit (120s).")
         except requests.exceptions.ConnectionError:
@@ -696,6 +742,8 @@ def run_grounded_web_research(
                 status="connection_error",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error="Google Search grounding connection error.",
+                attempt=candidate_index + 1,
+                grounding_enabled=True,
             )
             raise GroundingTransientError("Nie je pripojenie k internetu pre Google Search grounding.")
 
@@ -708,6 +756,20 @@ def run_grounded_web_research(
         if _is_retryable_gemini_model_error(response.status_code, last_error_text):
             unavailable_models.append(candidate_model)
             if candidate_model != model_candidates[-1]:
+                default_tracker.record_request(
+                    model=candidate_model,
+                    request_type="grounded_search",
+                    phase=tracking_phase,
+                    listing_slug=listing_slug,
+                    input_tokens=input_tokens,
+                    output_tokens=0,
+                    status="unavailable",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000),
+                    error=last_error_text[:300],
+                    attempt=candidate_index + 1,
+                    retry_reason="model_fallback",
+                    grounding_enabled=True,
+                )
                 time.sleep(1)
                 continue
 
@@ -724,6 +786,8 @@ def run_grounded_web_research(
                 status="rate_limited",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=detail,
+                attempt=candidate_index + 1,
+                grounding_enabled=True,
             )
             # Let the outer API-key fallback handle quota exhaustion. Trying
             # two more models with the same key multiplied paid input calls
@@ -744,6 +808,8 @@ def run_grounded_web_research(
                 status="auth_error",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=last_error_text[:200],
+                attempt=candidate_index + 1,
+                grounding_enabled=True,
             )
             raise ApiKeyError(
                 f"Google Search grounding odmietol API kluc (HTTP {response.status_code}). "
@@ -761,6 +827,8 @@ def run_grounded_web_research(
                 status=f"http_{response.status_code}",
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=last_error_text[:300],
+                attempt=candidate_index + 1,
+                grounding_enabled=True,
             )
             if _is_retryable_gemini_model_error(response.status_code, last_error_text) or 500 <= response.status_code < 600:
                 unavailable_models.append(candidate_model)
@@ -772,12 +840,81 @@ def run_grounded_web_research(
         try:
             data = response.json()
         except json.JSONDecodeError:
+            default_tracker.record_request(
+                model=candidate_model,
+                request_type="grounded_search",
+                phase=tracking_phase,
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="invalid_json",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error="Google Search grounding returned invalid JSON.",
+                attempt=candidate_index + 1,
+                grounding_enabled=True,
+            )
             raise GroundingTransientError("Google Search grounding vratil necitatelnu JSON odpoved.")
 
         if "error" in data:
             error_info = data["error"]
             message = error_info.get("message", str(error_info)) if isinstance(error_info, dict) else str(error_info)
+            default_tracker.record_request(
+                model=candidate_model,
+                request_type="grounded_search",
+                phase=tracking_phase,
+                listing_slug=listing_slug,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                status="upstream_error",
+                duration_ms=round((time.perf_counter() - started_at) * 1000),
+                error=str(message)[:300],
+                attempt=candidate_index + 1,
+                grounding_enabled=True,
+            )
             raise ConnectionError(f"Gemini Google Search grounding chyba: {message}")
+
+        usage = data.get("usageMetadata") or data.get("usage_metadata") or data.get("usage") or {}
+        if not isinstance(usage, dict):
+            usage = {}
+        actual_input_tokens = _usage_value(
+            usage,
+            "promptTokenCount",
+            "prompt_token_count",
+            "inputTokens",
+            "input_tokens",
+        )
+        actual_output_tokens = _usage_value(
+            usage,
+            "candidatesTokenCount",
+            "candidates_token_count",
+            "outputTokens",
+            "output_tokens",
+            "completionTokens",
+            "completion_tokens",
+        )
+        actual_thinking_tokens = _usage_value(
+            usage,
+            "thoughtsTokenCount",
+            "thoughts_token_count",
+            "thinkingTokens",
+            "thinking_tokens",
+            "reasoningTokens",
+            "reasoning_tokens",
+        )
+        cached_input_tokens = _usage_value(
+            usage,
+            "cachedContentTokenCount",
+            "cached_content_token_count",
+            "cachedInputTokens",
+            "cached_input_tokens",
+        )
+        actual_total_tokens = _usage_value(
+            usage,
+            "totalTokenCount",
+            "total_token_count",
+            "totalTokens",
+            "total_tokens",
+        )
 
         research_text = _extract_interaction_text_and_citations(
             data, inline_citations=market_only
@@ -794,6 +931,14 @@ def run_grounded_web_research(
             output_tokens=estimate_output_tokens(output_text),
             status="success",
             duration_ms=round((time.perf_counter() - started_at) * 1000),
+            actual_input_tokens=actual_input_tokens,
+            actual_output_tokens=actual_output_tokens,
+            actual_thinking_tokens=actual_thinking_tokens,
+            cached_input_tokens=cached_input_tokens,
+            actual_total_tokens=actual_total_tokens,
+            grounding_enabled=True,
+            provider_request_id=_response_request_id(response, data),
+            output_chars=len(output_text),
         )
         if research_text:
             return research_text
@@ -899,7 +1044,19 @@ def _call_gemini(
         started_at = time.perf_counter()
         request_model = model_to_use
         input_tokens = estimate_request_tokens(system_prompt, user_content, image_data_list)
-        for candidate_model in model_candidates:
+        request_attempt = 1
+        request_retry_reason = None
+        provider_request_id = None
+        outer_retry_reason = current_tracking_value("retry_reason")
+        for candidate_index, candidate_model in enumerate(model_candidates):
+            request_attempt = candidate_index + 1
+            request_retry_reason = (
+                f"{outer_retry_reason}:model_fallback"
+                if request_attempt > 1 and outer_retry_reason
+                else "model_fallback"
+                if request_attempt > 1
+                else None
+            )
             request_model = candidate_model
             started_at = time.perf_counter()
             url = f"{GEMINI_API_BASE}/{candidate_model}:streamGenerateContent?key={api_key.strip()}&alt=sse"
@@ -916,6 +1073,7 @@ def _call_gemini(
                 stream=True,
                 timeout=120,
             )
+            provider_request_id = _response_request_id(response)
 
             # Do not read response.text for successful streamed responses:
             # it consumes the stream and delays all UI output until completion.
@@ -937,6 +1095,34 @@ def _call_gemini(
                         "http_status": response.status_code,
                     },
                 )
+                if (
+                    candidate_model != model_candidates[-1]
+                    and (
+                        _is_retryable_gemini_model_error(response.status_code, error_text)
+                        or _is_gemini_rate_limit_error(response.status_code, error_text)
+                    )
+                ):
+                    default_tracker.record_request(
+                        model=candidate_model,
+                        request_type="stream_generate_content",
+                        phase=phase,
+                        listing_slug=listing_slug,
+                        input_tokens=input_tokens,
+                        output_tokens=0,
+                        status=(
+                            "rate_limited"
+                            if _is_gemini_rate_limit_error(response.status_code, error_text)
+                            else "unavailable"
+                        ),
+                        duration_ms=round((time.perf_counter() - started_at) * 1000),
+                        error=error_text[:300],
+                        attempt=request_attempt,
+                        retry_reason=request_retry_reason or "model_fallback",
+                        thinking_mode=_thinking_mode_for_request(phase, candidate_model),
+                        max_output_tokens=int(generation_settings["max_output_tokens"]),
+                        grounding_enabled=False,
+                        provider_request_id=provider_request_id,
+                    )
 
             if not (
                 _is_retryable_gemini_model_error(response.status_code, error_text)
@@ -1162,6 +1348,7 @@ def _call_gemini(
         actual_prompt_tokens = None
         actual_output_tokens = None
         actual_thinking_tokens = None
+        cached_input_tokens = None
         actual_total_tokens = None
         finish_reason_seen = ""
         for line in response.iter_lines():
@@ -1176,27 +1363,38 @@ def _call_gemini(
 
             try:
                 data = json.loads(data_str)
+                provider_request_id = _response_request_id(response, data) or provider_request_id
                 usage_metadata = data.get("usageMetadata") or data.get("usage_metadata") or {}
                 if usage_metadata:
-                    actual_prompt_tokens = (
-                        usage_metadata.get("promptTokenCount")
-                        or usage_metadata.get("prompt_token_count")
-                        or actual_prompt_tokens
+                    actual_prompt_tokens = _usage_value(
+                        usage_metadata,
+                        "promptTokenCount",
+                        "prompt_token_count",
+                        previous=actual_prompt_tokens,
                     )
-                    actual_output_tokens = (
-                        usage_metadata.get("candidatesTokenCount")
-                        or usage_metadata.get("candidates_token_count")
-                        or actual_output_tokens
+                    actual_output_tokens = _usage_value(
+                        usage_metadata,
+                        "candidatesTokenCount",
+                        "candidates_token_count",
+                        previous=actual_output_tokens,
                     )
-                    actual_thinking_tokens = (
-                        usage_metadata.get("thoughtsTokenCount")
-                        or usage_metadata.get("thoughts_token_count")
-                        or actual_thinking_tokens
+                    actual_thinking_tokens = _usage_value(
+                        usage_metadata,
+                        "thoughtsTokenCount",
+                        "thoughts_token_count",
+                        previous=actual_thinking_tokens,
                     )
-                    actual_total_tokens = (
-                        usage_metadata.get("totalTokenCount")
-                        or usage_metadata.get("total_token_count")
-                        or actual_total_tokens
+                    cached_input_tokens = _usage_value(
+                        usage_metadata,
+                        "cachedContentTokenCount",
+                        "cached_content_token_count",
+                        previous=cached_input_tokens,
+                    )
+                    actual_total_tokens = _usage_value(
+                        usage_metadata,
+                        "totalTokenCount",
+                        "total_token_count",
+                        previous=actual_total_tokens,
                     )
                 
                 # Check for errors in the response
@@ -1233,7 +1431,16 @@ def _call_gemini(
             actual_input_tokens=actual_prompt_tokens,
             actual_output_tokens=actual_output_tokens,
             actual_thinking_tokens=actual_thinking_tokens,
+            cached_input_tokens=cached_input_tokens,
             actual_total_tokens=actual_total_tokens,
+            attempt=request_attempt,
+            retry_reason=request_retry_reason,
+            thinking_mode=_thinking_mode_for_request(phase, request_model),
+            max_output_tokens=int(generation_settings["max_output_tokens"]),
+            grounding_enabled=False,
+            provider_request_id=provider_request_id,
+            finish_reason=finish_reason_seen or "STOP",
+            output_chars=len(full_text),
             status="truncated" if finish_reason_seen else "success",
             duration_ms=round((time.perf_counter() - started_at) * 1000),
         )

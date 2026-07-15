@@ -641,6 +641,10 @@ Vo\u013En\u00fd text z modelu.
             self.assertTrue(repository.read_text("sample", "grok_research.json"))
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
             self.assertTrue(repository.read_text("sample", "vision_provider_attempts.json"))
+            self.assertTrue(repository.read_text("sample", "text_research_provider_attempts.json"))
+            usage_summary = json.loads(repository.read_text("sample", "ai_usage_summary.json"))
+            self.assertIn("analysis_run_id", usage_summary)
+            self.assertEqual(usage_summary["call_count"], 0)
             self.assertTrue(repository.read_text("sample", "risk_score.json"))
             self.assertIn(
                 "buyer_scorecard",
