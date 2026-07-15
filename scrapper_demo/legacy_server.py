@@ -52,6 +52,7 @@ from scrapper_demo.providers.gemini import (
     GEMINI_TEXT_RESEARCH_MODEL,
     GEMINI_VISION_MODEL,
     analyze as analyze_with_llm,
+    count_tokens as count_gemini_tokens,
     grounded_research as run_grounded_web_research,
     stream_generate as _call_gemini,
 )
@@ -1845,7 +1846,24 @@ def _build_text_research_context(
     output_language="sk",
     web_research_text="",
     component_identity=None,
+    *,
+    research_v2=False,
+    listing_context=None,
+    vin_light_decode=None,
 ):
+    if research_v2:
+        payload = {
+            "listing": listing_context if isinstance(listing_context, dict) else {},
+            "component_identity": component_identity if isinstance(component_identity, dict) else {},
+            "vin_light_check": vin_light_decode if isinstance(vin_light_decode, dict) else {},
+            "grounded_research": str(web_research_text or ""),
+            "output_language": _demo_output_language(output_language),
+        }
+        return (
+            "Normalize only the research-owned evidence in this backend context. "
+            "Do not reproduce backend-owned fields.\n\n"
+            + _compact_json_for_prompt(payload)
+        )
     web_section = ""
     if web_research_text:
         web_section = f"\n\n## Provided web research results\n{web_research_text}"
@@ -3122,15 +3140,50 @@ def _no_photos_vision_result(message="Fotografie neboli poskytnute."):
     )
 
 
-def _stream_text_model(provider, api_key, system_prompt, user_content, listing_slug=None):
+def _stream_text_model(
+    provider,
+    api_key,
+    system_prompt,
+    user_content,
+    listing_slug=None,
+    *,
+    phase=None,
+    max_output_tokens=None,
+    temperature=None,
+):
     if provider == "grok":
-        yield from analyze_with_grok(api_key, system_prompt, user_content, listing_slug=listing_slug)
+        yield from analyze_with_grok(
+            api_key,
+            system_prompt,
+            user_content,
+            listing_slug=listing_slug,
+            phase=phase,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+        )
         return
     if provider == "openrouter":
-        yield from analyze_with_openrouter(api_key, system_prompt, user_content, listing_slug=listing_slug)
+        yield from analyze_with_openrouter(
+            api_key,
+            system_prompt,
+            user_content,
+            listing_slug=listing_slug,
+            phase=phase,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+        )
         return
 
-    yield from _call_gemini(api_key, system_prompt, user_content, image_data_list=None, listing_slug=listing_slug)
+    yield from _call_gemini(
+        api_key,
+        system_prompt,
+        user_content,
+        image_data_list=None,
+        listing_slug=listing_slug,
+        phase=phase,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+    )
 
 
 def _model_display_name(provider):
@@ -3292,6 +3345,7 @@ def _analysis_pipeline_dependencies():
         calculate_risk_score=_pipeline_calculate_risk_score,
         prepare_images=prepare_llm_images,
         stream_text_model=_stream_text_model,
+        count_input_tokens=count_gemini_tokens,
         log=safe_log,
     )
 

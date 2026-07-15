@@ -68,6 +68,9 @@ def analyze_with_openrouter(
     user_content: str,
     model: str | None = None,
     listing_slug: str | None = None,
+    phase: str | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
 ) -> Iterator[str]:
     """
     Send a text-only request through OpenRouter.
@@ -82,6 +85,9 @@ def analyze_with_openrouter(
         user_content,
         model=model,
         listing_slug=listing_slug,
+        phase=phase,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
     )
 
 
@@ -91,6 +97,9 @@ def _call_openrouter(
     user_content: str,
     model: str | None = None,
     listing_slug: str | None = None,
+    phase: str | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
 ) -> Iterator[str]:
     """Call OpenRouter's OpenAI-compatible streaming chat completions API."""
     model_candidates = _openrouter_model_candidates(model)
@@ -103,8 +112,8 @@ def _call_openrouter(
         "model": model_candidates[0],
         "messages": messages,
         "stream": True,
-        "temperature": 0.4,
-        "max_tokens": 32768,
+        "temperature": 0.4 if temperature is None else max(0.0, min(2.0, float(temperature))),
+        "max_tokens": 32768 if max_output_tokens is None else max(256, int(max_output_tokens)),
     }
 
     response = None
@@ -326,7 +335,7 @@ def _call_openrouter(
                 provider_request_id=provider_request_id,
                 finish_reason=finish_reason_seen or "STOP",
                 output_chars=len(full_text),
-                max_output_tokens=32768,
+                max_output_tokens=int(payload["max_tokens"]),
                 thinking_mode="provider_default",
                 grounding_enabled=False,
                 status="success",

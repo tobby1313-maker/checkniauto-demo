@@ -71,16 +71,20 @@ The analysis pipeline is:
    and diagnostic counts are stored in `market_benchmark.json`. Asking prices
    are not transaction prices, so market price never changes the technical
    risk verdict.
-   If structured text/research JSON is interrupted, the pipeline makes one
-   compact recovery attempt and stops rather than publishing an unreliable
-   partial report when recovery also fails.
+   If structured text/research JSON is invalid or truncated, the pipeline makes
+   one compact recovery attempt without repeating web search. If recovery also
+   fails, it continues with a schema-valid unavailable packet, explicitly marks
+   the limitation, and emits no unsupported technical claims.
    Public comparable links use a stricter customer-facing filter than broad
    discovery: the detail URL must be verified, the visible engine,
    transmission, and drivetrain must match (Tier A), and the asking price must
    be within +/-20% of the analyzed listing price. If no offer passes all of
    these checks, the report publishes no comparable-ad link.
-4. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
-   optional provider branches if their keys are explicitly configured.
+4. Run compact Research V2 normalization with Gemini by default. The model owns
+   only evidence summaries, claims, unknowns, conflicts, technical risks, costs,
+   flags, and source references. The backend merges these with canonical listing,
+   identity, VIN, market, benchmark, and verdict data into the compatible
+   `grok_research.json`. Grok and OpenRouter remain optional provider branches.
 5. Run Gemini vision analysis on representative uploaded or scraped photos.
 6. Calculate a deterministic backend listing-screening status. Numeric scores
    and score breakdowns remain private implementation artifacts. Customers see
@@ -111,6 +115,7 @@ scrapper_demo/
   app.py                              Flask application factory
   config.py                           validated environment configuration
   contracts.py                        shared typed boundary contracts
+  ai_policy.py                         immutable phase policies and input budgets
   legacy_server.py                    compatibility composition and local handlers
   logging.py                          Unicode-safe console logging
   direct_market_search.py              deterministic local SK/CZ result-card search
@@ -226,7 +231,7 @@ temp directory in `scrapper-demo/Auta`.
 | `DEMO_MODE` | `true` | Restricts the app to public demo routes. |
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
 | `DEMO_SKIP_KB` | `true` | Prevents public demo analysis from reading or writing the private knowledge base. |
-| `DEMO_ANALYSIS_PROFILE` | `quality_optimized` | Generation profile. `quality_optimized` bounds structured intermediate outputs and final context and disables Gemini thinking for the text/vision JSON phases; `legacy` restores the previous generation limits for rollback. |
+| `DEMO_ANALYSIS_PROFILE` | `quality_optimized` | Generation profile. `quality_optimized` uses Research V2, phase input/output ceilings, Gemini `countTokens`, safe ordered compaction, and minimal/off thinking for structured phases; `legacy` restores the previous research contract and generation limits. |
 | `FLASK_SECRET_KEY` | `dev-demo-secret-change-me` | Flask secret; replace in every deployed environment. |
 | `ADMIN_DASHBOARD_TOKEN` | empty | Required secret for the token dashboard, telemetry, diagnostic artifacts, raw results, and calibration exports. Protected routes return unavailable until configured. |
 | `RISK_SCORER_V2_ACTIVE` | `false` | Activates the offline-calibrated gate scorer. Leave disabled until holdout acceptance criteria pass. |
@@ -263,8 +268,11 @@ Gemini can spend hidden thinking tokens before emitting structured JSON or
 completing the report, which may end in `MAX_TOKENS`. The quality profile uses
 `thinkingBudget=0` for Gemini 2.5 extraction and the native `minimal` thinking
 level for Gemini 3.x extraction. Final synthesis uses a small Gemini 2.5 budget or
-Gemini 3.x `low` thinking, plus a 12,000-token safety ceiling shared by thinking
-and visible output. A backup Gemini key is still used for authentication and quota
+Gemini 3.x `low` thinking, plus a 6,000-token safety ceiling shared by thinking
+and visible output. Research V2 and vision each use a 4,000-token ceiling. Text
+and final inputs are checked with Gemini REST `countTokens`; a failed count falls
+back to a labeled local estimate and does not stop the analysis. A backup Gemini
+key is still used for authentication and quota
 failures; `MAX_TOKENS` is a generation-budget condition, not a key-quota failure.
 
 ## Public Demo UI
@@ -428,7 +436,9 @@ has two administrator-only exports:
   The debugging bundle also includes the sanitized `text_research_provider_attempts.json`
   and `ai_usage_summary.json` artifacts. They contain per-attempt usage, retry,
   grounding, coverage, duration, and estimated-cost telemetry without API keys or
-  raw research/model output.
+  secrets. The raw `research_model_output.json` Research V2 packet is debugging-
+  only; it is excluded from the blind calibration bundle, which receives only the
+  backend-merged canonical `grok_research.json`.
 
 Diagnostic artifact routes, raw results, telemetry, and both exports share the
 same signed administrator session. The endpoints are
@@ -518,6 +528,8 @@ analysis_images/
 
 `analysis_result.md` is the public report shown in the demo dashboard.
 `analysis_result_raw.md` keeps the raw model output before public stripping.
+`research_model_output.json` is an administrator/debugging-only raw Research V2
+packet and is not exposed as a public artifact or blind calibration input.
 
 ## Models And Fallbacks
 

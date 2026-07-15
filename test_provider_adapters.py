@@ -14,18 +14,41 @@ from scrapper_demo.providers.errors import (
 
 
 class FakeResponse:
-    def __init__(self, status_code, *, text="", lines=None, headers=None):
+    def __init__(self, status_code, *, text="", lines=None, headers=None, json_data=None):
         self.status_code = status_code
         self.text = text
         self._lines = list(lines or [])
         self.headers = dict(headers or {})
         self.encoding = None
+        self._json_data = json_data
 
     def iter_lines(self):
         return iter(self._lines)
 
+    def json(self):
+        return self._json_data
+
 
 class ProviderAdapterTest(unittest.TestCase):
+    def test_gemini_count_tokens_uses_rest_payload_and_returns_provider_method(self):
+        response = FakeResponse(200, json_data={"totalTokens": 321})
+        with patch.object(gemini.requests, "post", return_value=response) as post:
+            result = gemini.count_tokens(
+                "secret",
+                "system prompt",
+                "user content",
+                model="gemini-2.5-flash",
+            )
+
+        self.assertEqual(result, (321, "gemini_count_tokens"))
+        self.assertTrue(post.call_args.args[0].endswith(":countTokens"))
+        self.assertEqual(post.call_args.kwargs["headers"]["x-goog-api-key"], "secret")
+        payload = post.call_args.kwargs["json"]
+        request = payload["generateContentRequest"]
+        self.assertEqual(request["model"], "models/gemini-2.5-flash")
+        self.assertEqual(request["systemInstruction"]["parts"][0]["text"], "system prompt")
+        self.assertEqual(request["contents"][0]["parts"][0]["text"], "user content")
+
     def test_grounding_redirect_is_preserved_until_it_can_be_resolved(self):
         redirect_url = (
             "https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc123"
@@ -226,8 +249,8 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(record_request.call_args.kwargs["actual_output_tokens"], 3)
         self.assertEqual(record_request.call_args.kwargs["actual_thinking_tokens"], 5)
         self.assertEqual(record_request.call_args.kwargs["actual_total_tokens"], 19)
-        self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 12000)
-        self.assertEqual(payloads[0]["generationConfig"]["temperature"], 0.2)
+        self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 4000)
+        self.assertEqual(payloads[0]["generationConfig"]["temperature"], 0.1)
         self.assertEqual(
             payloads[0]["generationConfig"]["thinkingConfig"],
             {"thinkingBudget": 0},
@@ -295,15 +318,15 @@ class ProviderAdapterTest(unittest.TestCase):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
             self.assertEqual(
                 gemini._generation_settings("text_research"),
-                {"max_output_tokens": 12000, "temperature": 0.2},
+                {"max_output_tokens": 4000, "temperature": 0.1},
             )
             self.assertEqual(
                 gemini._generation_settings("vision"),
-                {"max_output_tokens": 8000, "temperature": 0.2},
+                {"max_output_tokens": 4000, "temperature": 0.1},
             )
             self.assertEqual(
                 gemini._generation_settings("final_synthesis"),
-                {"max_output_tokens": 12000, "temperature": 0.5},
+                {"max_output_tokens": 6000, "temperature": 0.3},
             )
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
             self.assertEqual(
@@ -360,7 +383,7 @@ class ProviderAdapterTest(unittest.TestCase):
             )
 
         config = payloads[0]["generationConfig"]
-        self.assertEqual(config["maxOutputTokens"], 12000)
+        self.assertEqual(config["maxOutputTokens"], 6000)
         self.assertEqual(config["thinkingConfig"], {"thinkingLevel": "low"})
         self.assertNotIn("responseMimeType", config)
 

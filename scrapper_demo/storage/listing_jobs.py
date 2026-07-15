@@ -42,6 +42,7 @@ PUBLIC_ARTIFACTS = (
 
 INTERNAL_ARTIFACTS = PUBLIC_ARTIFACTS + (
     "kb_autosave.json",
+    "research_model_output.json",
     "text_research_provider_attempts.json",
     "ai_usage_summary.json",
 )
@@ -64,6 +65,7 @@ ARTIFACT_LABELS = {
     "market_benchmark.json": "Deterministic background market benchmark",
     "web_research.md": "Grounded web research",
     "grok_research.json": "Text/research JSON",
+    "research_model_output.json": "Raw Research V2 model packet",
     "gemini_vision.json": "Vision JSON",
     "vision_provider_attempts.json": "Sanitized vision provider attempts",
     "risk_score.json": "Backend risk score",

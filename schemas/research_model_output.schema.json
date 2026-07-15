@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research Model Output V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_role",
+    "evidence_summary",
+    "seller_claims",
+    "missing_or_uncertain_data",
+    "data_conflicts",
+    "consistency_checks",
+    "safety_and_recall",
+    "web_research_findings",
+    "technical_risks",
+    "expected_costs",
+    "text_research_risk_flags",
+    "sources_used"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "source_role": {"type": "string", "const": "research_model_output"},
+    "evidence_summary": {
+      "type": "object",
+      "required": ["data_completeness_score", "overall_confidence", "strongest_evidence", "weakest_evidence"],
+      "properties": {
+        "data_completeness_score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "overall_confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+        "strongest_evidence": {"type": "array", "maxItems": 4, "items": {"type": "string"}},
+        "weakest_evidence": {"type": "array", "maxItems": 4, "items": {"type": "string"}}
+      }
+    },
+    "seller_claims": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
+    "missing_or_uncertain_data": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
+    "data_conflicts": {"type": "array", "maxItems": 3, "items": {"type": "object"}},
+    "consistency_checks": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
+    "safety_and_recall": {"type": "object"},
+    "web_research_findings": {"type": "array", "maxItems": 5, "items": {"type": "object"}},
+    "technical_risks": {"type": "array", "maxItems": 6, "items": {"type": "object"}},
+    "expected_costs": {"type": "array", "maxItems": 6, "items": {"type": "object"}},
+    "text_research_risk_flags": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
+    "sources_used": {"type": "array", "maxItems": 8, "items": {"type": "object"}}
+  }
+}

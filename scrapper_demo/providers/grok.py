@@ -45,6 +45,9 @@ def analyze_with_grok(
     user_content: str,
     model: str | None = None,
     listing_slug: str | None = None,
+    phase: str | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
 ) -> Iterator[str]:
     """
     Send a request to xAI Grok and yield response chunks.
@@ -60,6 +63,9 @@ def analyze_with_grok(
         user_content,
         model=model,
         listing_slug=listing_slug,
+        phase=phase,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
     )
 
 
@@ -69,6 +75,9 @@ def _call_grok(
     user_content: str,
     model: str | None = None,
     listing_slug: str | None = None,
+    phase: str | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
 ) -> Iterator[str]:
     """
     Call xAI Grok API (OpenAI-compatible chat completions format).
@@ -89,8 +98,8 @@ def _call_grok(
         "model": model_to_use,
         "messages": messages,
         "stream": True,
-        "temperature": 0.7,
-        "max_tokens": 65536,
+        "temperature": 0.7 if temperature is None else max(0.0, min(2.0, float(temperature))),
+        "max_tokens": 65536 if max_output_tokens is None else max(256, int(max_output_tokens)),
     }
 
     try:
@@ -294,7 +303,7 @@ def _call_grok(
             provider_request_id=provider_request_id,
             finish_reason=finish_reason_seen or "STOP",
             output_chars=len(full_text),
-            max_output_tokens=65536,
+            max_output_tokens=int(payload["max_tokens"]),
             thinking_mode="provider_default",
             grounding_enabled=False,
             status="success",

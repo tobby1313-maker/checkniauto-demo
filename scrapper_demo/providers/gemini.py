@@ -11,6 +11,7 @@ from typing import Any
 
 import requests
 
+from scrapper_demo.ai_policy import analysis_profile, get_phase_policy
 from token_tracker import (
     current_tracking_value,
     default_tracker,
@@ -56,15 +57,6 @@ GEMINI_GROUNDING_FALLBACK_MODELS = [
 LEGACY_GENERATION_SETTINGS = {
     "max_output_tokens": 65536,
     "temperature": 0.7,
-}
-QUALITY_GENERATION_SETTINGS = {
-    # Structured phases need enough headroom to finish valid JSON. These are
-    # still far below the legacy 65k cap and are bounded by compact prompts.
-    "text_research": {"max_output_tokens": 12000, "temperature": 0.2},
-    "vision": {"max_output_tokens": 8000, "temperature": 0.2},
-    # This is a safety ceiling, not a target. Gemini counts hidden thinking and
-    # visible report tokens together against it.
-    "final_synthesis": {"max_output_tokens": 12000, "temperature": 0.5},
 }
 # Gemini 2.5 Flash enables thinking by default.  The text-research and vision
 # phases are contract-bound JSON extraction steps, so hidden reasoning can
@@ -146,11 +138,19 @@ def _generation_settings(
     temperature: float | None = None,
 ) -> dict[str, float | int]:
     """Return phase settings while retaining a runtime rollback profile."""
-    profile = os.environ.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+    profile = analysis_profile()
     if profile == "legacy" or not phase:
         settings = dict(LEGACY_GENERATION_SETTINGS)
     else:
-        settings = dict(QUALITY_GENERATION_SETTINGS.get(phase, LEGACY_GENERATION_SETTINGS))
+        try:
+            policy = get_phase_policy(phase, profile=profile)
+        except KeyError:
+            settings = dict(LEGACY_GENERATION_SETTINGS)
+        else:
+            settings = {
+                "max_output_tokens": policy.max_output_tokens or LEGACY_GENERATION_SETTINGS["max_output_tokens"],
+                "temperature": policy.temperature,
+            }
     if max_output_tokens is not None:
         settings["max_output_tokens"] = max(256, int(max_output_tokens))
     if temperature is not None:
@@ -160,18 +160,74 @@ def _generation_settings(
 
 def _thinking_config(phase: str | None, model: str | None = None) -> dict[str, int | str]:
     """Return phase/model-specific Gemini thinking controls."""
-    profile = os.environ.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+    profile = analysis_profile()
     if profile == "legacy" or not phase:
         return {}
+    try:
+        thinking_mode = get_phase_policy(phase, profile=profile).thinking_mode
+    except KeyError:
+        thinking_mode = "default"
     model_name = str(model or "").strip().lower().split("/")[-1]
     if model_name.startswith("gemini-3"):
         # Gemini 3.x uses thinkingLevel; numeric thinkingBudget is only a
         # backwards-compatibility path and may be ignored in practice.
-        if phase in {"text_research", "vision"}:
+        if thinking_mode in {"off", "minimal"}:
             return {"thinkingLevel": "minimal"}
-        if phase == "final_synthesis":
+        if thinking_mode == "low":
             return {"thinkingLevel": "low"}
+    if thinking_mode == "off":
+        return {"thinkingBudget": 0}
+    if thinking_mode.startswith("budget:"):
+        try:
+            return {"thinkingBudget": int(thinking_mode.split(":", 1)[1])}
+        except ValueError:
+            return {}
     return dict(QUALITY_THINKING_CONFIG.get(phase, {}))
+
+
+def count_tokens(
+    api_key: str,
+    system_prompt: str,
+    user_content: str,
+    *,
+    model: str | None = None,
+    timeout: int = 20,
+) -> tuple[int, str]:
+    """Count text input with the Gemini REST tokenizer, without generating output."""
+    if not api_key or not api_key.strip():
+        raise ApiKeyError("Gemini API key is required for countTokens.")
+    model_name = str(model or GEMINI_MODEL).strip().split("/")[-1]
+    url = f"{GEMINI_API_BASE}/{model_name}:countTokens"
+    payload = {
+        "generateContentRequest": {
+            "model": f"models/{model_name}",
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [
+                {"role": "user", "parts": [{"text": user_content}]}
+            ],
+        }
+    }
+    response = requests.post(
+        url,
+        json=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key.strip(),
+        },
+        timeout=timeout,
+    )
+    if response.status_code != 200:
+        detail = response.text[:300] if response.text else ""
+        raise ConnectionError(
+            f"Gemini countTokens failed with HTTP {response.status_code}: {detail}"
+        )
+    data = response.json()
+    value = data.get("totalTokens")
+    if value is None:
+        value = data.get("total_tokens")
+    if value is None:
+        raise ValueError("Gemini countTokens response did not include totalTokens.")
+    return int(value), "gemini_count_tokens"
 
 
 def _is_retryable_gemini_model_error(status_code: int, error_text: str = "") -> bool:
@@ -1015,7 +1071,7 @@ def _call_gemini(
         "topK": 40,
         "maxOutputTokens": generation_settings["max_output_tokens"],
     }
-    if phase in {"text_research", "vision"}:
+    if phase in {"text_research", "text_recovery", "vision", "vision_recovery"}:
         generation_config["responseMimeType"] = "application/json"
     payload: dict[str, Any] = {
         "system_instruction": {

@@ -10,11 +10,14 @@ from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
+    _canonical_research_from_v2,
     _merge_backend_evidence,
     _promote_selected_key,
     _research_parse_failed,
+    _unavailable_research_model_output,
     _unavailable_vision_payload,
     _valid_vision_payload,
+    _valid_research_model_output,
     multi_model_analysis_events,
 )
 from scrapper_demo.storage import ListingJobRepository
@@ -65,6 +68,48 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_research_v2_merges_only_model_owned_fields_with_backend_facts(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 70
+        packet["web_research_findings"] = [{"claim": "Supported finding"}]
+        packet["technical_risks"] = [{"component": "engine", "issue": "Inspection point"}]
+
+        merged = _canonical_research_from_v2(
+            packet,
+            {
+                "title": "Backend title",
+                "price": "11800 EUR",
+                "year": 2014,
+                "mileage_km": 205350,
+                "engine": "2.0 TSI",
+                "transmission": "DSG",
+                "drive": "4x4",
+            },
+            {"schema_version": 1, "identification_status": "PROBABLE"},
+        )
+
+        self.assertEqual(merged["source_role"], "text_research")
+        self.assertEqual(merged["listing_facts"]["price"], "11800 EUR")
+        self.assertEqual(merged["listing_facts"]["advertised_mileage_km"], 205350)
+        self.assertEqual(merged["component_identity"]["identification_status"], "PROBABLE")
+        self.assertEqual(merged["technical_risks"][0]["issue"], "Inspection point")
+        self.assertEqual(merged["market_comparables"], [])
+
+    def test_research_v2_rejects_array_overflow_and_has_safe_double_failure_fallback(self):
+        packet = _unavailable_research_model_output("Both attempts failed")
+        self.assertTrue(_valid_research_model_output(packet))
+        packet["seller_claims"] = [{} for _ in range(5)]
+        self.assertFalse(_valid_research_model_output(packet))
+
+        fallback = _canonical_research_from_v2(
+            _unavailable_research_model_output("Both attempts failed"),
+            {"title": "Known listing", "year": 2014},
+            {"schema_version": 1, "identification_status": "UNKNOWN"},
+        )
+        self.assertEqual(fallback["research_status"], "unavailable")
+        self.assertEqual(fallback["technical_risks"], [])
+        self.assertIn("Both attempts failed", fallback["missing_or_uncertain_data"][0]["why_it_matters"])
+
     def test_successful_backup_key_is_reused_first_for_later_phases(self):
         entries = [
             {"key": "limited", "label": "primary"},
@@ -520,6 +565,7 @@ Vo\u013En\u00fd text z modelu.
             prompt_dir.mkdir()
             for filename in (
                 "grok_text_research_system.md",
+                "research_v2_system.md",
                 "gemini_vision_system.md",
                 "grok_final_synthesis_system.md",
             ):
@@ -543,7 +589,30 @@ Vo\u013En\u00fd text z modelu.
                 if phase == "web research":
                     return "### Orientacna cena / trh\n- Bez priamych URL.", entries[0]
                 if phase == "text/research analysis":
-                    return '{"listing_facts": {}, "vin_check": {}}', entries[0]
+                    return '{"schema_version":2', entries[0]
+                if phase == "text/research JSON recovery":
+                    return json.dumps(
+                        {
+                            "schema_version": 2,
+                            "source_role": "research_model_output",
+                            "evidence_summary": {
+                                "data_completeness_score": 50,
+                                "overall_confidence": "MEDIUM",
+                                "strongest_evidence": [],
+                                "weakest_evidence": [],
+                            },
+                            "seller_claims": [],
+                            "missing_or_uncertain_data": [],
+                            "data_conflicts": [],
+                            "consistency_checks": [],
+                            "safety_and_recall": {},
+                            "web_research_findings": [],
+                            "technical_risks": [],
+                            "expected_costs": [],
+                            "text_research_risk_flags": [],
+                            "sources_used": [],
+                        }
+                    ), entries[0]
                 raise AssertionError(f"Unexpected collected phase: {phase}")
 
             dependencies = replace(
@@ -688,6 +757,10 @@ Vo\u013En\u00fd text z modelu.
                     "text/research analysis",
                 ],
             )
+            self.assertEqual(
+                collected_phases.count("text/research JSON recovery"),
+                1,
+            )
             self.assertTrue(repository.read_text("sample", "listing_facts.json"))
             self.assertTrue(repository.read_text("sample", "component_identity_research.md"))
             self.assertTrue(repository.read_text("sample", "component_identity.json"))
@@ -695,6 +768,7 @@ Vo\u013En\u00fd text z modelu.
             self.assertTrue(repository.read_text("sample", "market_research.md"))
             self.assertTrue(repository.read_text("sample", "market_search_results.json"))
             self.assertTrue(repository.read_text("sample", "grok_research.json"))
+            self.assertTrue(repository.read_text("sample", "research_model_output.json"))
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
             self.assertTrue(repository.read_text("sample", "vision_provider_attempts.json"))
             self.assertTrue(repository.read_text("sample", "text_research_provider_attempts.json"))
@@ -709,6 +783,8 @@ Vo\u013En\u00fd text z modelu.
                 text_attempts["attempts"][0]["provider_calls"][0]["estimated_input_tokens"],
                 9281,
             )
+            self.assertEqual(text_attempts["attempt_count"], 2)
+            self.assertTrue(text_attempts["attempts"][1]["schema_valid"])
             usage_summary = json.loads(repository.read_text("sample", "ai_usage_summary.json"))
             self.assertIn("analysis_run_id", usage_summary)
             self.assertEqual(usage_summary["call_count"], 0)

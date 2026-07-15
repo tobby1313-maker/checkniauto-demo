@@ -23,7 +23,14 @@ from scrapper_demo.contracts import (
 from scrapper_demo.providers.errors import (
     ApiKeyError,
     GroundingTransientError,
+    ModelOutputLimitError,
     RateLimitError,
+)
+from scrapper_demo.ai_policy import (
+    BudgetResult,
+    analysis_profile,
+    check_and_compact_input,
+    get_phase_policy,
 )
 from scrapper_demo.providers.gemini import (
     GEMINI_FINAL_FALLBACK_MODELS,
@@ -110,6 +117,7 @@ class AnalysisPipelineDependencies:
     ensure_end_analysis_marker: Callable[[str], str] = _ensure_end_analysis_marker
     write_validation_warnings: Callable[..., str | None] = _write_validation_warnings
     extract_kb_blocks: Callable[[str], list[dict[str, Any]]] = extract_kb_save_blocks
+    count_input_tokens: Callable[..., tuple[int, str]] | None = None
 
 
 def _sse_event(**payload: Unpack[SSEPayload]) -> str:
@@ -151,6 +159,153 @@ def _research_parse_failed(value: Any) -> bool:
         or value.get("_parse_error") is True
         or ("raw_preview" in value and "source_role" not in value)
     )
+
+
+RESEARCH_V2_ARRAY_LIMITS = {
+    "seller_claims": 4,
+    "missing_or_uncertain_data": 4,
+    "data_conflicts": 3,
+    "consistency_checks": 4,
+    "web_research_findings": 5,
+    "technical_risks": 6,
+    "expected_costs": 6,
+    "text_research_risk_flags": 4,
+    "sources_used": 8,
+}
+RESEARCH_V2_REQUIRED_FIELDS = {
+    "schema_version",
+    "source_role",
+    "evidence_summary",
+    "safety_and_recall",
+    *RESEARCH_V2_ARRAY_LIMITS,
+}
+
+
+def _valid_research_model_output(value: Any) -> bool:
+    """Validate the strict top-level Research V2 contract before canonical merge."""
+    if (
+        not isinstance(value, dict)
+        or value.get("_parse_error") is True
+        or value.get("schema_version") != 2
+        or value.get("source_role") != "research_model_output"
+        or not RESEARCH_V2_REQUIRED_FIELDS <= set(value)
+        or not isinstance(value.get("evidence_summary"), dict)
+        or not isinstance(value.get("safety_and_recall"), dict)
+    ):
+        return False
+    return all(
+        isinstance(value.get(field), list) and len(value[field]) <= limit
+        for field, limit in RESEARCH_V2_ARRAY_LIMITS.items()
+    )
+
+
+def _unavailable_research_model_output(
+    reason: str = "Research model output was unavailable.",
+) -> dict[str, Any]:
+    """Return a schema-valid, claim-free Research V2 fallback."""
+    message = str(reason or "Research model output was unavailable.")[:300]
+    return {
+        "schema_version": 2,
+        "source_role": "research_model_output",
+        "evidence_summary": {
+            "data_completeness_score": 0,
+            "overall_confidence": "LOW",
+            "strongest_evidence": [],
+            "weakest_evidence": [message],
+        },
+        "seller_claims": [],
+        "missing_or_uncertain_data": [
+            {
+                "item": "Automatic technical research",
+                "why_it_matters": message,
+                "severity": "high",
+            }
+        ],
+        "data_conflicts": [],
+        "consistency_checks": [],
+        "safety_and_recall": {
+            "status": "INSUFFICIENT_DATA",
+            "summary": "Automatic recall research was unavailable.",
+            "required_action": "Verify campaigns manually with the VIN.",
+            "evidence_category": "NEEDS_VERIFICATION",
+            "source_ids": [],
+        },
+        "web_research_findings": [],
+        "technical_risks": [],
+        "expected_costs": [],
+        "text_research_risk_flags": [],
+        "sources_used": [],
+    }
+
+
+def _canonical_research_from_v2(
+    packet: dict[str, Any],
+    listing_context: dict[str, Any],
+    component_identity: dict[str, Any],
+    vin_light_decode: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge model-owned Research V2 fields with backend-owned canonical data."""
+    canonical = {
+        "source_role": "text_research",
+        "research_packet_schema_version": 2,
+        "research_status": "unavailable"
+        if packet.get("evidence_summary", {}).get("data_completeness_score") == 0
+        and not packet.get("web_research_findings")
+        else "completed",
+        "component_identity": {},
+        "evidence_summary": dict(packet.get("evidence_summary") or {}),
+        "listing_facts": {},
+        "seller_claims": list(packet.get("seller_claims") or []),
+        "missing_or_uncertain_data": list(packet.get("missing_or_uncertain_data") or []),
+        "data_conflicts": list(packet.get("data_conflicts") or []),
+        "consistency_checks": list(packet.get("consistency_checks") or []),
+        "vin_check": {},
+        "safety_and_recall": dict(packet.get("safety_and_recall") or {}),
+        "knowledge_base_findings": [],
+        "web_research_findings": list(packet.get("web_research_findings") or []),
+        "technical_risks": list(packet.get("technical_risks") or []),
+        "market_assessment": {
+            "available": False,
+            "benchmark_available": False,
+            "benchmark_confidence": "LOW",
+            "benchmark_scope": "EU_MIXED_BACKGROUND",
+            "summary": "Aktuálne porovnanie trhu vyžaduje manuálne online overenie.",
+            "price_view": "requires_manual_verification",
+        },
+        "market_comparables": [],
+        "expected_costs": list(packet.get("expected_costs") or []),
+        "text_research_risk_flags": list(packet.get("text_research_risk_flags") or []),
+        "sources_used": list(packet.get("sources_used") or []),
+    }
+    return _merge_backend_evidence(
+        canonical,
+        listing_context,
+        component_identity,
+        vin_light_decode,
+    )
+
+
+def _budget_diagnostics(result: BudgetResult) -> dict[str, Any]:
+    return {
+        "pre_tokens": result.pre_tokens,
+        "post_tokens": result.post_tokens,
+        "max_input_tokens": result.max_input_tokens,
+        "within_budget": result.within_budget,
+        "counting_method": result.counting_method,
+        "applied_compactions": list(result.applied_compactions),
+        "warnings": list(result.warnings),
+    }
+
+
+def _policy_diagnostics(policy: Any) -> dict[str, Any]:
+    return {
+        "max_input_tokens": policy.max_input_tokens,
+        "max_output_tokens": policy.max_output_tokens,
+        "visible_target_tokens": policy.visible_target_tokens,
+        "temperature": policy.temperature,
+        "thinking_mode": policy.thinking_mode,
+        "max_attempts": policy.max_attempts,
+    }
 
 
 VISION_REQUIRED_FIELDS = {
@@ -1056,6 +1211,8 @@ def _multi_model_analysis_events(
         return
 
     car_info_text = repository.read_text(slug, "car_info.md", default="") or ""
+    active_profile = analysis_profile()
+    research_v2_active = active_profile != "legacy"
     diagnostics: dict[str, Any] = {
         "schema_version": 1,
         "analysis_run_id": current_tracking_value("analysis_run_id", ""),
@@ -1064,6 +1221,8 @@ def _multi_model_analysis_events(
         "build_commit": os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT") or "",
         "risk_scorer_v2_active": os.environ.get("RISK_SCORER_V2_ACTIVE", "").strip().lower()
         in {"1", "true", "yes", "on"},
+        "analysis_profile": active_profile,
+        "research_packet_version": 2 if research_v2_active else 1,
         "models": {
             "component_identity_grounding": GEMINI_GROUNDING_MODEL,
             "reliability_grounding": GEMINI_GROUNDING_MODEL,
@@ -1079,6 +1238,17 @@ def _multi_model_analysis_events(
 
     def save_diagnostics() -> None:
         repository.write_json(slug, "analysis_diagnostics.json", diagnostics)
+
+    def token_counter(model_name: str) -> Callable[[str, str], tuple[int, str]] | None:
+        if dependencies.count_input_tokens is None or not gemini_key_entries:
+            return None
+        key = gemini_key_entries[0]["key"]
+        return lambda system, content: dependencies.count_input_tokens(
+            key,
+            system,
+            content,
+            model=model_name,
+        )
 
     save_diagnostics()
     vin_light_decode = _read_vin_light_decode(repository, slug)
@@ -1489,9 +1659,12 @@ def _multi_model_analysis_events(
     text_model_name = dependencies.model_display_name(text_provider)
 
     yield _status_event(f"Phase 1/4: {text_model_name} text and research analysis...")
-    text_research_prompt_path = dependencies.prompt_dir / "grok_text_research_system.md"
+    text_research_prompt_name = (
+        "research_v2_system.md" if research_v2_active else "grok_text_research_system.md"
+    )
+    text_research_prompt_path = dependencies.prompt_dir / text_research_prompt_name
     if not os.path.exists(text_research_prompt_path):
-        yield _error_event("grok_text_research_system.md not found.")
+        yield _error_event(f"{text_research_prompt_name} not found.")
         return
     with open(text_research_prompt_path, "r", encoding="utf-8") as f:
         text_research_system_prompt = f.read()
@@ -1503,7 +1676,45 @@ def _multi_model_analysis_events(
         output_language,
         text_research_web_context,
         component_identity,
+        research_v2=research_v2_active,
+        listing_context=listing_context_data,
+        vin_light_decode=vin_light_decode,
     )
+
+    research_policy = get_phase_policy("text_research", profile=active_profile)
+    if research_v2_active:
+        text_research_system_prompt += (
+            f"\n\nRuntime visible-output target: at most {research_policy.visible_target_tokens} tokens."
+        )
+    protected_research_values = tuple(
+        value
+        for value in (
+            listing_context_data.get("vin"),
+            listing_context_data.get("price"),
+            listing_context_data.get("year"),
+            listing_context_data.get("mileage"),
+            listing_context_data.get("engine"),
+            listing_context_data.get("transmission"),
+            listing_context_data.get("drive"),
+        )
+        if value not in (None, "", [], {})
+    )
+    research_budget = check_and_compact_input(
+        text_research_system_prompt,
+        text_research_content,
+        research_policy,
+        count_tokens=token_counter(GEMINI_TEXT_RESEARCH_MODEL),
+        protected_values=protected_research_values,
+    )
+    text_research_content = research_budget.user_content
+    diagnostics["phases"]["text_research"]["input_budget"] = _budget_diagnostics(
+        research_budget
+    )
+    diagnostics["phases"]["text_research"]["policy"] = _policy_diagnostics(
+        research_policy
+    )
+    save_diagnostics()
+
 
     def save_text_research_attempts(
         *,
@@ -1511,10 +1722,11 @@ def _multi_model_analysis_events(
         recovery_valid: bool | None = None,
     ) -> None:
         """Persist sanitized initial/recovery usage, never provider raw text."""
-        provider_entries = default_tracker.get_requests_for_run(
-            str(current_tracking_value("analysis_run_id") or ""),
-            phase="text_research",
-        )
+        run_id = str(current_tracking_value("analysis_run_id") or "")
+        provider_entries = [
+            *default_tracker.get_requests_for_run(run_id, phase="text_research"),
+            *default_tracker.get_requests_for_run(run_id, phase="text_recovery"),
+        ]
         attempts: list[dict[str, Any]] = []
         def is_recovery_entry(item: dict[str, Any]) -> bool:
             return "json_recovery" in str(item.get("retry_reason") or "").lower()
@@ -1635,28 +1847,35 @@ def _multi_model_analysis_events(
             },
         )
 
-    input_tokens = dependencies.estimate_request_tokens(text_research_system_prompt, text_research_content)
+    input_tokens = research_budget.post_tokens
     yield _token_event(input_tokens, 0)
+    initial_generation_error = ""
     if text_provider == "gemini":
-        with tracking_context(
-            phase="text_research",
-            attempt=1,
-            retry_reason=None,
-            grounding_enabled=False,
-        ):
-            text_research_json_text, _text_key = yield from dependencies.collect_gemini(
-                gemini_key_entries,
-                "text/research analysis",
-                lambda key: dependencies.call_gemini(
-                    key,
-                    text_research_system_prompt,
-                    text_research_content,
-                    image_data_list=None,
-                    model=GEMINI_TEXT_RESEARCH_MODEL,
-                    listing_slug=slug,
-                    phase="text_research",
-                ),
-            )
+        try:
+            with tracking_context(
+                phase="text_research",
+                attempt=1,
+                retry_reason=None,
+                grounding_enabled=False,
+            ):
+                text_research_json_text, _text_key = yield from dependencies.collect_gemini(
+                    gemini_key_entries,
+                    "text/research analysis",
+                    lambda key: dependencies.call_gemini(
+                        key,
+                        text_research_system_prompt,
+                        text_research_content,
+                        image_data_list=None,
+                        model=GEMINI_TEXT_RESEARCH_MODEL,
+                        listing_slug=slug,
+                        phase="text_research",
+                        max_output_tokens=research_policy.max_output_tokens,
+                        temperature=research_policy.temperature,
+                    ),
+                )
+        except ModelOutputLimitError as exc:
+            initial_generation_error = f"{type(exc).__name__}: {exc}"[:500]
+            dependencies.log(f"Text/research output was truncated: {exc}")
     else:
         try:
             with tracking_context(
@@ -1665,8 +1884,20 @@ def _multi_model_analysis_events(
                 retry_reason=None,
                 grounding_enabled=False,
             ):
-                for chunk in dependencies.stream_text_model(text_provider, text_api_key, text_research_system_prompt, text_research_content, listing_slug=slug):
+                for chunk in dependencies.stream_text_model(
+                    text_provider,
+                    text_api_key,
+                    text_research_system_prompt,
+                    text_research_content,
+                    listing_slug=slug,
+                    phase="text_research",
+                    max_output_tokens=research_policy.max_output_tokens,
+                    temperature=research_policy.temperature,
+                ):
                     text_research_json_text += chunk
+        except ModelOutputLimitError as exc:
+            initial_generation_error = f"{type(exc).__name__}: {exc}"[:500]
+            dependencies.log(f"Text/research output was truncated: {exc}")
         except (RateLimitError, ConnectionError) as exc:
             if text_provider != "openrouter":
                 raise
@@ -1692,26 +1923,51 @@ def _multi_model_analysis_events(
                         model=GEMINI_TEXT_RESEARCH_MODEL,
                         listing_slug=slug,
                         phase="text_research",
+                        max_output_tokens=research_policy.max_output_tokens,
+                        temperature=research_policy.temperature,
                     ),
                 )
     try:
         research_data = dependencies.safe_model_json(text_research_json_text)
     except Exception:
         research_data = {"_parse_error": True}
-    initial_research_valid = not _research_parse_failed(research_data)
+    initial_research_valid = (
+        _valid_research_model_output(research_data)
+        if research_v2_active
+        else not _research_parse_failed(research_data)
+    )
+    if research_v2_active:
+        repository.write_text(slug, "research_model_output.json", text_research_json_text)
     save_text_research_attempts(initial_valid=initial_research_valid)
-    if _research_parse_failed(research_data):
+    if not initial_research_valid:
         yield _status_event("Text/research JSON was incomplete; retrying once with a compact recovery response...")
-        recovery_content = (
-            text_research_content
-            + "\n\nRECOVERY REQUIREMENT: The previous response was incomplete JSON. "
+        recovery_policy = get_phase_policy("text_recovery", profile=active_profile)
+        recovery_content = text_research_content + (
+            "\n\nRECOVERY REQUIREMENT: The previous response was invalid or truncated. "
+            "Return one complete schema-valid JSON object. Do not search again, add facts, "
+            "or reproduce backend-owned listing, identity, VIN, market, score, verdict, or report fields."
+            if research_v2_active
+            else
+            "\n\nRECOVERY REQUIREMENT: The previous response was incomplete JSON. "
             "Regenerate the complete schema from the supplied evidence. Be concise: use at most "
             "4 technical risks, 4 web findings, 4 comparables, 6 expected costs, and short strings. "
             "Return one complete JSON object and close every array/object."
         )
+        recovery_budget = check_and_compact_input(
+            text_research_system_prompt,
+            recovery_content,
+            recovery_policy,
+            count_tokens=token_counter(GEMINI_TEXT_RESEARCH_MODEL),
+            protected_values=protected_research_values,
+        )
+        recovery_content = recovery_budget.user_content
+        diagnostics["phases"]["text_research"]["recovery_input_budget"] = (
+            _budget_diagnostics(recovery_budget)
+        )
+        save_diagnostics()
         try:
             with tracking_context(
-                phase="text_research",
+                phase="text_recovery" if research_v2_active else "text_research",
                 attempt=2,
                 retry_reason="json_recovery",
                 grounding_enabled=False,
@@ -1726,33 +1982,69 @@ def _multi_model_analysis_events(
                         image_data_list=None,
                         model=GEMINI_TEXT_RESEARCH_MODEL,
                         listing_slug=slug,
-                        phase="text_research",
+                        phase="text_recovery" if research_v2_active else "text_research",
+                        max_output_tokens=recovery_policy.max_output_tokens,
+                        temperature=recovery_policy.temperature,
                     ),
                 )
             research_data = dependencies.safe_model_json(text_research_json_text)
         except Exception as recovery_exc:
             dependencies.log(f"Text/research JSON recovery failed: {recovery_exc}")
             research_data = {"_parse_error": True}
-        if _research_parse_failed(research_data):
+        recovery_valid = (
+            _valid_research_model_output(research_data)
+            if research_v2_active
+            else not _research_parse_failed(research_data)
+        )
+        if not recovery_valid:
             save_text_research_attempts(
                 initial_valid=initial_research_valid,
                 recovery_valid=False,
             )
-            repository.write_text(slug, "grok_research.json", text_research_json_text)
-            yield _error_event(
-                "Text/research analysis returned incomplete JSON twice. Analysis stopped before creating an unreliable report."
+            if not research_v2_active:
+                repository.write_text(slug, "grok_research.json", text_research_json_text)
+                yield _error_event(
+                    "Text/research analysis returned incomplete JSON twice. Analysis stopped before creating an unreliable report."
+                )
+                return
+            fallback_reason = initial_generation_error or "Research V2 returned invalid JSON twice."
+            research_data = _unavailable_research_model_output(fallback_reason)
+            text_research_json_text = dependencies.compact_json_for_prompt(research_data)
+            repository.write_text(slug, "research_model_output.json", text_research_json_text)
+            yield _status_event(
+                "Text/research unavailable after one recovery; continuing with a safe limitation fallback."
             )
-            return
         save_text_research_attempts(
             initial_valid=initial_research_valid,
-            recovery_valid=True,
+            recovery_valid=recovery_valid,
         )
-    research_data = _merge_backend_evidence(
-        research_data,
-        listing_context_data,
-        component_identity,
-        vin_light_decode,
-    )
+    if research_v2_active:
+        research_model_output_text = dependencies.compact_json_for_prompt(research_data)
+        repository.write_text(
+            slug,
+            "research_model_output.json",
+            research_model_output_text,
+        )
+        validation_warnings.extend(
+            dependencies.validate_json_contract(
+                "research_model_output.json",
+                research_model_output_text,
+                "research_model_output.schema.json",
+            )
+        )
+        research_data = _canonical_research_from_v2(
+            research_data,
+            listing_context_data,
+            component_identity,
+            vin_light_decode,
+        )
+    else:
+        research_data = _merge_backend_evidence(
+            research_data,
+            listing_context_data,
+            component_identity,
+            vin_light_decode,
+        )
     # Replace, rather than merge, model-produced market candidates. Only the
     # separately grounded and backend-reconciled portal passes may feed price
     # benchmarking or customer links.
@@ -1857,6 +2149,16 @@ def _multi_model_analysis_events(
         return
     with open(vision_prompt_path, "r", encoding="utf-8") as f:
         vision_system_prompt = f.read()
+    vision_policy = get_phase_policy("vision", profile=active_profile)
+    if active_profile != "legacy":
+        vision_system_prompt += (
+            f"\n\nRuntime visible-output target: at most {vision_policy.visible_target_tokens} tokens."
+        )
+    diagnostics["phases"]["vision"] = {
+        "status": "started",
+        "policy": _policy_diagnostics(vision_policy),
+    }
+    save_diagnostics()
 
     vision_result_json = ""
     _vision_key: GeminiKeyEntry | None = None
@@ -1904,6 +2206,18 @@ def _multi_model_analysis_events(
             f"IMAGE_PAYLOAD_METADATA:\n{image_payload_context}\n\n"
             f"{model_listing_context}"
         )
+        vision_budget = check_and_compact_input(
+            vision_system_prompt,
+            vision_content,
+            vision_policy,
+            protected_values=protected_research_values,
+        )
+        vision_content = vision_budget.user_content
+        diagnostics["phases"]["vision"].update({
+            "input_budget": _budget_diagnostics(vision_budget),
+            "image_inputs_excluded_from_text_ceiling": True,
+        })
+        save_diagnostics()
         initial_error = ""
         current_vision_partial_output = ""
         try:
@@ -1925,6 +2239,8 @@ def _multi_model_analysis_events(
                         listing_slug=slug,
                         allow_image_text_fallback=False,
                         phase="vision",
+                        max_output_tokens=vision_policy.max_output_tokens,
+                        temperature=vision_policy.temperature,
                         diagnostics_callback=record_vision_provider_event,
                     ),
                 )
@@ -1951,6 +2267,9 @@ def _multi_model_analysis_events(
 
         if not initial_valid:
             vision_recovery_attempted = True
+            vision_recovery_policy = get_phase_policy(
+                "vision_recovery", profile=active_profile
+            )
             yield _status_event("Vision JSON was incomplete; retrying a compact structured response...")
             recovery_content = (
                 vision_content
@@ -1964,7 +2283,7 @@ def _multi_model_analysis_events(
             current_vision_partial_output = ""
             try:
                 with tracking_context(
-                    phase="vision",
+                    phase="vision_recovery" if active_profile != "legacy" else "vision",
                     attempt=2,
                     retry_reason="json_recovery",
                     grounding_enabled=False,
@@ -1980,9 +2299,9 @@ def _multi_model_analysis_events(
                             model=GEMINI_VISION_MODEL,
                             listing_slug=slug,
                             allow_image_text_fallback=False,
-                            phase="vision",
-                            max_output_tokens=6000,
-                            temperature=0.0,
+                            phase="vision_recovery" if active_profile != "legacy" else "vision",
+                            max_output_tokens=vision_recovery_policy.max_output_tokens,
+                            temperature=vision_recovery_policy.temperature,
                             diagnostics_callback=record_vision_provider_event,
                         ),
                     )
@@ -2058,7 +2377,8 @@ def _multi_model_analysis_events(
         )
     )
     vision_diagnostics = dependencies.safe_model_json(vision_result_json)
-    diagnostics["phases"]["vision"] = {
+    diagnostics["phases"].setdefault("vision", {})
+    diagnostics["phases"]["vision"].update({
         "status": "completed",
         "analysis_status": vision_diagnostics.get("analysis_status") or "completed",
         "photos_provided": vision_diagnostics.get("photos_provided") is True,
@@ -2068,7 +2388,7 @@ def _multi_model_analysis_events(
         "recovery_attempted": vision_recovery_attempted,
         "recovered": bool(vision_attempts and vision_attempts[-1].get("valid_json") and vision_recovery_attempted),
         "provider_events": vision_provider_events,
-    }
+    })
     save_diagnostics()
     yield _status_event("Gemini vision JSON saved.")
 
@@ -2139,6 +2459,11 @@ def _multi_model_analysis_events(
         return
     with open(final_synthesis_prompt_path, "r", encoding="utf-8") as f:
         final_system_prompt = f.read()
+    final_policy = get_phase_policy("final_synthesis", profile=active_profile)
+    if active_profile != "legacy":
+        final_system_prompt += (
+            f"\n\nRuntime visible-output target: at most {final_policy.visible_target_tokens} tokens."
+        )
 
     final_content = dependencies.build_final_synthesis_context(
         output_language,
@@ -2151,10 +2476,60 @@ def _multi_model_analysis_events(
         vin_light_decode,
     )
 
+    market_for_budget = research_data.get("market_assessment")
+    market_for_budget = market_for_budget if isinstance(market_for_budget, dict) else {}
+    critical_final_evidence: list[Any] = list(
+        market_for_budget.get("limitations")
+        if isinstance(market_for_budget.get("limitations"), list)
+        else []
+    )
+    for conflict in research_data.get("data_conflicts") or []:
+        if isinstance(conflict, dict):
+            critical_final_evidence.append(
+                json.dumps(conflict, ensure_ascii=False, separators=(",", ":"))
+            )
+    for risk in research_data.get("technical_risks") or []:
+        if isinstance(risk, dict) and str(risk.get("risk_level") or "").upper() == "HIGH":
+            critical_final_evidence.append(
+                json.dumps(risk, ensure_ascii=False, separators=(",", ":"))
+            )
+    protected_final_values = tuple(
+        value
+        for value in (
+            listing_context_data.get("vin"),
+            listing_context_data.get("price"),
+            listing_context_data.get("year"),
+            listing_context_data.get("mileage"),
+            listing_context_data.get("engine"),
+            listing_context_data.get("transmission"),
+            listing_context_data.get("drive"),
+            listing_context_data.get("vat_context"),
+            risk_score.get("allowed_final_verdict"),
+            market_for_budget.get("summary"),
+            *critical_final_evidence,
+        )
+        if value not in (None, "", [], {})
+    )
+    final_budget = check_and_compact_input(
+        final_system_prompt,
+        final_content,
+        final_policy,
+        count_tokens=token_counter(GEMINI_FINAL_MODEL),
+        protected_values=protected_final_values,
+    )
+    final_content = final_budget.user_content
+    diagnostics["phases"]["final_synthesis"] = {
+        "status": "started",
+        "provider": text_provider,
+        "input_budget": _budget_diagnostics(final_budget),
+        "policy": _policy_diagnostics(final_policy),
+    }
+    save_diagnostics()
+
     full_report = ""
     output_tokens = 0
     next_token_update = 250
-    final_input_tokens = dependencies.estimate_request_tokens(final_system_prompt, final_content)
+    final_input_tokens = final_budget.post_tokens
     yield _token_event(final_input_tokens, output_tokens)
     if text_provider == "gemini":
         final_done = False
@@ -2177,6 +2552,8 @@ def _multi_model_analysis_events(
                         listing_slug=slug,
                         fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
                         phase="final_synthesis",
+                        max_output_tokens=final_policy.max_output_tokens,
+                        temperature=final_policy.temperature,
                     ):
                         attempt_text += chunk
                         attempt_output_tokens += dependencies.estimate_output_tokens(chunk)
@@ -2205,7 +2582,16 @@ def _multi_model_analysis_events(
                 retry_reason=None,
                 grounding_enabled=False,
             ):
-                for chunk in dependencies.stream_text_model(text_provider, text_api_key, final_system_prompt, final_content, listing_slug=slug):
+                for chunk in dependencies.stream_text_model(
+                    text_provider,
+                    text_api_key,
+                    final_system_prompt,
+                    final_content,
+                    listing_slug=slug,
+                    phase="final_synthesis",
+                    max_output_tokens=final_policy.max_output_tokens,
+                    temperature=final_policy.temperature,
+                ):
                     full_report += chunk
                     output_tokens += dependencies.estimate_output_tokens(chunk)
                     if chunk:
@@ -2238,6 +2624,8 @@ def _multi_model_analysis_events(
                             listing_slug=slug,
                             fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
                             phase="final_synthesis",
+                            max_output_tokens=final_policy.max_output_tokens,
+                            temperature=final_policy.temperature,
                         ):
                             attempt_text += chunk
                             attempt_output_tokens += dependencies.estimate_output_tokens(chunk)
@@ -2280,11 +2668,11 @@ def _multi_model_analysis_events(
         validation_warnings,
         log=dependencies.log,
     )
-    diagnostics["phases"]["final_synthesis"] = {
+    diagnostics["phases"]["final_synthesis"].update({
         "status": "completed",
         "provider": text_provider,
         "output_tokens_estimate": output_tokens,
-    }
+    })
     diagnostics["validation"] = {
         "warning_count": len(validation_warnings),
         "warning_types": sorted(
