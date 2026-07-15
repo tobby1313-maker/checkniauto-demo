@@ -52,7 +52,7 @@ ARTIFACT_LABELS = {
     "component_identity.json": "Grounded component identity",
     "reliability_research.md": "Grounded reliability research",
     "market_research.md": "Direct market search diagnostics",
-    "market_research_sk_cz.md": "Direct Bazos SK/CZ market search",
+    "market_research_sk_cz.md": "Direct local SK/CZ market search",
     "market_research_mobile_de.md": "Legacy grounded Mobile.de market search",
     "market_research_otomoto_pl.md": "Legacy grounded Otomoto market search",
     "market_research_autoscout.md": "Legacy grounded AutoScout24 market search",

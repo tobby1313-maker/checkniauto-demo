@@ -1,10 +1,11 @@
 """Deterministic marketplace search for customer-visible SK/CZ comparables.
 
-This module deliberately does not use a language model.  It reads the public
-Bazos result pages, keeps the exact detail links present in those pages, and
-turns the visible result-card fields into the existing market-comparable
-contract.  A result-page link is evidence for discovery, not proof of the
-vehicle's condition or of a completed transaction price.
+This module deliberately does not use a language model. It reads bounded
+public result pages from the supported SK/CZ marketplaces, keeps the exact
+detail links present in those pages, and turns visible result-card fields into
+the existing market-comparable contract. A result-page link is evidence for
+discovery, not proof of the vehicle's condition or of a completed transaction
+price.
 """
 
 from __future__ import annotations
@@ -194,7 +195,7 @@ def _transmission(value: str) -> str:
 
 def _drivetrain(value: str) -> str:
     folded = _fold(value)
-    four_wheel = bool(re.search(r"\b(?:4x4|4wd|awd|quattro|allrad)\b", folded))
+    four_wheel = bool(re.search(r"\b(?:4x4|4wd|awd|quattro|allrad|4motion)\b", folded))
     front_wheel = bool(re.search(r"\b(?:fwd|predny pohon|predokol)\w*\b", folded))
     rear_wheel = bool(re.search(r"\b(?:rwd|zadny pohon|zadokol)\w*\b", folded))
     if sum((four_wheel, front_wheel, rear_wheel)) > 1:
@@ -206,6 +207,159 @@ def _drivetrain(value: str) -> str:
     if rear_wheel:
         return "RWD"
     return ""
+
+
+def _portal_price(value: str) -> tuple[int | None, str, str]:
+    """Extract a currency-marked asking price from a result-card text."""
+    text = " ".join(str(value or "").replace("\u00a0", " ").split())
+    matches = list(
+        re.finditer(
+            r"(?<!\d)(\d[\d .]{2,})\s*(€|eur|kč|czk|kc)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    if not matches:
+        return None, "", text
+    match = matches[0]
+    amount = int(re.sub(r"\D", "", match.group(1)))
+    marker = _fold(match.group(2))
+    currency = "EUR" if marker in {"€", "eur"} else "CZK"
+    return amount, currency, f"{amount:,} {currency}".replace(",", " ")
+
+
+def _portal_detail_url(portal: str, value: Any, base_url: str) -> str:
+    url = _canonical_url(urljoin(base_url, str(value or "")))
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    if portal == "autobazar_sk":
+        return url if re.match(r"^/(?:\d+|inzerat/\d+)(?:/|$)", parsed.path) else ""
+    if portal == "sauto_cz":
+        return url if path.startswith("/osobni/detail/") else ""
+    if portal == "autobazar_eu":
+        return url if "/detail/" in path or re.search(r"id\d{5,}", path) else ""
+    return ""
+
+
+def _portal_card_text(anchor: Any) -> str:
+    """Return the smallest useful listing-card text around a detail link."""
+    node = anchor
+    for _ in range(6):
+        if node is None:
+            break
+        text = " ".join(node.get_text(" ", strip=True).split())
+        if (
+            len(text) >= 30
+            and re.search(r"(?:\u20ac|eur|k\u010d|czk|kc)", text, re.IGNORECASE)
+            and (_first_year(text) is not None or _first_mileage(text) is not None)
+        ):
+            return text[:3000]
+        node = getattr(node, "parent", None)
+    return " ".join(anchor.get_text(" ", strip=True).split())[:3000]
+
+
+def _portal_candidate_id(portal: str, url: str, index: int) -> str:
+    numbers = re.findall(r"\d{5,}", url)
+    suffix = numbers[-1] if numbers else str(index + 1)
+    return f"{portal.upper()}-{suffix}"
+
+
+def parse_local_portal_search_page(
+    html: str,
+    *,
+    portal: str,
+    search_url: str,
+    identity: dict[str, str],
+    listing: dict[str, Any],
+    max_candidates: int = 30,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Parse verified direct links from an Autobazar or Sauto result page."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    candidates: list[dict[str, Any]] = []
+    counters = {
+        "result_card_count": 0,
+        "non_vehicle_filtered_count": 0,
+        "model_mismatch_count": 0,
+        "self_listing_filtered_count": 0,
+        "parsed_candidate_count": 0,
+    }
+    model_compact = _compact(identity.get("model"))
+    analyzed_url = _canonical_url(listing.get("source_url"))
+    seen_urls: set[str] = set()
+    for anchor in soup.find_all("a", href=True):
+        source_url = _portal_detail_url(portal, anchor.get("href"), search_url)
+        if not source_url or source_url in seen_urls:
+            continue
+        seen_urls.add(source_url)
+        counters["result_card_count"] += 1
+        title = " ".join(
+            str(
+                anchor.get_text(" ", strip=True)
+                or anchor.get("title")
+                or anchor.get("aria-label")
+                or ""
+            ).split()
+        )
+        card_text = _portal_card_text(anchor)
+        combined = f"{title} {card_text}".strip()
+        if any(marker in _fold(combined) for marker in _NON_VEHICLE_TITLE_MARKERS):
+            counters["non_vehicle_filtered_count"] += 1
+            continue
+        if model_compact and model_compact not in _compact(combined):
+            counters["model_mismatch_count"] += 1
+            continue
+        if analyzed_url and source_url == analyzed_url:
+            counters["self_listing_filtered_count"] += 1
+            continue
+
+        price_amount, currency, price_display = _portal_price(combined)
+        year = _first_year(combined)
+        mileage = _first_mileage(combined)
+        engine = _engine(combined)
+        transmission = _transmission(combined)
+        drive = _drivetrain(combined)
+        similarity_tier, material_difference = _similarity(listing, combined)
+        source_country = {
+            "autobazar_sk": "SK",
+            "sauto_cz": "CZ",
+        }.get(portal, "SK" if currency == "EUR" else "CZ" if currency == "CZK" else "")
+        candidates.append(
+            {
+                "candidate_id": _portal_candidate_id(portal, source_url, len(candidates)),
+                "description": title or combined[:180],
+                "listing_title": title or combined[:180],
+                "year": year,
+                "mileage_km": mileage,
+                "engine": engine,
+                "transmission": transmission,
+                "drivetrain": drive,
+                "price_eur": price_amount if currency == "EUR" else None,
+                "price_display": price_display,
+                "price_basis": "gross_asking",
+                "source_country": source_country,
+                "similarity_tier": similarity_tier,
+                "material_difference": material_difference,
+                "location": "",
+                "search_pass": "sk_cz",
+                "search_language": "sk" if source_country == "SK" else "cs",
+                "market_scope": "PUBLIC_SK_CZ",
+                "source_portal": portal,
+                "source_url": source_url,
+                "claimed_source_url": source_url,
+                "evidence_url": search_url,
+                "verified_url": True,
+                "url_verification_status": "VERIFIED_DETAIL",
+                "background_evidence_verified": False,
+                "display_in_report": True,
+                "data_provenance": "DIRECT_PORTAL_SEARCH",
+            }
+        )
+        if len(candidates) >= max_candidates:
+            break
+    counters["parsed_candidate_count"] = len(candidates)
+    return candidates, counters
 
 
 def _similarity(
@@ -447,6 +601,160 @@ def search_bazos_sk_cz(
         {
             "pass_id": "sk_cz",
             "portal": "Bazos SK/CZ",
+            "language": "sk/cs",
+            "market_scope": "PUBLIC_SK_CZ",
+            "search_method": "DIRECT_PORTAL_HTML",
+            "search_query": identity["query"],
+            "status": status,
+            "error_type": "" if successful_fetches else "DIRECT_SEARCH_UNAVAILABLE",
+            "citation_count": total_cards,
+            "candidate_count": len(unique_candidates),
+            "verified_detail_count": len(unique_candidates),
+            "verified_background_count": 0,
+            "url_unverified_count": 0,
+            "candidates": unique_candidates,
+            "source_attempts": attempts,
+        }
+    ]
+
+
+def search_local_marketplaces(
+    listing: dict[str, Any],
+    *,
+    timeout: float = 8.0,
+    fetch_html: Callable[[str, float], str] | None = None,
+) -> list[dict[str, Any]]:
+    """Search the bounded set of customer-facing SK/CZ marketplaces.
+
+    Bazos keeps its existing two-country parser. The other portals are parsed
+    from their public model-result pages and only exact detail links found in
+    those pages become candidates. The wrapper deliberately returns one
+    ``sk_cz`` pass so the existing artifact schema and benchmark contract stay
+    stable while ``source_portal`` and per-attempt records preserve provenance.
+    """
+    identity = derive_bazos_identity(listing)
+    if not identity:
+        return [
+            {
+                "pass_id": "sk_cz",
+                "portal": "SK/CZ local marketplaces",
+                "language": "sk/cs",
+                "market_scope": "PUBLIC_SK_CZ",
+                "search_method": "DIRECT_PORTAL_HTML",
+                "status": "ERROR",
+                "error_type": "SEARCH_IDENTITY_UNAVAILABLE",
+                "citation_count": 0,
+                "candidate_count": 0,
+                "verified_detail_count": 0,
+                "verified_background_count": 0,
+                "url_unverified_count": 0,
+                "candidates": [],
+                "source_attempts": [],
+            }
+        ]
+
+    loader = fetch_html or _fetch_html
+    bazos_pass = search_bazos_sk_cz(
+        listing,
+        timeout=timeout,
+        fetch_html=loader,
+    )[0]
+    attempts: list[dict[str, Any]] = []
+    for attempt in bazos_pass.get("source_attempts") or []:
+        if isinstance(attempt, dict):
+            country = str(attempt.get("country") or "").upper()
+            attempts.append(
+                {
+                    "portal": "bazos_sk" if country == "SK" else "bazos_cz",
+                    **attempt,
+                }
+            )
+
+    slug = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        _fold(f"{identity['make']} {identity['model']}"),
+    ).strip("-")
+    make_slug = re.sub(r"[^a-z0-9]+", "-", _fold(identity["make"])).strip("-")
+    model_slug = re.sub(r"[^a-z0-9]+", "-", _fold(identity["model"])).strip("-")
+    portal_specs = (
+        (
+            "autobazar_sk",
+            f"https://{slug}.autobazar.sk/?v=1",
+        ),
+        (
+            "autobazar_eu",
+            f"https://www.autobazar.eu/cs/vysledky/suv-terenne-vozidla/{make_slug}/{model_slug}/",
+        ),
+        (
+            "autobazar_eu",
+            f"https://www.autobazar.eu/cs/vysledky/osobne-vozidla/{make_slug}/{model_slug}/",
+        ),
+        (
+            "sauto_cz",
+            f"https://www.sauto.cz/inzerce/osobni/{make_slug}/{model_slug}",
+        ),
+    )
+    all_candidates: list[dict[str, Any]] = list(bazos_pass.get("candidates") or [])
+    total_cards = int(bazos_pass.get("citation_count") or 0)
+    successful_fetches = sum(
+        1
+        for attempt in attempts
+        if attempt.get("status") == "SUCCESS"
+    )
+    for portal, search_url in portal_specs:
+        try:
+            html = loader(search_url, timeout)
+            candidates, counters = parse_local_portal_search_page(
+                html,
+                portal=portal,
+                search_url=search_url,
+                identity=identity,
+                listing=listing,
+            )
+            successful_fetches += 1
+            total_cards += counters["result_card_count"]
+            all_candidates.extend(candidates)
+            attempts.append(
+                {
+                    "portal": portal,
+                    "search_url": search_url,
+                    "status": "SUCCESS",
+                    **counters,
+                }
+            )
+        except Exception as exc:  # one portal must not suppress the others
+            attempts.append(
+                {
+                    "portal": portal,
+                    "search_url": search_url,
+                    "status": "ERROR",
+                    "error_type": type(exc).__name__,
+                    "result_card_count": 0,
+                    "parsed_candidate_count": 0,
+                }
+            )
+
+    unique_candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in all_candidates:
+        source_url = str(candidate.get("source_url") or "")
+        if source_url and source_url not in seen:
+            seen.add(source_url)
+            unique_candidates.append(candidate)
+    status = (
+        "FOUND"
+        if unique_candidates
+        else "SEARCH_RESULTS_FOUND_NOT_STRUCTURED"
+        if total_cards
+        else "NOTHING_FOUND"
+        if successful_fetches
+        else "ERROR"
+    )
+    return [
+        {
+            "pass_id": "sk_cz",
+            "portal": "SK/CZ local marketplaces",
             "language": "sk/cs",
             "market_scope": "PUBLIC_SK_CZ",
             "search_method": "DIRECT_PORTAL_HTML",

@@ -8,6 +8,7 @@ from scrapper_demo.market_comparables import (
     extract_grounded_market_search_pass,
     is_customer_facing_market_comparable,
     reconcile_market_comparable_urls,
+    select_market_recommendations,
 )
 
 
@@ -125,22 +126,40 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
         self.assertEqual(item["url_verification_status"], "VERIFIED_SEARCH_RESULT")
 
     @staticmethod
-    def _benchmark_candidate(index, *, year=2008, mileage=130000, price=8000):
+    def _benchmark_candidate(
+        index,
+        *,
+        year=2008,
+        mileage=130000,
+        price=8000,
+        market_scope="BACKGROUND_EU",
+        source_country="DE",
+    ):
+        source_url = (
+            f"https://auto.bazos.sk/inzerat/{10000 + index}/rav4.php"
+            if market_scope == "PUBLIC_SK_CZ"
+            else f"https://suchen.mobile.de/auto/toyota-rav-4-{index}.html"
+        )
         return {
             "description": f"Toyota RAV4 comparable {index}",
             "year": year,
             "mileage_km": mileage,
             "price_eur": price,
-            "source_country": "DE",
-            "market_scope": "BACKGROUND_EU",
+            "source_country": source_country,
+            "market_scope": market_scope,
             "similarity_tier": "A",
             "price_basis": "gross_asking",
+            "source_url": source_url,
+            "verified_url": market_scope == "PUBLIC_SK_CZ",
+            "url_verification_status": (
+                "VERIFIED_DETAIL"
+                if market_scope == "PUBLIC_SK_CZ"
+                else "VERIFIED_SEARCH_RESULT"
+            ),
             "evidence_url": f"https://suchen.mobile.de/auto/toyota-rav-4-{index}.html",
-            "background_evidence_verified": True,
+            "background_evidence_verified": market_scope != "PUBLIC_SK_CZ",
             "data_provenance": "GROUNDED_SEARCH_RESULT",
             "search_pass": "mobile_de",
-            "url_verification_status": "VERIFIED_SEARCH_RESULT",
-            "verified_url": False,
         }
 
     def test_tolerance_expands_year_before_mileage_and_lowers_weight(self):
@@ -148,9 +167,9 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
             "listing_facts": {"year": 2008, "mileage_km": 122000},
             "market_assessment": {"advertised_price_eur": 6900},
             "market_comparables": [
-                self._benchmark_candidate(1, mileage=130000),
-                self._benchmark_candidate(2, mileage=145000),
-                self._benchmark_candidate(3, year=2012, mileage=135000),
+                self._benchmark_candidate(1, mileage=130000, market_scope="PUBLIC_SK_CZ", source_country="SK"),
+                self._benchmark_candidate(2, mileage=145000, market_scope="PUBLIC_SK_CZ", source_country="SK"),
+                self._benchmark_candidate(3, year=2012, mileage=135000, market_scope="PUBLIC_SK_CZ", source_country="SK"),
             ],
         }
         deduplicate_market_comparables(research, "# Other listing")
@@ -170,9 +189,9 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
             "listing_facts": {"year": 2008, "mileage_km": 122000},
             "market_assessment": {"advertised_price_eur": 6900},
             "market_comparables": [
-                self._benchmark_candidate(1, mileage=130000),
-                self._benchmark_candidate(2, mileage=145000),
-                self._benchmark_candidate(3, mileage=165000),
+                self._benchmark_candidate(1, mileage=130000, market_scope="PUBLIC_SK_CZ", source_country="SK"),
+                self._benchmark_candidate(2, mileage=145000, market_scope="PUBLIC_SK_CZ", source_country="SK"),
+                self._benchmark_candidate(3, mileage=165000, market_scope="PUBLIC_SK_CZ", source_country="SK"),
             ],
         }
         deduplicate_market_comparables(research, "# Other listing")
@@ -193,7 +212,7 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
             "market_assessment": {"advertised_price_eur": 6900},
             "market_comparables": [
                 self._benchmark_candidate(1, mileage=126000, price=8999),
-                self._benchmark_candidate(2, mileage=149500, price=9850),
+                self._benchmark_candidate(2, mileage=140000, price=9850),
                 self._benchmark_candidate(3, mileage=130700, price=7500),
             ],
         }
@@ -205,6 +224,55 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
         self.assertEqual(benchmark["benchmark_scope"], "EU_MIXED_BACKGROUND")
         self.assertEqual(benchmark["diagnostic_counts"]["europe_background_only"], 3)
         self.assertEqual(research["market_assessment"]["public_comparable_count"], 0)
+
+    def test_foreign_background_requires_tier_a_year_and_tight_mileage(self):
+        def foreign(index, *, year, mileage, tier="A"):
+            return {
+                "candidate_id": f"foreign-{index}",
+                "description": "Toyota RAV4 2.0 TSI DSG 4x4",
+                "year": year,
+                "mileage_km": mileage,
+                "price_eur": 9000 + index,
+                "source_country": "DE",
+                "similarity_tier": tier,
+                "price_basis": "gross_asking",
+                "source_url": f"https://www.mobile.de/auto-inserat/rav4/{index}.html",
+                "verified_url": True,
+            }
+
+        research = {
+            "listing_facts": {"year": 2016, "mileage_km": 160000},
+            "market_assessment": {"advertised_price_eur": 10000},
+            "market_comparables": [
+                foreign(1, year=2016, mileage=180000),
+                foreign(2, year=2018, mileage=160000),
+                foreign(3, year=2016, mileage=200000),
+                foreign(4, year=2016, mileage=160000, tier="B"),
+            ],
+        }
+        benchmark = build_market_benchmark(research, "# Other listing")
+
+        self.assertFalse(benchmark["available"])
+        self.assertEqual(len(benchmark["eligible_comparables"]), 1)
+        self.assertEqual(
+            {item["exclusion_reason"] for item in benchmark["rejected_comparables"]},
+            {
+                "BACKGROUND_YEAR_OUTSIDE_TIGHT_BAND",
+                "BACKGROUND_MILEAGE_OUTSIDE_TIGHT_BAND",
+                "BACKGROUND_SIMILARITY_MISMATCH",
+            },
+        )
+
+        forced_public = foreign(5, year=2016, mileage=160000)
+        forced_public["market_scope"] = "PUBLIC_SK_CZ"
+        forced_research = {
+            "listing_facts": {"year": 2016, "mileage_km": 160000},
+            "market_assessment": {"advertised_price_eur": 10000},
+            "market_comparables": [forced_public],
+        }
+        build_market_benchmark(forced_research, "# Other listing")
+        self.assertEqual(forced_public["market_scope"], "BACKGROUND_EU")
+        self.assertFalse(forced_public["display_in_report"])
 
     def test_local_verified_details_are_counted_as_full_comparables(self):
         comparables = [
@@ -236,6 +304,68 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
         self.assertEqual(benchmark["benchmark_scope"], "SK_CZ")
         self.assertEqual(benchmark["diagnostic_counts"]["full_comparable_accepted"], 3)
         self.assertEqual(benchmark["diagnostic_counts"]["europe_background_only"], 0)
+
+    def test_public_benchmark_and_links_use_strict_configuration_and_price_band(self):
+        def candidate(index, *, tier, price, mileage):
+            return {
+                "candidate_id": f"strict-{index}",
+                "description": f"Toyota RAV4 2.0 TSI DSG 4x4 {index}",
+                "year": 2008,
+                "mileage_km": mileage,
+                "price_eur": price,
+                "price_basis": "gross_asking",
+                "source_country": "SK",
+                "market_scope": "PUBLIC_SK_CZ",
+                "similarity_tier": tier,
+                "source_url": f"https://auto.bazos.sk/inzerat/{index}/rav4.php",
+                "verified_url": True,
+                "url_verification_status": "VERIFIED_DETAIL",
+                "search_pass": "sk_cz",
+            }
+
+        research = {
+            "listing_facts": {
+                "year": 2008,
+                "mileage_km": 122000,
+                "asking_price_gross_eur": 10000,
+            },
+            "market_assessment": {"advertised_price_eur": 10000},
+            "market_comparables": [
+                candidate(1, tier="A", price=11000, mileage=126000),
+                candidate(2, tier="A", price=15000, mileage=127000),
+                candidate(3, tier="B", price=10500, mileage=128000),
+            ],
+        }
+
+        deduplicate_market_comparables(research, "# Other listing")
+        benchmark = build_market_benchmark(research, "# Other listing")
+
+        self.assertFalse(benchmark["available"])
+        self.assertEqual(benchmark["diagnostic_counts"]["similarity_rejected"], 1)
+        self.assertEqual(
+            benchmark["recommendation_policy"]["recommended_candidate_ids"],
+            ["strict-1"],
+        )
+        flags = {
+            item["candidate_id"]: item["display_in_report"]
+            for item in research["market_comparables"]
+        }
+        self.assertEqual(flags, {"strict-1": True, "strict-2": False, "strict-3": False})
+
+    def test_recommendations_have_no_fallback_when_no_candidate_is_in_price_band(self):
+        items = [
+            {
+                "candidate_id": "far-away",
+                "source_url": "https://auto.bazos.sk/inzerat/1/rav4.php",
+                "verified_url": True,
+                "market_scope": "PUBLIC_SK_CZ",
+                "similarity_tier": "A",
+                "normalized_price_eur": 13000,
+            }
+        ]
+
+        self.assertEqual(select_market_recommendations(items, 10000), [])
+        self.assertFalse(items[0]["display_in_report"])
 
     def test_market_diagnostics_separate_url_year_and_mileage_rejections(self):
         unverified_local = {
@@ -547,7 +677,7 @@ r.v. 5/2020
                     "mileage_km": 165000,
                     "price_eur": 14000,
                     "source_country": "DE",
-                    "similarity_tier": "B",
+                    "similarity_tier": "A",
                     "price_basis": "gross_asking",
                     "source_url": "https://www.mobile.de/auto-inserat/hyundai-tucson/3.html",
                     "verified_url": True,

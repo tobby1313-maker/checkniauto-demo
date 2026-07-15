@@ -127,6 +127,18 @@ _TOLERANCE_STAGES: tuple[_ToleranceStage, ...] = (
     },
 )
 
+MARKET_RECOMMENDATION_PRICE_TOLERANCE = 0.20
+MARKET_RECOMMENDATION_MAX_LINKS = 5
+
+# Foreign-market observations are useful only as a tightly matched pricing
+# signal. They are never customer-facing recommendations. The mileage band
+# uses a floor so low-mileage listings are not rejected for small absolute
+# differences, while still preventing high-mileage outliers from entering the
+# background median.
+BACKGROUND_YEAR_DELTA = 1
+BACKGROUND_MILEAGE_FLOOR = 25_000
+BACKGROUND_MILEAGE_RATIO = 0.15
+
 ECB_90_DAY_RATES_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
 _ECB_CACHE_SECONDS = 6 * 60 * 60
 _ecb_cache: tuple[float, dict[str, Any]] | None = None
@@ -788,6 +800,65 @@ def _similarity_tier(item: dict[str, Any]) -> str:
     }.get(str(item.get("relevance") or "").strip().upper(), "C")
 
 
+def select_market_recommendations(
+    items: list[dict[str, Any]],
+    advertised_price_eur: int | float | None,
+    *,
+    price_tolerance: float = MARKET_RECOMMENDATION_PRICE_TOLERANCE,
+    max_links: int = MARKET_RECOMMENDATION_MAX_LINKS,
+) -> list[dict[str, Any]]:
+    """Select only close, exact-configuration ads for customer-facing links.
+
+    Benchmark eligibility and recommendation eligibility are deliberately
+    separate. A market sample may be useful for diagnostics while still being
+    too different or too far from the analyzed asking price to recommend to a
+    customer.
+    """
+    target_price = _number(advertised_price_eur)
+    for item in items:
+        if isinstance(item, dict):
+            item["display_in_report"] = False
+            item.pop("recommendation_price_delta_percent", None)
+            item.pop("recommendation_filter", None)
+
+    if target_price is None or target_price <= 0 or price_tolerance < 0:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("market_scope") or "").upper() != "PUBLIC_SK_CZ":
+            continue
+        if not is_customer_facing_market_comparable(item):
+            continue
+        # Tier A means the visible engine, transmission, and drivetrain all
+        # match. Tier B is intentionally diagnostic-only for public links.
+        if _similarity_tier(item) != "A":
+            continue
+        normalized_price = _number(item.get("normalized_price_eur"))
+        if normalized_price is None:
+            continue
+        delta_percent = ((normalized_price - target_price) / target_price) * 100
+        if abs(delta_percent) > price_tolerance * 100:
+            continue
+        item["recommendation_price_delta_percent"] = round(delta_percent, 1)
+        item["recommendation_filter"] = "WITHIN_PRICE_BAND_AND_TIER_A"
+        candidates.append(item)
+
+    candidates.sort(
+        key=lambda item: (
+            abs(float(item.get("recommendation_price_delta_percent") or 0.0)),
+            -customer_link_priority(item),
+            str(item.get("candidate_id") or ""),
+        )
+    )
+    selected = candidates[: max(0, int(max_links))]
+    for item in selected:
+        item["display_in_report"] = True
+    return selected
+
+
 def _excluded_price_basis(item: dict[str, Any]) -> str:
     basis = _fold(item.get("price_basis"))
     text = _fold(
@@ -1113,6 +1184,8 @@ def _market_unavailable_summary(
 ) -> str:
     if diagnostic_counts.get("url_unverified", 0):
         return "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL."
+    if diagnostic_counts.get("similarity_rejected", 0):
+        return "Nájdené ponuky nezostavili overenú vzorku presnej konfigurácie vozidla."
     if diagnostic_counts.get("year_rejected", 0) or diagnostic_counts.get(
         "mileage_rejected", 0
     ):
@@ -1170,6 +1243,7 @@ def build_market_benchmark(
     diagnostic_counts = {
         "nothing_found": int(search_summary.get("nothing_found_passes") or 0),
         "url_unverified": 0,
+        "similarity_rejected": 0,
         "year_rejected": 0,
         "mileage_rejected": 0,
         "europe_background_only": 0,
@@ -1185,13 +1259,22 @@ def build_market_benchmark(
         tier = _similarity_tier(item)
         country = _market_country(item)
         explicit_scope = str(item.get("market_scope") or "").upper()
-        scope = (
-            explicit_scope
-            if explicit_scope in {"PUBLIC_SK_CZ", "BACKGROUND_EU"}
-            else "PUBLIC_SK_CZ"
-            if is_customer_facing_market_comparable(item)
-            else "BACKGROUND_EU"
-        )
+        if explicit_scope == "BACKGROUND_EU":
+            scope = "BACKGROUND_EU"
+        elif explicit_scope == "PUBLIC_SK_CZ":
+            # A model-provided public label cannot override the actual
+            # marketplace/country checks. Foreign ads remain background-only.
+            scope = (
+                "PUBLIC_SK_CZ"
+                if is_customer_facing_market_comparable(item)
+                else "BACKGROUND_EU"
+            )
+        else:
+            scope = (
+                "PUBLIC_SK_CZ"
+                if is_customer_facing_market_comparable(item)
+                else "BACKGROUND_EU"
+            )
         public = scope == "PUBLIC_SK_CZ" and is_customer_facing_market_comparable(item)
         item["similarity_tier"] = tier
         item["market_scope"] = scope
@@ -1250,6 +1333,19 @@ def build_market_benchmark(
             exclusion = exclusion or "URL_UNVERIFIED"
         if tier == "C":
             exclusion = exclusion or "SIMILARITY_TIER_C"
+            if scope == "BACKGROUND_EU":
+                diagnostic_counts["similarity_rejected"] += 1
+        elif scope == "PUBLIC_SK_CZ" and tier != "A":
+            # Public benchmark rows must match the visible engine,
+            # transmission, and drivetrain. Tier B remains available as
+            # diagnostic context, but must not define the local benchmark.
+            exclusion = exclusion or "SIMILARITY_BELOW_STRICT_TIER"
+            diagnostic_counts["similarity_rejected"] += 1
+        elif scope == "BACKGROUND_EU" and tier != "A":
+            # Foreign observations may influence the hidden benchmark only
+            # when the visible configuration is a complete Tier A match.
+            exclusion = exclusion or "BACKGROUND_SIMILARITY_MISMATCH"
+            diagnostic_counts["similarity_rejected"] += 1
         item_year = _year(item)
         item_mileage = _number(item.get("mileage_km"))
         if (
@@ -1270,9 +1366,29 @@ def build_market_benchmark(
         assert listing_mileage is not None
         assert item_year is not None
         assert item_mileage is not None
-        stage = _minimum_tolerance_stage(
-            listing_year, listing_mileage, item_year, item_mileage
-        )
+        if scope == "BACKGROUND_EU":
+            # Background prices are intentionally tighter than the public
+            # benchmark's staged fallback. A foreign ad outside this band is
+            # not allowed to widen or distort the hidden market average.
+            if abs(item_year - listing_year) > BACKGROUND_YEAR_DELTA:
+                audit_row["exclusion_reason"] = "BACKGROUND_YEAR_OUTSIDE_TIGHT_BAND"
+                diagnostic_counts["year_rejected"] += 1
+                rejected.append(audit_row)
+                continue
+            mileage_limit = max(
+                BACKGROUND_MILEAGE_FLOOR,
+                int(round(listing_mileage * BACKGROUND_MILEAGE_RATIO)),
+            )
+            if abs(item_mileage - listing_mileage) > mileage_limit:
+                audit_row["exclusion_reason"] = "BACKGROUND_MILEAGE_OUTSIDE_TIGHT_BAND"
+                diagnostic_counts["mileage_rejected"] += 1
+                rejected.append(audit_row)
+                continue
+            stage = _TOLERANCE_STAGES[0]
+        else:
+            stage = _minimum_tolerance_stage(
+                listing_year, listing_mileage, item_year, item_mileage
+            )
         if stage is None:
             if abs(item_year - listing_year) > _TOLERANCE_STAGES[-1]["year_delta"]:
                 audit_row["exclusion_reason"] = "YEAR_OUTSIDE_EXPANDED_BAND"
@@ -1356,6 +1472,7 @@ def build_market_benchmark(
         advertised = _number(market.get("advertised_price_eur"))
     if advertised is None:
         advertised = listing_identity.get("price_eur")
+    recommendations = select_market_recommendations(items, advertised)
     delta_percent = (
         round(((advertised - median_eur) / median_eur) * 100, 1)
         if advertised is not None and median_eur
@@ -1412,6 +1529,11 @@ def build_market_benchmark(
             "benchmark_median_eur": median_eur,
             "local_market_median_eur": local_median_eur,
             "foreign_background_median_eur": foreign_median_eur,
+            "recommended_comparable_count": len(recommendations),
+            "recommendation_price_tolerance_percent": int(
+                MARKET_RECOMMENDATION_PRICE_TOLERANCE * 100
+            ),
+            "recommendation_similarity_tier": "A",
             "price_delta_percent": delta_percent if benchmark_available else None,
             "price_view": price_view,
             "negotiation_anchor_eur": median_eur
@@ -1441,6 +1563,16 @@ def build_market_benchmark(
         "foreign_background_median_eur": foreign_median_eur,
         "price_delta_percent": delta_percent if benchmark_available else None,
         "price_view": price_view,
+        "recommendation_policy": {
+            "price_tolerance_percent": int(
+                MARKET_RECOMMENDATION_PRICE_TOLERANCE * 100
+            ),
+            "similarity_tier": "A",
+            "basis": "ADVERTISED_PRICE_EUR",
+            "recommended_candidate_ids": [
+                str(item.get("candidate_id") or "") for item in recommendations
+            ],
+        },
         "exchange_rates": {
             "source": rate_payload.get("source", ""),
             "source_url": rate_payload.get("source_url", ""),
@@ -1457,6 +1589,7 @@ def build_market_benchmark(
             "No deterministic adjustment is made for equipment, condition, import costs, or warranty.",
             "Tier C, net, auction, damaged, export-only, and non-normalizable offers are excluded.",
             "Tolerance expands only when fewer than three candidates survive: year first, then mileage.",
+            "Foreign background offers require Tier A, +/-1 model year, and max(25,000 km, 15%) mileage difference; they never use expanded tolerance stages.",
             "Expanded and search-card observations receive lower weights.",
         ],
     }

@@ -35,26 +35,28 @@ The analysis pipeline is:
    and forums are recurring-problem hypotheses. Neither source type proves a
    defect on the listed vehicle or directly lowers its score.
    Market discovery does not use a language model. The backend derives a
-   narrow make/model query from the scraped title and fetches the public Bazos
-   SK and Bazos CZ result pages once each. It parses visible result cards and
-   keeps only the exact detail URL present in each card; it never constructs a
-   detail URL from a template. The analyzed ad, non-vehicle offers, and model
-   mismatches are removed before benchmarking. Each country attempt records
-   the search URL, number of cards, filters, accepted candidates, and request
-   errors.
-   Local records require a verified direct detail URL before they may be shown
-   to customers, and links appear only in `Cena a vyjednávanie`. Mobile.de,
-   AutoScout24, and Otomoto grounded market passes are disabled: they added paid
-   calls without yielding dependable structured candidates. Until a similarly
-   deterministic foreign source exists, the system reports only an SK/CZ
-   asking-price benchmark and does not present it as a European benchmark.
+   narrow make/model query from the scraped title and makes bounded direct
+   searches on Bazos SK/CZ, Autobazar.sk, Autobazar.EU, and Sauto.cz. It parses
+   visible result cards and keeps only the exact detail URL present in each
+   card; it never constructs a detail URL from a template. The analyzed ad,
+   non-vehicle offers, and model mismatches are removed before benchmarking.
+   Each portal attempt records the search URL, number of cards, filters,
+   accepted candidates, and request errors.
+   Only these local SK/CZ portals can produce customer-facing links. Any
+   other-country observation is background-only and must be Tier A with the
+   same transmission, engine, and drivetrain, year within +/-1, and mileage
+   within `max(25,000 km, 15%)` of the analyzed listing. Mobile.de, AutoScout24,
+   and Otomoto are not fetched directly; if their grounded observations exist,
+   the same tight background gate applies and their individual links remain
+   hidden. Local links appear only in the price and negotiation section.
    Structured candidates are deduplicated across portals by VIN or a
    conservative year/mileage/version/price/seller fingerprint, and cross-posts
    of the analyzed listing are removed. Non-EUR prices are normalized by ECB
    reference rates; CZK uses the average of available ECB observations from
    the latest 30-calendar-day window, while other currencies use the latest
-   available reference rate. The benchmark first applies the strict year and
-   mileage limits, then widens the year range, and only then widens mileage.
+   available reference rate. Local benchmark rows first apply the strict year
+   and mileage limits, then widen the year range, and only then widen mileage.
+   Foreign background rows never use those widened stages.
    Expanded records receive lower weights and wider price-classification
    thresholds. Three A/B retail observations are still required; C-tier, net,
    auction, damaged, export-only, duplicate, and non-normalizable offers are
@@ -67,6 +69,11 @@ The analysis pipeline is:
    If structured text/research JSON is interrupted, the pipeline makes one
    compact recovery attempt and stops rather than publishing an unreliable
    partial report when recovery also fails.
+   Public comparable links use a stricter customer-facing filter than broad
+   discovery: the detail URL must be verified, the visible engine,
+   transmission, and drivetrain must match (Tier A), and the asking price must
+   be within +/-20% of the analyzed listing price. If no offer passes all of
+   these checks, the report publishes no comparable-ad link.
 4. Run text/research analysis with Gemini by default. Grok and OpenRouter remain
    optional provider branches if their keys are explicitly configured.
 5. Run Gemini vision analysis on representative uploaded or scraped photos.
@@ -84,7 +91,9 @@ The analysis pipeline is:
 The public analysis pipeline does not load or update a vehicle knowledge base.
 Model, engine, transmission, drivetrain, generation, recall, and cost context
 is researched for each job through Gemini Google Search grounding. Comparable
-SK/CZ asking prices are collected separately by deterministic Bazos search.
+SK/CZ asking prices are collected separately by deterministic local portal
+search; foreign background observations are used only when they pass the tight
+match gate above.
 Generated job files are temporary runtime artifacts and are not treated as a
 persistent cache; this keeps deployments compatible with ephemeral Render
 filesystems.
@@ -99,6 +108,7 @@ scrapper_demo/
   contracts.py                        shared typed boundary contracts
   legacy_server.py                    compatibility composition and local handlers
   logging.py                          Unicode-safe console logging
+  direct_market_search.py              deterministic local SK/CZ result-card search
   market_comparables.py              public-link selection and EU price benchmark
   progress.py                         process-local progress/rate/job state
   scorecard.py                        private diagnostic score breakdown

@@ -44,7 +44,7 @@ from scrapper_demo.component_identity import (
     parse_first_json_object,
     unknown_component_identity,
 )
-from scrapper_demo.direct_market_search import search_bazos_sk_cz
+from scrapper_demo.direct_market_search import search_local_marketplaces
 from scrapper_demo.market_comparables import (
     build_market_benchmark,
     build_market_search_results,
@@ -89,7 +89,7 @@ class AnalysisPipelineDependencies:
     normalize_gemini_keys: Callable[..., list[GeminiKeyEntry]] = normalize_gemini_key_entries
     collect_gemini: Callable[..., Any] = collect_gemini_with_key_fallback
     grounded_research: Callable[..., str] = run_grounded_web_research
-    direct_market_search: Callable[[dict[str, Any]], list[dict[str, Any]]] = search_bazos_sk_cz
+    direct_market_search: Callable[[dict[str, Any]], list[dict[str, Any]]] = search_local_marketplaces
     call_gemini: Callable[..., Any] = _call_gemini
     gemini_retry_status: Callable[..., str] = gemini_retry_status
     calculate_risk_score: Callable[..., RiskScoreResult] = calculate_risk_score
@@ -520,6 +520,7 @@ def _lock_report_evidence_claims(
             "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku.",
             "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL.",
             "Nájdené ponuky boli mimo nastavených tolerancií.",
+            "Nájdené ponuky nezostavili overenú vzorku presnej konfigurácie vozidla.",
             "Automatické vyhľadávanie nenašlo použiteľné porovnateľné ponuky.",
         }
         if backend_market_message not in allowed_market_messages:
@@ -531,15 +532,22 @@ def _lock_report_evidence_claims(
                 "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku.": "Automatic search could not assemble a verified sample.",
                 "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL.": "Offers were found, but their detail URLs could not be verified.",
                 "Nájdené ponuky boli mimo nastavených tolerancií.": "The offers found were outside the configured tolerances.",
+                "Nájdené ponuky nezostavili overenú vzorku presnej konfigurácie vozidla.": "The offers found did not produce a verified sample of the vehicle's exact visible configuration.",
                 "Automatické vyhľadávanie nenašlo použiteľné porovnateľné ponuky.": "Automatic search found no usable comparable offers.",
             }[backend_market_message]
 
         comparable_lines: list[str] = []
         for item in research.get("market_comparables", []) if isinstance(research.get("market_comparables"), list) else []:
-            if not isinstance(item, dict) or not is_customer_facing_market_comparable(item):
+            if (
+                not isinstance(item, dict)
+                or item.get("display_in_report") is not True
+                or not is_customer_facing_market_comparable(item)
+            ):
                 continue
             url = str(item.get("source_url") or "").strip()
-            label = str(item.get("title") or "Porovnateľný inzerát").strip()
+            label = str(
+                item.get("description") or item.get("title") or "Porovnateľný inzerát"
+            ).strip()
             price_display = str(item.get("price_display") or "").strip()
             difference = str(item.get("material_difference") or "").strip()
             suffix = " — ".join(value for value in (price_display, difference) if value)
@@ -565,6 +573,18 @@ def _lock_report_evidence_claims(
             neutral_line = "Pozícia ceny nie je overená; nedostatok porovnateľných dát nepodporuje pozitívny ani negatívny záver o aute."
         if comparable_lines:
             neutral.extend(("", "Overené blízke ponuky:" if language == "sk" else "Verified nearby offers:", *comparable_lines))
+        else:
+            neutral.extend(
+                (
+                    "",
+                    (
+                        "Žiadna overená SK/CZ ponuka nesplnila prísny filter ±20 % ceny "
+                        "a rovnakej viditeľnej konfigurácie."
+                        if language == "sk"
+                        else "No verified SK/CZ offer met the strict ±20% price and exact visible-configuration filters."
+                    ),
+                )
+            )
         text = _replace_report_section(
             text,
             ("cena a vyjednavanie", "price and negotiation"),
@@ -632,7 +652,11 @@ def _lock_report_evidence_claims(
 
         public_links: list[str] = []
         for item in research.get("market_comparables", []) if isinstance(research.get("market_comparables"), list) else []:
-            if not isinstance(item, dict) or not is_customer_facing_market_comparable(item):
+            if (
+                not isinstance(item, dict)
+                or item.get("display_in_report") is not True
+                or not is_customer_facing_market_comparable(item)
+            ):
                 continue
             url = str(item.get("source_url") or "").strip()
             label = str(item.get("description") or item.get("title") or "Porovnateľný inzerát").strip()
@@ -656,6 +680,13 @@ def _lock_report_evidence_claims(
             ]
             if public_links:
                 market_lines.extend(("", "Verified SK/CZ offers:", *public_links))
+            else:
+                market_lines.extend(
+                    (
+                        "",
+                        "No verified SK/CZ offer met the strict ±20% price and exact visible-configuration filters.",
+                    )
+                )
             quick_price = f"- **Price:** {view_label} — {advertised_label} versus a market median of {median_label}."
         else:
             market_lines = [
@@ -670,6 +701,13 @@ def _lock_report_evidence_claims(
             ]
             if public_links:
                 market_lines.extend(("", "Overené SK/CZ ponuky:", *public_links))
+            else:
+                market_lines.extend(
+                    (
+                        "",
+                        "Žiadna overená SK/CZ ponuka nesplnila prísny filter ±20 % ceny a rovnakej viditeľnej konfigurácie.",
+                    )
+                )
             quick_price = f"- **Cena:** {view_label} — {advertised_label} oproti trhovému mediánu {median_label}."
 
         text = _replace_report_section(
@@ -1137,10 +1175,10 @@ def multi_model_analysis_events(
     text_research_web_context = web_research_text
 
     # Price discovery is independent from the language model. Direct result-
-    # card parsing preserves exact Bazos detail URLs and avoids four paid
-    # grounding calls that repeatedly returned no usable candidates.
+    # card parsing preserves exact local-portal detail URLs and keeps foreign
+    # observations out of the customer-facing link path.
     diagnostics["market"]["targeted_search_attempted"] = True
-    yield _status_event("Searching Bazos SK/CZ directly for comparable cars...")
+    yield _status_event("Searching local SK/CZ marketplaces directly for comparable cars...")
     try:
         market_pass_results = dependencies.direct_market_search(listing_context_data)
     except Exception as market_exc:
@@ -1148,7 +1186,7 @@ def multi_model_analysis_events(
         market_pass_results = [
             {
                 "pass_id": "sk_cz",
-                "portal": "Bazos SK/CZ",
+                "portal": "SK/CZ local marketplaces",
                 "language": "sk/cs",
                 "market_scope": "PUBLIC_SK_CZ",
                 "search_method": "DIRECT_PORTAL_HTML",
@@ -1166,7 +1204,7 @@ def multi_model_analysis_events(
 
     direct_pass = market_pass_results[0] if market_pass_results else {}
     market_lines = [
-        "# Direct Bazos SK/CZ market search",
+        "# Direct local SK/CZ market search",
         "",
         f"- Query: {direct_pass.get('search_query') or 'unavailable'}",
         f"- Status: {direct_pass.get('status') or 'ERROR'}",
@@ -1177,7 +1215,7 @@ def multi_model_analysis_events(
         if isinstance(attempt, dict):
             market_lines.append(
                 "- "
-                + str(attempt.get("country") or "?")
+                + str(attempt.get("country") or attempt.get("portal") or "?")
                 + ": "
                 + str(attempt.get("status") or "ERROR")
                 + f", cards={int(attempt.get('result_card_count') or 0)}"
@@ -1364,6 +1402,21 @@ def multi_model_analysis_events(
                 exchange_rates=exchange_rates,
             )
             repository.write_json(slug, "market_benchmark.json", market_benchmark)
+            # The benchmark mutates the deduplicated records with the strict
+            # customer-link decision. Mirror that decision into the raw search
+            # artifact so debugging data cannot claim that every verified card
+            # was recommended.
+            recommendation_flags = {
+                str(item.get("candidate_id") or ""): item.get("display_in_report") is True
+                for item in research_data.get("market_comparables") or []
+                if isinstance(item, dict)
+            }
+            for candidate in market_search_results.get("candidates") or []:
+                if isinstance(candidate, dict):
+                    candidate["display_in_report"] = recommendation_flags.get(
+                        str(candidate.get("candidate_id") or ""), False
+                    )
+            repository.write_json(slug, "market_search_results.json", market_search_results)
             diagnostics["market"].update(
                 {
                     "structured_comparable_count_before_filtering": comparable_count_before,

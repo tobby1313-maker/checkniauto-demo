@@ -119,6 +119,7 @@ def add_verified_comparable_links(
         for item in (market_comparables or [])
         if isinstance(item, Mapping)
         and item.get("verified_url") is True
+        and item.get("display_in_report", True) is True
         and _is_allowed_comparable_url(str(item.get("source_url") or item.get("url") or ""))
     ]
     if not comparables:

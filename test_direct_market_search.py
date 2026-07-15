@@ -4,7 +4,9 @@ from scrapper_demo.direct_market_search import (
     bazos_search_url,
     derive_bazos_identity,
     parse_bazos_search_page,
+    parse_local_portal_search_page,
     search_bazos_sk_cz,
+    search_local_marketplaces,
 )
 
 
@@ -140,7 +142,71 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertEqual(result["citation_count"], 2)
         self.assertEqual(result["candidate_count"], 0)
 
+    def test_local_portal_parser_keeps_sauto_detail_and_czk_fields(self):
+        html = """
+        <article class="listing-card">
+          <a href="/osobni/detail/volkswagen/t-roc/210123456">
+            Volkswagen T-Roc 1.5 TSI DSG FWD
+          </a>
+          <div>2022, 145 000 km, Benzín, Automatická, 449 900 Kč</div>
+        </article>
+        """
+        candidates, counts = parse_local_portal_search_page(
+            html,
+            portal="sauto_cz",
+            search_url="https://www.sauto.cz/inzerce/osobni/volkswagen/t-roc",
+            identity=self.identity,
+            listing=self.listing,
+        )
+
+        self.assertEqual(counts["result_card_count"], 1)
+        self.assertEqual(len(candidates), 1)
+        item = candidates[0]
+        self.assertEqual(
+            item["source_url"],
+            "https://www.sauto.cz/osobni/detail/volkswagen/t-roc/210123456",
+        )
+        self.assertEqual(item["source_portal"], "sauto_cz")
+        self.assertEqual(item["source_country"], "CZ")
+        self.assertEqual(item["year"], 2022)
+        self.assertEqual(item["mileage_km"], 145000)
+        self.assertEqual(item["price_display"], "449 900 CZK")
+        self.assertEqual(item["similarity_tier"], "A")
+
+    def test_local_marketplace_wrapper_records_all_portal_attempts(self):
+        def fetch(url, timeout):
+            if "bazos." in url:
+                return ""
+            if "autobazar.sk" in url:
+                href = "/28272841/volkswagen-t-roc-1-5-tsi-dsg/"
+            elif "autobazar.eu" in url:
+                href = "/detail/volkswagen-t-roc/AmExample123/"
+            else:
+                href = "/osobni/detail/volkswagen/t-roc/210123456"
+            return f"""
+            <article>
+              <a href="{href}">Volkswagen T-Roc 1.5 TSI DSG FWD</a>
+              <div>2022, 145 000 km, 1.5 TSI DSG FWD, 19 990 EUR</div>
+            </article>
+            """
+
+        result = search_local_marketplaces(
+            self.listing,
+            timeout=3.0,
+            fetch_html=fetch,
+        )[0]
+
+        self.assertEqual(result["status"], "FOUND")
+        self.assertEqual(
+            {item["source_portal"] for item in result["candidates"]},
+            {"autobazar_sk", "autobazar_eu", "sauto_cz"},
+        )
+        self.assertEqual(len(result["source_attempts"]), 6)
+        self.assertEqual(
+            {attempt["portal"] for attempt in result["source_attempts"]},
+            {"bazos_sk", "bazos_cz", "autobazar_sk", "autobazar_eu", "sauto_cz"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-

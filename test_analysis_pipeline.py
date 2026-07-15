@@ -259,6 +259,52 @@ Bez porovnania.
         self.assertIn("| Vzorka benchmarku | 4 ponúk |", locked)
         self.assertIn("**Cena:** v rámci trhu", locked)
 
+    def test_public_report_links_only_strict_recommendations(self):
+        report = """# VW Tiguan
+
+## Rýchle zhrnutie
+- **Cena:** nejasná.
+
+## 💰 Cena a vyjednávanie
+Voľný text z modelu.
+"""
+        selected_url = "https://auto.bazos.cz/inzerat/1/tiguan.php"
+        rejected_url = "https://auto.bazos.sk/inzerat/2/tiguan.php"
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "market_assessment": {
+                    "benchmark_available": True,
+                    "benchmark_comparable_count": 3,
+                    "benchmark_median_eur": 12000,
+                    "advertised_price_eur": 11800,
+                    "price_delta_percent": -1.7,
+                    "price_view": "fair",
+                },
+                "market_comparables": [
+                    {
+                        "description": "Exact configuration within band",
+                        "source_url": selected_url,
+                        "verified_url": True,
+                        "display_in_report": True,
+                        "market_scope": "PUBLIC_SK_CZ",
+                    },
+                    {
+                        "description": "Verified but rejected fallback",
+                        "source_url": rejected_url,
+                        "verified_url": True,
+                        "display_in_report": False,
+                        "market_scope": "PUBLIC_SK_CZ",
+                    },
+                ],
+            },
+            {},
+            output_language="sk",
+        )
+
+        self.assertIn(selected_url, locked)
+        self.assertNotIn(rejected_url, locked)
+
     def test_public_report_drops_stray_numeric_or_calibration_score_text(self):
         locked = _lock_report_evidence_claims(
             "# Report\n\nOverall score: 74/100.\n\nThe scorer is UNCALIBRATED.\n",
