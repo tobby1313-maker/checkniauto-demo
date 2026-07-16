@@ -2188,13 +2188,34 @@ def _multi_model_analysis_events(
         yield _status_event(f"Component identification saved: {status}.")
     except Exception as identity_exc:
         dependencies.log(f"Component identity research warning: {identity_exc}")
-        yield _status_event(
-            "Component identification unavailable; continuing without guessing exact codes."
-        )
         diagnostics["phases"]["component_identity"] = {
             "status": "failed",
             "error_type": type(identity_exc).__name__,
         }
+        if research_v2_active:
+            for phase in (
+                "grounded_research", "text_research", "vision",
+                "risk_scoring", "final_synthesis",
+            ):
+                diagnostics["phases"][phase] = {
+                    "status": "skipped",
+                    "reason": "component_identity_grounding_unavailable",
+                }
+            diagnostics["delivery"] = {
+                "status": "RETRY_REQUIRED",
+                "chargeable": False,
+                "reason": "component_identity_grounding_unavailable",
+            }
+            diagnostics["completed_at"] = datetime.now().isoformat(timespec="seconds")
+            save_diagnostics()
+            yield _error_event(
+                "Grounded component identification is unavailable. "
+                "Analysis stopped before paid synthesis; please retry later."
+            )
+            return
+        yield _status_event(
+            "Component identification unavailable; continuing without guessing exact codes."
+        )
         save_diagnostics()
     component_identity_json = json.dumps(
         component_identity, indent=2, ensure_ascii=False

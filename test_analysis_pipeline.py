@@ -933,6 +933,43 @@ Vo\u013En\u00fd text z modelu.
         self.assertFalse(diagnostics["delivery"]["chargeable"])
         self.assertEqual(diagnostics["phases"]["final_synthesis"]["status"], "skipped")
 
+    def test_identity_grounding_exhaustion_stops_before_reliability_grounding(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repository = ListingJobRepository(root / "jobs")
+            repository.job_dir("sample", create=True)
+            repository.write_text("sample", "car_info.md", "# Sample listing")
+            phases = []
+
+            def collect_gemini(entries, phase, factory, **kwargs):
+                yield from ()
+                phases.append(phase)
+                raise RateLimitError("all identity models and keys exhausted")
+
+            dependencies = replace(
+                _dependencies(repository, root / "prompts"),
+                normalize_gemini_keys=lambda keys: [{"key": keys[0], "label": "primary"}],
+                collect_gemini=collect_gemini,
+            )
+
+            events = list(
+                multi_model_analysis_events(
+                    "sample",
+                    "",
+                    ["gemini-key"],
+                    dependencies=dependencies,
+                )
+            )
+            diagnostics = repository.read_json("sample", "analysis_diagnostics.json")
+
+        self.assertEqual(phases, ["component identity research"])
+        self.assertTrue(any("stopped before paid synthesis" in event for event in events))
+        self.assertEqual(
+            diagnostics["delivery"]["reason"],
+            "component_identity_grounding_unavailable",
+        )
+        self.assertEqual(diagnostics["phases"]["grounded_research"]["status"], "skipped")
+
     def test_injected_pipeline_preserves_phase_order_and_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

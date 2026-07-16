@@ -78,10 +78,11 @@ The analysis pipeline is:
    delivery gate then marks the result incomplete whenever web findings,
    technical risks, or expected costs are empty and prevents a green verdict;
    such a result is a retry/no-charge candidate rather than a complete paid
-   analysis. If grounded technical research returns no verifiable public source
-   URL at all, the run now stops before text research, vision, scoring, and final
-   synthesis. Diagnostics mark it `RETRY_REQUIRED` with `chargeable: false` so a
-   billing layer can offer a free retry instead of delivering an empty report.
+   analysis. If grounded component identification exhausts every configured key
+   and model, or grounded technical research returns no verifiable public source
+   URL at all, the run now stops before the remaining paid phases. Diagnostics
+   mark it `RETRY_REQUIRED` with `chargeable: false` so a billing layer can offer
+   a free retry instead of delivering an empty report.
    Public comparable links use a stricter customer-facing filter than broad
    discovery: the detail URL must be verified, the visible engine,
    transmission, and drivetrain must match (Tier A), and the asking price must
