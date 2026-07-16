@@ -16,6 +16,25 @@ The demo supports two input flows:
 - Manual analysis for any other marketplace by pasting listing text, entering a
   price, and uploading up to 12 photos.
 
+The redesigned customer journey has three screens:
+
+1. `/` — submit a supported marketplace URL or a manual listing.
+2. `/analysis/<slug>` — a premium buyer summary with a qualitative verdict,
+   priority findings, market context, likely costs, photos, and next actions.
+3. `/analysis/<slug>/technical` — the evidence-led deep dive with listing facts,
+   resolved component identity, VIN/recall context, verified sources, technical
+   risks, comparables, cost ranges, photo findings, and a persistent checklist.
+
+Both result pages consume `/api/demo/listings/<slug>/presentation`. This stable
+presentation model is assembled from canonical pipeline artifacts and excludes
+private numeric scores, diagnostic breakdowns, unverified URLs, and
+background-only market links. Missing evidence is shown as unavailable instead
+of being inferred. It also reads compatible embedded identity and market fields
+from older completed jobs when their newer standalone artifacts are absent.
+The recent-analyses drawer merges browser history with completed jobs returned
+by the demo listings API, so saved server results remain discoverable after a
+browser reset.
+
 `mobile.de` is searched automatically as a background-only source for price
 benchmarking. Its detail links are never shown to customers. If the portal
 returns an access-denied response, the exact HTTP status and compact response
@@ -137,6 +156,7 @@ scrapper_demo/
   direct_market_search.py              deterministic local SK/CZ result-card search
   market_comparables.py              public-link selection and EU price benchmark
   progress.py                         process-local progress/rate/job state
+  presentation.py                    customer-safe result-page view model
   scorecard.py                        private diagnostic score breakdown
   providers/                          Gemini, Grok, OpenRouter, retry, and errors
   routes/                             public/demo and private Flask blueprints

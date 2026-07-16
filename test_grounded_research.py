@@ -442,17 +442,14 @@ class GroundedResearchTest(unittest.TestCase):
 
     def test_browser_renderer_allows_links_only_for_price_comparables(self):
         root = Path(__file__).resolve().parent
-        web_index = (root / "web" / "index.html").read_text(encoding="utf-8")
+        technical_js = (root / "web" / "assets" / "redesign-technical.js").read_text(encoding="utf-8")
+        presentation = (root / "scrapper_demo" / "presentation.py").read_text(encoding="utf-8")
 
-        self.assertIn("allowedComparableUrl", web_index)
-        self.assertIn("inComparablePriceSection", web_index)
-        self.assertIn("enhanceQuickSummaryHtml", web_index)
-        self.assertIn("quick-summary-layout", web_index)
-        self.assertIn("scorecard-panel", web_index)
-        self.assertIn("score-unavailable-badge", web_index)
-        self.assertIn("enhanceProsConsHtml", web_index)
-        self.assertIn("pros-cons-layout", web_index)
-        self.assertIn("target=\"_blank\"", web_index)
+        self.assertIn("market.comparables", technical_js)
+        self.assertIn('target=\"_blank\"', technical_js)
+        self.assertIn('item.get("verified_url") is not True', presentation)
+        self.assertIn('item.get("display_in_report") is True', presentation)
+        self.assertNotIn("screening_score", technical_js)
 
     def test_final_prompt_formats_technical_risks_as_severity_blocks(self):
         root = Path(__file__).resolve().parent

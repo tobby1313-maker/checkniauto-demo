@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="sk" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Výsledok analýzy — Checkni Auto</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@600;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/redesign.css">
+</head>
+<body class="result-page">
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="/"><img src="/assets/checkni-auto-logo.png" alt=""><span><strong>Checkni Auto</strong><small data-sk="Zákaznícky prehľad analýzy" data-en="Customer analysis summary">Zákaznícky prehľad analýzy</small></span></a>
+      <div class="header-actions"><button class="pill-button desktop-only" data-open-recent data-sk="Nedávne analýzy" data-en="Recent analyses">Nedávne analýzy</button><a class="button primary small" href="/" data-sk="+ Nová analýza" data-en="+ New analysis">+ Nová analýza</a><button class="pill-button" data-language-toggle>SK / EN</button><button class="icon-button" data-theme-toggle>☾</button></div>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <div class="wrap" id="analysisRoot">
+      <section class="card loading-card" data-loading><div class="loading-line"></div><div class="loading-line"></div><div class="loading-line"></div></section>
+      <section class="card hidden" data-error><h1 data-sk="Analýzu sa nepodarilo načítať" data-en="Could not load the analysis">Analýzu sa nepodarilo načítať</h1><p class="muted" data-error-message></p><a class="button primary" href="/" data-sk="Spustiť novú analýzu" data-en="Start a new analysis">Spustiť novú analýzu</a></section>
+
+      <div class="hidden" data-content>
+        <div class="page-kicker eyebrow" data-sk="Zákaznícky prehľad analýzy" data-en="Customer analysis summary">Zákaznícky prehľad analýzy</div>
+        <div class="breadcrumbs"><a href="/" data-sk="Domov" data-en="Home">Domov</a> · <span data-analysis-title></span></div>
+
+        <section class="result-hero">
+          <article class="card vehicle-card">
+            <div class="vehicle-image"><div class="image-placeholder" data-sk="Fotografia nie je dostupná" data-en="Photo unavailable">Fotografia nie je dostupná</div><img class="hidden" data-hero-image alt=""><div class="vehicle-shade"></div><div class="vehicle-heading"><h1 data-analysis-title></h1><p data-listing-subtitle></p></div></div>
+            <div class="vehicle-meta"><div class="meta"><span data-sk="Cena" data-en="Price">Cena</span><strong data-price></strong></div><div class="meta"><span data-sk="Nájazd" data-en="Mileage">Nájazd</span><strong data-mileage></strong></div><div class="meta"><span data-sk="Rok" data-en="Year">Rok</span><strong data-year></strong></div><div class="meta"><span>VIN</span><strong data-vin></strong></div></div>
+          </article>
+          <aside class="card verdict-card"><span class="eyebrow" data-sk="Výsledok screeningu" data-en="Screening result">Výsledok screeningu</span><span class="verdict-badge" data-verdict-badge></span><div><h2 data-verdict-label></h2><p data-verdict-summary></p></div><span class="confidence" data-confidence></span><div class="alerts" data-alerts></div><div class="action-grid"><button class="button primary" data-copy-seller data-sk="Správa predajcovi" data-en="Seller message">Správa predajcovi</button><a class="button ghost" data-technical-link data-sk="Plný technický report" data-en="Full technical report">Plný technický report</a></div></aside>
+        </section>
+
+        <section class="quick-grid"><article class="card quick-card"><span class="quick-icon">✓</span><div><span data-sk="Silná stránka" data-en="Strength">Silná stránka</span><strong data-strength></strong></div></article><article class="card quick-card"><span class="quick-icon">!</span><div><span data-sk="Najväčšia priorita" data-en="Top priority">Najväčšia priorita</span><strong data-priority></strong></div></article><article class="card quick-card"><span class="quick-icon">€</span><div><span data-sk="Vstupný servis" data-en="Initial service">Vstupný servis</span><strong data-initial-cost></strong></div></article><article class="card quick-card"><span class="quick-icon">↗</span><div><span data-sk="Zdroj" data-en="Source">Zdroj</span><a data-source-link><strong data-source></strong></a></div></article></section>
+
+        <section class="summary-grid">
+          <div class="stack">
+            <article class="card"><div class="card-head"><div><h3 data-sk="Najdôležitejšie zistenia" data-en="Most important findings">Najdôležitejšie zistenia</h3><p data-sk="To, čo potrebuješ vedieť pred kontaktovaním predajcu." data-en="What you need to know before contacting the seller.">To, čo potrebuješ vedieť pred kontaktovaním predajcu.</p></div><span class="tag" data-findings-count></span></div><div class="findings-grid" data-findings></div></article>
+
+            <article class="card"><div class="card-head"><div><h3 data-sk="Cena voči trhu" data-en="Price versus market">Cena voči trhu</h3><p data-sk="Len overené a dostatočne podobné ponuky." data-en="Only verified and sufficiently similar offers.">Len overené a dostatočne podobné ponuky.</p></div><span class="tag" data-market-confidence></span></div><div data-market></div></article>
+
+            <article class="card"><div class="card-head"><div><h3 data-sk="Očakávané náklady" data-en="Expected costs">Očakávané náklady</h3><p data-sk="Vstupný servis je oddelený od podmienených opráv." data-en="Initial service is separated from conditional repairs.">Vstupný servis je oddelený od podmienených opráv.</p></div></div><div class="cost-layout" data-costs></div></article>
+
+            <article class="card"><div class="card-head"><div><h3 data-sk="Fotografie inzerátu" data-en="Listing photos">Fotografie inzerátu</h3><p data-sk="Fotografie sú podklad, nie dôkaz skrytého technického stavu." data-en="Photos are evidence inputs, not proof of hidden mechanical condition.">Fotografie sú podklad, nie dôkaz skrytého technického stavu.</p></div><span class="tag" data-photo-count></span></div><div class="gallery" data-gallery></div></article>
+
+            <article class="card"><div class="card-head"><div><h3 data-sk="Technické riziká" data-en="Technical risks">Technické riziká</h3><p data-sk="Čo môže byť problém a ako to overiť." data-en="What may be a problem and how to verify it.">Čo môže byť problém a ako to overiť.</p></div></div><div data-risk-accordion></div></article>
+          </div>
+
+          <aside class="stack">
+            <article class="card"><div class="card-head"><div><h3 data-sk="Čo spraviť teraz" data-en="What to do now">Čo spraviť teraz</h3><p data-sk="Praktický postup pred obhliadkou." data-en="Practical steps before viewing.">Praktický postup pred obhliadkou.</p></div></div><div class="todo-list" data-actions></div><div class="seller-message"><strong data-sk="Pripravená správa pre predajcu" data-en="Prepared seller message">Pripravená správa pre predajcu</strong><span data-seller-message></span><button class="button primary" data-copy-seller data-sk="Kopírovať správu" data-en="Copy message">Kopírovať správu</button></div></article>
+            <article class="card"><div class="card-head"><div><h3 data-sk="Dôveryhodnosť dát" data-en="Data confidence">Dôveryhodnosť dát</h3><p data-sk="Fakty a odhady zostávajú oddelené." data-en="Facts and estimates remain separated.">Fakty a odhady zostávajú oddelené.</p></div></div><div data-confidence-rows></div></article>
+            <article class="card"><h3 data-sk="Celý technický report" data-en="Full technical report">Celý technický report</h3><p class="muted" data-sk="Detailné dáta, riziká, zdroje, fotografie a kontrolný zoznam." data-en="Detailed data, risks, sources, photos and an inspection checklist.">Detailné dáta, riziká, zdroje, fotografie a kontrolný zoznam.</p><a class="button ghost" style="width:100%" data-technical-link data-sk="Otvoriť technický report →" data-en="Open technical report →">Otvoriť technický report →</a></article>
+          </aside>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer"><div class="wrap footer-row"><span>Checkni Auto</span><span data-sk="Screening nenahrádza fyzickú obhliadku a odbornú diagnostiku." data-en="Screening does not replace a physical inspection and professional diagnostics.">Screening nenahrádza fyzickú obhliadku a odbornú diagnostiku.</span></div></footer>
+  <div class="mobile-actions"><button class="button ghost" data-share data-sk="Zdieľať" data-en="Share">Zdieľať</button><button class="button primary" data-copy-seller data-sk="Správa predajcovi" data-en="Seller message">Správa predajcovi</button></div>
+  <div class="drawer" data-recent-drawer aria-hidden="true"><aside class="drawer-panel"><div class="drawer-head"><h2 data-sk="Nedávne analýzy" data-en="Recent analyses">Nedávne analýzy</h2><button class="icon-button" data-close-recent>×</button></div><div class="recent-list" data-recent-list></div></aside></div>
+  <div class="lightbox" data-lightbox><button class="icon-button lightbox-close" data-lightbox-close>×</button><img alt=""></div><div class="toast" data-toast></div>
+  <script src="/assets/redesign-common.js" defer></script><script src="/assets/redesign-analysis.js" defer></script>
+</body>
+</html>

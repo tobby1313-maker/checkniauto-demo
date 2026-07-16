@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Technická analýza | Checkni.auto</title>
+  <link rel="stylesheet" href="/assets/redesign.css">
+</head>
+<body class="technical-page">
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Checkni.auto domov">
+      <img src="/assets/checkni-auto-logo.png" alt="">
+      <span><strong>Checkni Auto</strong><small data-sk="Technická analýza" data-en="Technical analysis">Technická analýza</small></span>
+    </a>
+    <nav class="header-actions" aria-label="Nástroje">
+      <button class="icon-button" type="button" data-open-recent aria-label="Nedávne analýzy">◷</button>
+      <button class="icon-button" type="button" data-theme-toggle aria-label="Zmeniť tému">◐</button>
+      <button class="language-toggle" type="button" data-language-toggle>EN</button>
+    </nav>
+  </header>
+
+  <div class="technical-toolbar">
+    <a class="text-link" data-summary-link href="/">← <span data-sk="Späť na prehľad" data-en="Back to overview">Späť na prehľad</span></a>
+    <div class="toolbar-actions">
+      <button class="button button-ghost button-small" type="button" data-copy-report data-sk="Kopírovať" data-en="Copy">Kopírovať</button>
+      <button class="button button-ghost button-small" type="button" data-share data-sk="Zdieľať" data-en="Share">Zdieľať</button>
+      <button class="button button-primary button-small" type="button" data-print data-sk="Uložiť PDF" data-en="Save PDF">Uložiť PDF</button>
+    </div>
+  </div>
+
+  <div class="technical-shell">
+    <aside class="technical-nav" aria-label="Obsah analýzy">
+      <strong data-sk="Obsah analýzy" data-en="Analysis contents">Obsah analýzy</strong>
+      <a href="#summary" data-sk="Zhrnutie" data-en="Summary">Zhrnutie</a>
+      <a href="#data" data-sk="Údaje inzerátu" data-en="Listing data">Údaje inzerátu</a>
+      <a href="#identity" data-sk="Identita a VIN" data-en="Identity & VIN">Identita a VIN</a>
+      <a href="#research" data-sk="Výskum a zdroje" data-en="Research & sources">Výskum a zdroje</a>
+      <a href="#risks" data-sk="Technické riziká" data-en="Technical risks">Technické riziká</a>
+      <a href="#market" data-sk="Trh a náklady" data-en="Market & costs">Trh a náklady</a>
+      <a href="#photos" data-sk="Fotodokumentácia" data-en="Photo evidence">Fotodokumentácia</a>
+      <a href="#checklist" data-sk="Kontrolný zoznam" data-en="Checklist">Kontrolný zoznam</a>
+      <a href="#report" data-sk="Plný report" data-en="Full report">Plný report</a>
+    </aside>
+
+    <main class="technical-main" data-report-main>
+      <section class="loading-card" data-loading>
+        <span class="spinner" aria-hidden="true"></span>
+        <p data-sk="Načítavam technickú analýzu…" data-en="Loading technical analysis…">Načítavam technickú analýzu…</p>
+      </section>
+
+      <section class="error-card" data-error hidden>
+        <h1 data-sk="Analýzu sa nepodarilo načítať" data-en="The analysis could not be loaded">Analýzu sa nepodarilo načítať</h1>
+        <p data-error-message></p>
+        <a class="button button-primary" href="/" data-sk="Nová analýza" data-en="New analysis">Nová analýza</a>
+      </section>
+
+      <div data-content hidden>
+        <section class="technical-hero" id="summary">
+          <p class="eyebrow" data-sk="Technická analýza vozidla" data-en="Technical vehicle analysis">Technická analýza vozidla</p>
+          <h1 data-report-title>—</h1>
+          <p class="technical-meta" data-report-meta>—</p>
+          <div class="verdict-banner" data-verdict-banner>
+            <span class="verdict-dot"></span>
+            <div><small data-sk="Verdikt" data-en="Verdict">Verdikt</small><strong data-verdict-label>—</strong></div>
+            <p data-verdict-summary>—</p>
+          </div>
+          <div class="fact-strip" data-fact-strip></div>
+          <div class="two-column-grid">
+            <article class="report-card">
+              <h2 data-sk="Čo podporuje kúpu" data-en="What supports the purchase">Čo podporuje kúpu</h2>
+              <div data-pros></div>
+            </article>
+            <article class="report-card">
+              <h2 data-sk="Čo treba preveriť" data-en="What needs verification">Čo treba preveriť</h2>
+              <div data-priority-findings></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="report-section" id="data">
+          <div class="section-heading"><div><p class="eyebrow">01</p><h2 data-sk="Údaje z inzerátu" data-en="Listing data">Údaje z inzerátu</h2></div></div>
+          <div class="report-card"><dl class="data-grid" data-listing-data></dl></div>
+        </section>
+
+        <section class="report-section" id="identity">
+          <div class="section-heading"><div><p class="eyebrow">02</p><h2 data-sk="Identita vozidla a VIN" data-en="Vehicle identity and VIN">Identita vozidla a VIN</h2></div></div>
+          <div class="two-column-grid">
+            <article class="report-card"><h3 data-sk="Dekódovaná identita" data-en="Resolved identity">Dekódovaná identita</h3><dl class="data-grid compact" data-identity></dl></article>
+            <article class="report-card"><h3 data-sk="Kontrola VIN" data-en="VIN check">Kontrola VIN</h3><div data-vin></div></article>
+          </div>
+          <article class="report-card report-card-spaced" data-identity-notes hidden></article>
+          <article class="report-card report-card-spaced"><h3 data-sk="Bezpečnosť a zvolávacie akcie" data-en="Safety and recalls">Bezpečnosť a zvolávacie akcie</h3><div data-safety></div></article>
+        </section>
+
+        <section class="report-section" id="research">
+          <div class="section-heading"><div><p class="eyebrow">03</p><h2 data-sk="Výskum a overené zdroje" data-en="Research and verified sources">Výskum a overené zdroje</h2></div></div>
+          <div class="report-card"><div data-research-findings></div></div>
+          <div class="source-grid" data-sources></div>
+        </section>
+
+        <section class="report-section" id="risks">
+          <div class="section-heading"><div><p class="eyebrow">04</p><h2 data-sk="Technické riziká" data-en="Technical risks">Technické riziká</h2></div></div>
+          <div class="risk-list" data-risks></div>
+        </section>
+
+        <section class="report-section" id="market">
+          <div class="section-heading"><div><p class="eyebrow">05</p><h2 data-sk="Trhový kontext a možné náklady" data-en="Market context and possible costs">Trhový kontext a možné náklady</h2></div></div>
+          <div class="market-summary-grid" data-market-summary></div>
+          <div class="method-note market-limitations" data-market-limitations></div>
+          <article class="report-card report-card-spaced table-wrap"><table class="report-table"><thead><tr><th data-sk="Porovnateľné vozidlo" data-en="Comparable vehicle">Porovnateľné vozidlo</th><th data-sk="Cena" data-en="Price">Cena</th><th data-sk="Rok" data-en="Year">Rok</th><th data-sk="Nájazd" data-en="Mileage">Nájazd</th></tr></thead><tbody data-comparables></tbody></table></article>
+          <article class="report-card report-card-spaced table-wrap"><h3 data-sk="Odhadované náklady" data-en="Estimated costs">Odhadované náklady</h3><table class="report-table"><thead><tr><th data-sk="Položka" data-en="Item">Položka</th><th data-sk="Odhad" data-en="Estimate">Odhad</th><th data-sk="Dôvod" data-en="Reason">Dôvod</th></tr></thead><tbody data-costs></tbody></table></article>
+        </section>
+
+        <section class="report-section" id="photos">
+          <div class="section-heading"><div><p class="eyebrow">06</p><h2 data-sk="Fotodokumentácia a vizuálne zistenia" data-en="Photo evidence and visual findings">Fotodokumentácia a vizuálne zistenia</h2></div></div>
+          <div class="technical-gallery" data-photo-gallery></div>
+          <div class="report-card report-card-spaced" data-vision></div>
+        </section>
+
+        <section class="report-section" id="checklist">
+          <div class="section-heading"><div><p class="eyebrow">07</p><h2 data-sk="Kontrolný zoznam pred kúpou" data-en="Pre-purchase checklist">Kontrolný zoznam pred kúpou</h2></div></div>
+          <div class="checklist" data-checklist></div>
+        </section>
+
+        <section class="report-section" id="report">
+          <div class="section-heading"><div><p class="eyebrow">08</p><h2 data-sk="Plný generovaný report" data-en="Full generated report">Plný generovaný report</h2></div></div>
+          <article class="report-card markdown-body" data-markdown-report></article>
+          <p class="method-note" data-sk="Analýza kombinuje údaje inzerátu, vizuálne pozorovania a dostupné externé zdroje. Nie je náhradou fyzickej obhliadky, diagnostiky ani právneho preverenia vozidla." data-en="The analysis combines listing data, visual observations and available external sources. It does not replace a physical inspection, diagnostics or legal vehicle verification.">Analýza kombinuje údaje inzerátu, vizuálne pozorovania a dostupné externé zdroje. Nie je náhradou fyzickej obhliadky, diagnostiky ani právneho preverenia vozidla.</p>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <aside class="drawer" data-recent-drawer aria-hidden="true"><div class="drawer-backdrop" data-close-recent></div><div class="drawer-panel"><div class="drawer-heading"><h2 data-sk="Nedávne analýzy" data-en="Recent analyses">Nedávne analýzy</h2><button class="icon-button" type="button" data-close-recent>×</button></div><div data-recent-list></div></div></aside>
+  <div class="lightbox" data-lightbox><button class="icon-button lightbox-close" type="button" data-lightbox-close>×</button><button class="lightbox-arrow lightbox-prev" type="button" data-lightbox-prev>‹</button><img data-lightbox-image alt=""><button class="lightbox-arrow lightbox-next" type="button" data-lightbox-next>›</button></div>
+  <div class="toast" data-toast hidden></div>
+  <script src="/assets/redesign-common.js" defer></script>
+  <script src="/assets/redesign-technical.js" defer></script>
+</body>
+</html>

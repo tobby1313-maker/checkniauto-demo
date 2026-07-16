@@ -68,6 +68,7 @@ from scrapper_demo.market_comparables import (
     customer_link_priority,
     is_customer_facing_market_comparable,
 )
+from scrapper_demo.presentation import build_presentation_payload
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     multi_model_analysis_events,
@@ -979,6 +980,16 @@ def index():
     return send_from_directory(_runtime_web_dir(), "index.html")
 
 
+def analysis_page(slug):
+    _ = slug
+    return send_from_directory(_runtime_web_dir(), "analysis.html")
+
+
+def technical_analysis_page(slug):
+    _ = slug
+    return send_from_directory(_runtime_web_dir(), "technical-analysis.html")
+
+
 def _admin_token():
     if has_app_context():
         return str(current_app.config.get("ADMIN_DASHBOARD_TOKEN", "") or "")
@@ -1106,6 +1117,25 @@ def api_demo_listing_detail(slug):
     except FileNotFoundError:
         return jsonify({"error": "Saved analysis not found"}), 404
     return jsonify(payload)
+
+
+def api_demo_listing_presentation(slug):
+    try:
+        payload = _build_listing_detail_payload(
+            slug,
+            image_route_prefix="/api/demo/listings",
+            require_analysis=True,
+        )
+        presentation = build_presentation_payload(
+            _job_repository(),
+            slug,
+            parsed=payload["parsed"],
+            images=payload["images"],
+            report_markdown=payload.get("analysis_content", ""),
+        )
+    except FileNotFoundError:
+        return jsonify({"error": "Saved analysis not found"}), 404
+    return jsonify(presentation)
 
 
 def api_listing_artifacts(slug):
@@ -3388,6 +3418,14 @@ def _multi_model_analysis_events(slug, grok_key, gemini_keys, output_language="s
     )
 
 def _demo_analysis_events(slug, output_language="sk"):
+    _job_repository().write_json(
+        slug,
+        "analysis_metadata.json",
+        {
+            "schema_version": 1,
+            "output_language": _demo_output_language(output_language),
+        },
+    )
     grok_key = _demo_grok_api_key()
     openrouter_key = _demo_openrouter_api_key()
     keys = _demo_api_keys()

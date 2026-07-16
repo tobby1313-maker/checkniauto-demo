@@ -41,6 +41,7 @@ PUBLIC_ARTIFACTS = (
 )
 
 INTERNAL_ARTIFACTS = PUBLIC_ARTIFACTS + (
+    "analysis_metadata.json",
     "kb_autosave.json",
     "research_model_output.json",
     "text_research_provider_attempts.json",

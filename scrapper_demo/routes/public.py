@@ -12,6 +12,8 @@ from ._registration import RouteSpec, create_route_blueprint
 
 PUBLIC_ROUTES = (
     RouteSpec("/", "index"),
+    RouteSpec("/analysis/<slug>", "analysis_page"),
+    RouteSpec("/analysis/<slug>/technical", "technical_analysis_page"),
     RouteSpec("/token-dashboard.html", "token_dashboard"),
     RouteSpec("/admin/login", "admin_login", ("GET", "POST")),
     RouteSpec("/admin/logout", "admin_logout", ("POST",)),
@@ -20,6 +22,7 @@ PUBLIC_ROUTES = (
     RouteSpec("/api/demo/current-progress", "api_demo_current_progress"),
     RouteSpec("/api/demo/listings", "api_demo_listings"),
     RouteSpec("/api/demo/listings/<slug>", "api_demo_listing_detail"),
+    RouteSpec("/api/demo/listings/<slug>/presentation", "api_demo_listing_presentation"),
     RouteSpec("/api/demo/listings/<slug>/artifacts", "api_demo_listing_artifacts"),
     RouteSpec("/api/demo/listings/<slug>/artifacts/<filename>", "api_demo_listing_artifact"),
     RouteSpec("/api/demo/listings/<slug>/image/<filename>", "api_demo_listing_image"),
