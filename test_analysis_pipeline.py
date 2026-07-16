@@ -554,6 +554,34 @@ Vo\u013En\u00fd text z modelu.
         self.assertIn("Žiadne modelové technické riziko", locked)
         self.assertIn("Nie je dostupný dostatočne podložený odhad", locked)
         self.assertNotIn("Timing chain", locked)
+
+    def test_report_repairs_ordered_list_gaps_after_evidence_filtering(self):
+        report = """# Report
+
+## OtÃ¡zky
+1. Request the VIN.
+2. Change DSG oil every 60000 km.
+3. Test drive the car.
+"""
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "web_research_findings": [],
+                "technical_risks": [],
+                "expected_costs": [],
+                "market_assessment": {
+                    "benchmark_available": True,
+                    "benchmark_comparable_count": 3,
+                    "benchmark_median_eur": 10000,
+                },
+            },
+            {},
+            output_language="sk",
+        )
+
+        self.assertIn("1. Request the VIN.", locked)
+        self.assertIn("2. Test drive the car.", locked)
+        self.assertNotIn("3. Test drive the car.", locked)
         self.assertNotIn("60000", locked)
 
     def test_unsourced_model_risk_cannot_claim_this_car_has_the_defect(self):

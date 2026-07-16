@@ -258,7 +258,7 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(record_request.call_args.kwargs["actual_output_tokens"], 3)
         self.assertEqual(record_request.call_args.kwargs["actual_thinking_tokens"], 5)
         self.assertEqual(record_request.call_args.kwargs["actual_total_tokens"], 19)
-        self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 4000)
+        self.assertEqual(payloads[0]["generationConfig"]["maxOutputTokens"], 5000)
         self.assertEqual(payloads[0]["generationConfig"]["temperature"], 0.1)
         self.assertEqual(
             payloads[0]["generationConfig"]["thinkingConfig"],
@@ -335,7 +335,7 @@ class ProviderAdapterTest(unittest.TestCase):
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "quality_optimized"}, clear=False):
             self.assertEqual(
                 gemini._generation_settings("text_research"),
-                {"max_output_tokens": 4000, "temperature": 0.1},
+                {"max_output_tokens": 5000, "temperature": 0.1},
             )
             self.assertEqual(
                 gemini._generation_settings("vision"),

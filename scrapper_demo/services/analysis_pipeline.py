@@ -527,6 +527,7 @@ def _research_contract_diagnostics(before: Any, after: Any, *, attempt: str) -> 
     return {
         "attempt": attempt,
         "normalized_or_filtered": before_map != after_map,
+        "validation_errors": _research_contract_validation_errors(after),
         "removed_counts": {
             field: max(
                 0,
@@ -537,60 +538,94 @@ def _research_contract_diagnostics(before: Any, after: Any, *, attempt: str) -> 
     }
 
 
-def _valid_research_model_output(value: Any) -> bool:
-    """Validate the strict top-level Research V2 contract before canonical merge."""
+def _renumber_markdown_ordered_lists(value: str) -> str:
+    """Repair ordered-list gaps left after deterministic report filtering."""
+    result: list[str] = []
+    counter = 0
+    for line in str(value or "").splitlines():
+        if re.match(r"^\s*##", line):
+            counter = 0
+        match = re.match(r"^(\s*)\d+\.(\s+.*)$", line)
+        if match:
+            counter += 1
+            line = f"{match.group(1)}{counter}.{match.group(2)}"
+        elif line.strip() and not line.startswith((" ", "\t")):
+            counter = 0
+        result.append(line)
+    return "\n".join(result).rstrip() + "\n"
+
+
+def _research_contract_validation_errors(value: Any) -> list[str]:
+    """Return compact, non-sensitive reasons why a Research V2 packet is invalid."""
+    errors: list[str] = []
     if (
         not isinstance(value, dict)
-        or value.get("_parse_error") is True
-        or value.get("schema_version") != 2
-        or value.get("source_role") != "research_model_output"
-        or set(value) != RESEARCH_V2_REQUIRED_FIELDS
-        or not isinstance(value.get("evidence_summary"), dict)
-        or not isinstance(value.get("safety_and_recall"), dict)
     ):
-        return False
-    if any(
-        set(value[field]) != RESEARCH_V2_NESTED_REQUIRED_FIELDS[field]
-        for field in ("evidence_summary", "safety_and_recall")
-    ):
-        return False
-    if not all(
-        isinstance(value.get(field), list) and len(value[field]) <= limit
-        for field, limit in RESEARCH_V2_ARRAY_LIMITS.items()
-    ):
-        return False
-    if not all(
-        isinstance(item, dict)
-        and set(item) == RESEARCH_V2_NESTED_REQUIRED_FIELDS[field]
-        for field in RESEARCH_V2_ARRAY_LIMITS
-        for item in value[field]
-    ):
-        return False
+        return ["packet:not_object"]
+    if value.get("_parse_error") is True:
+        errors.append("packet:parse_error")
+    if value.get("schema_version") != 2:
+        errors.append("schema_version:expected_2")
+    if value.get("source_role") != "research_model_output":
+        errors.append("source_role:invalid")
+    if set(value) != RESEARCH_V2_REQUIRED_FIELDS:
+        errors.append("packet:top_level_fields")
+    for field in ("evidence_summary", "safety_and_recall"):
+        item = value.get(field)
+        if not isinstance(item, dict):
+            errors.append(f"{field}:not_object")
+        elif set(item) != RESEARCH_V2_NESTED_REQUIRED_FIELDS[field]:
+            errors.append(f"{field}:fields")
+    for field, limit in RESEARCH_V2_ARRAY_LIMITS.items():
+        items = value.get(field)
+        if not isinstance(items, list):
+            errors.append(f"{field}:not_array")
+            continue
+        if len(items) > limit:
+            errors.append(f"{field}:too_many_items")
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                errors.append(f"{field}[{index}]:not_object")
+            elif set(item) != RESEARCH_V2_NESTED_REQUIRED_FIELDS[field]:
+                errors.append(f"{field}[{index}]:fields")
+    if errors:
+        return errors[:20]
 
     summary = value["evidence_summary"]
     score = summary.get("data_completeness_score")
-    if (
-        not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 100
-        or summary.get("overall_confidence") not in RESEARCH_V2_ENUMS["overall_confidence"]
-        or not all(
-            isinstance(summary.get(field), list)
-            and len(summary[field]) <= 3
-            and all(isinstance(item, str) for item in summary[field])
-            for field in ("strongest_evidence", "weakest_evidence")
+    if not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 100:
+        errors.append("evidence_summary.data_completeness_score:invalid")
+    if summary.get("overall_confidence") not in RESEARCH_V2_ENUMS["overall_confidence"]:
+        errors.append(
+            "evidence_summary.overall_confidence:enum:"
+            + str(summary.get("overall_confidence"))[:40]
         )
-    ):
-        return False
+    for field in ("strongest_evidence", "weakest_evidence"):
+        items = summary.get(field)
+        if (
+            not isinstance(items, list)
+            or len(items) > 3
+            or not all(isinstance(item, str) for item in items)
+        ):
+            errors.append(f"evidence_summary.{field}:invalid")
 
     safety = value["safety_and_recall"]
+    if safety.get("status") not in RESEARCH_V2_ENUMS["recall_status"]:
+        errors.append("safety_and_recall.status:enum:" + str(safety.get("status"))[:40])
+    if safety.get("evidence_category") not in RESEARCH_V2_ENUMS["evidence_category"]:
+        errors.append(
+            "safety_and_recall.evidence_category:enum:"
+            + str(safety.get("evidence_category"))[:40]
+        )
+    if not all(isinstance(safety.get(field), str) for field in ("summary", "required_action")):
+        errors.append("safety_and_recall:text_type")
+    safety_ids = safety.get("source_ids")
     if (
-        safety.get("status") not in RESEARCH_V2_ENUMS["recall_status"]
-        or safety.get("evidence_category") not in RESEARCH_V2_ENUMS["evidence_category"]
-        or not all(isinstance(safety.get(field), str) for field in ("summary", "required_action"))
-        or not isinstance(safety.get("source_ids"), list)
-        or len(safety["source_ids"]) > 3
-        or not all(isinstance(item, str) for item in safety["source_ids"])
+        not isinstance(safety_ids, list)
+        or len(safety_ids) > 3
+        or not all(isinstance(item, str) for item in safety_ids)
     ):
-        return False
+        errors.append("safety_and_recall.source_ids:invalid")
 
     enum_checks = (
         ("seller_claims", "evidence_category", "evidence_category"),
@@ -608,31 +643,30 @@ def _valid_research_model_output(value: Any) -> bool:
         ("sources_used", "source_type", "source_type"),
         ("sources_used", "reliability", "reliability"),
     )
-    if any(
-        item.get(key) not in RESEARCH_V2_ENUMS[enum_name]
-        for field, key, enum_name in enum_checks
-        for item in value[field]
-    ):
-        return False
-    if any(
-        not isinstance(item.get(key), str)
-        for field, keys in RESEARCH_V2_STRING_FIELDS.items()
-        for item in value[field]
-        for key in keys
-    ):
-        return False
+    for field, key, enum_name in enum_checks:
+        for index, item in enumerate(value[field]):
+            if item.get(key) not in RESEARCH_V2_ENUMS[enum_name]:
+                errors.append(
+                    f"{field}[{index}].{key}:enum:{str(item.get(key))[:40]}"
+                )
+    for field, keys in RESEARCH_V2_STRING_FIELDS.items():
+        for index, item in enumerate(value[field]):
+            for key in keys:
+                if not isinstance(item.get(key), str):
+                    errors.append(f"{field}[{index}].{key}:not_string")
 
-    if any(
-        not isinstance(item.get("source_ids"), list)
-        or len(item["source_ids"]) > 3
-        or not all(isinstance(source_id, str) for source_id in item["source_ids"])
-        for field in ("web_research_findings", "technical_risks", "expected_costs")
-        for item in value[field]
-    ):
-        return False
+    for field in ("web_research_findings", "technical_risks", "expected_costs"):
+        for index, item in enumerate(value[field]):
+            source_ids = item.get("source_ids")
+            if (
+                not isinstance(source_ids, list)
+                or len(source_ids) > 3
+                or not all(isinstance(source_id, str) for source_id in source_ids)
+            ):
+                errors.append(f"{field}[{index}].source_ids:invalid")
 
     for field in ("technical_risks", "expected_costs"):
-        for item in value[field]:
+        for index, item in enumerate(value[field]):
             low = item.get("estimated_cost_eur_low")
             high = item.get("estimated_cost_eur_high")
             if any(
@@ -640,15 +674,22 @@ def _valid_research_model_output(value: Any) -> bool:
                 and (not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount < 0)
                 for amount in (low, high)
             ):
-                return False
+                errors.append(f"{field}[{index}].cost_range:type_or_sign")
             if low is not None and high is not None and low > high:
-                return False
-    return all(
-        isinstance(item.get("verified_url"), bool)
-        and isinstance(item.get("source_url"), str)
-        and isinstance(item.get("source_id"), str)
-        for item in value["sources_used"]
-    )
+                errors.append(f"{field}[{index}].cost_range:order")
+    for index, item in enumerate(value["sources_used"]):
+        if not isinstance(item.get("verified_url"), bool):
+            errors.append(f"sources_used[{index}].verified_url:not_bool")
+        if not isinstance(item.get("source_url"), str):
+            errors.append(f"sources_used[{index}].source_url:not_string")
+        if not isinstance(item.get("source_id"), str):
+            errors.append(f"sources_used[{index}].source_id:not_string")
+    return errors[:20]
+
+
+def _valid_research_model_output(value: Any) -> bool:
+    """Validate the strict top-level Research V2 contract before canonical merge."""
+    return not _research_contract_validation_errors(value)
 
 
 def _unavailable_research_model_output(
@@ -1454,7 +1495,7 @@ def _lock_report_evidence_claims(
                 continue
             rewritten.append(line)
         text = "\n".join(rewritten).rstrip() + "\n"
-    return text
+    return _renumber_markdown_ordered_lists(text)
 
 
 def _lock_report_verdict(

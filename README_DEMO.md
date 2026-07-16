@@ -277,8 +277,9 @@ completing the report, which may end in `MAX_TOKENS`. The quality profile uses
 `thinkingBudget=0` for Gemini 2.5 extraction and the native `minimal` thinking
 level for Gemini 3.x extraction. Final synthesis uses a small Gemini 2.5 budget or
 Gemini 3.x `minimal` thinking, plus a 6,000-token safety ceiling shared by thinking
-and visible output. Research V2 and vision each use a 4,000-token hard ceiling;
-their calibrated visible-output targets are 2,200 and 1,800 tokens. Final synthesis
+and visible output. Research V2 uses a 5,000-token hard ceiling to avoid paying
+for a second request when a complete structured packet runs beyond its 2,200-token
+soft target; vision uses a 4,000-token ceiling and 1,800-token target. Final synthesis
 uses a soft 3,500-token visible-output target so report completeness wins over
 aggressive shortening; the 6,000-token shared ceiling remains the safety bound. Text
 and final inputs are checked with Gemini REST `countTokens` (including the

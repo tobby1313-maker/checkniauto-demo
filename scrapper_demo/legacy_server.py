@@ -1852,9 +1852,21 @@ def _build_text_research_context(
     vin_light_decode=None,
 ):
     if research_v2:
+        compact_identity = (
+            {
+                key: value
+                for key, value in component_identity.items()
+                if key != "sources"
+            }
+            if isinstance(component_identity, dict)
+            else {}
+        )
         payload = {
             "listing": listing_context if isinstance(listing_context, dict) else {},
-            "component_identity": component_identity if isinstance(component_identity, dict) else {},
+            # Grounded research already carries the usable source registry.
+            # Identity discovery sources are redundant here and used to add
+            # roughly a thousand tokens without supporting Research V2 claims.
+            "component_identity": compact_identity,
             "vin_light_check": vin_light_decode if isinstance(vin_light_decode, dict) else {},
             "grounded_research": str(web_research_text or ""),
             "output_language": _demo_output_language(output_language),
