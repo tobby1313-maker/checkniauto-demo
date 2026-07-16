@@ -313,6 +313,7 @@ def _normalize_research_model_output(value: Any) -> Any:
     evidence_aliases = {
         "SELLER_CLAIM": "LISTING_CLAIM",
         "UNVERIFIED_CLAIM": "LISTING_CLAIM",
+        "UNVERIFIED": "LISTING_CLAIM",
         "MODEL_LEVEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_LEVEL_MAINTENANCE": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
@@ -347,6 +348,8 @@ def _normalize_research_model_output(value: Any) -> Any:
         "INCONSISTENT": "concern",
         "MISMATCH": "concern",
         "NOT_CHECKED": "unknown",
+        "NEEDS_VERIFICATION": "unknown",
+        "REQUIRES_VERIFICATION": "unknown",
     }
 
     summary = packet.get("evidence_summary")
@@ -447,6 +450,20 @@ def _source_topic_matches(source: Mapping[str, Any], claim_text: str) -> bool:
     )
 
 
+def _source_is_product_or_catalog(source: Mapping[str, Any]) -> bool:
+    """Reject commerce-only pages that cannot establish failures or repair totals."""
+    text = _fold_market_text(" ".join(
+        str(source.get(key) or "")
+        for key in ("source_name", "source_url")
+    ))
+    markers = (
+        "parts catalog", "parts retailer", "parts.example", "autodoc",
+        "autodiel", "autodily", "sautodily", "gafa.auto",
+        "nd-skoda-volkswagen", "prodejoleju", "predajolejov",
+    )
+    return any(marker in text for marker in markers)
+
+
 _BLOCKED_RESEARCH_SOURCE_HOSTS = {
     "vertexaisearch.cloud.google.com",
     "example.com",
@@ -512,14 +529,16 @@ def _enforce_research_source_policy(
     }
     evidence_source_types = {
         "OFFICIAL", "REGULATORY", "VEHICLE_HISTORY", "TECHNICAL_PUBLICATION",
-        "REPAIR_SOURCE", "OWNER_REPORT",
+        "REPAIR_SOURCE", "OWNER_REPORT", "OTHER",
     }
     rejection_counts = {
         "missing_source": 0,
         "unverified_url": 0,
         "unsupported_source_type": 0,
+        "product_or_catalog_source": 0,
         "fixed_interval_without_official_source": 0,
         "topic_mismatch": 0,
+        "source_limit": 0,
     }
     filtered_claim_counts: dict[str, int] = {}
 
@@ -552,6 +571,9 @@ def _enforce_research_source_policy(
             if source_type not in evidence_source_types:
                 rejection_counts["unsupported_source_type"] += 1
                 continue
+            if source_type == "OTHER" and _source_is_product_or_catalog(source):
+                rejection_counts["product_or_catalog_source"] += 1
+                continue
             if fixed_interval and source_type not in {"OFFICIAL", "REGULATORY"}:
                 rejection_counts["fixed_interval_without_official_source"] += 1
                 continue
@@ -576,10 +598,14 @@ def _enforce_research_source_policy(
             if not item["source_ids"]:
                 filtered_claim_counts[field] = filtered_claim_counts.get(field, 0) + 1
                 continue
-            if item.get("confidence") == "Vysoka" and not any(
+            supported_types = {
                 str(source_map[source_id].get("source_type") or "").upper()
-                in {"OFFICIAL", "REGULATORY"}
                 for source_id in item["source_ids"]
+            }
+            if supported_types and supported_types <= {"OTHER", "OWNER_REPORT"}:
+                item["confidence"] = "Nizka"
+            elif item.get("confidence") == "Vysoka" and not supported_types.intersection(
+                {"OFFICIAL", "REGULATORY"}
             ):
                 item["confidence"] = "Stredna"
             filtered.append(item)
@@ -604,19 +630,73 @@ def _enforce_research_source_policy(
                 "source_ids": [],
             })
 
-    referenced = {
-        str(source_id)
-        for field in ("web_research_findings", "technical_risks", "expected_costs")
-        for item in packet.get(field) or []
-        for source_id in item.get("source_ids") or []
+    core_fields = ("web_research_findings", "technical_risks", "expected_costs")
+    source_coverage: dict[str, int] = {}
+    field_source_ids: dict[str, set[str]] = {}
+    for field in core_fields:
+        field_ids = {
+            str(source_id)
+            for item in packet.get(field) or []
+            for source_id in item.get("source_ids") or []
+            if str(source_id) in source_map
+        }
+        field_source_ids[field] = field_ids
+        for item in packet.get(field) or []:
+            for source_id in set(map(str, item.get("source_ids") or [])):
+                if source_id in source_map:
+                    source_coverage[source_id] = source_coverage.get(source_id, 0) + 1
+
+    source_type_rank = {
+        "OFFICIAL": 6, "REGULATORY": 6, "VEHICLE_HISTORY": 5,
+        "TECHNICAL_PUBLICATION": 4, "REPAIR_SOURCE": 3,
+        "OWNER_REPORT": 2, "OTHER": 1,
     }
-    referenced.update(
-        str(source_id)
-        for source_id in (safety.get("source_ids", []) if isinstance(safety, dict) else [])
-    )
-    packet["sources_used"] = [
-        item for item in sources if str(item.get("source_id") or "") in referenced
-    ][:RESEARCH_V2_ARRAY_LIMITS["sources_used"]]
+    reliability_rank = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+
+    def source_rank(source_id: str) -> tuple[int, int, int, str]:
+        source = source_map[source_id]
+        return (
+            source_coverage.get(source_id, 0),
+            source_type_rank.get(str(source.get("source_type") or "").upper(), 0),
+            reliability_rank.get(str(source.get("reliability") or "").upper(), 0),
+            source_id,
+        )
+
+    selected_source_ids: list[str] = []
+
+    def select(source_id: str) -> None:
+        if source_id in source_map and source_id not in selected_source_ids:
+            selected_source_ids.append(source_id)
+
+    for source_id in (safety.get("source_ids", []) if isinstance(safety, dict) else []):
+        select(str(source_id))
+    for field in core_fields:
+        if field_source_ids[field]:
+            select(max(field_source_ids[field], key=source_rank))
+    for source_id in sorted(source_coverage, key=source_rank, reverse=True):
+        select(source_id)
+    selected_source_ids = selected_source_ids[:RESEARCH_V2_ARRAY_LIMITS["sources_used"]]
+    selected_source_set = set(selected_source_ids)
+
+    for field in core_fields:
+        retained_items: list[dict[str, Any]] = []
+        for item in packet.get(field) or []:
+            item["source_ids"] = [
+                source_id for source_id in item.get("source_ids") or []
+                if source_id in selected_source_set
+            ]
+            if item["source_ids"]:
+                retained_items.append(item)
+            else:
+                rejection_counts["source_limit"] += 1
+                filtered_claim_counts[field] = filtered_claim_counts.get(field, 0) + 1
+        packet[field] = retained_items
+    if isinstance(safety, dict):
+        safety["source_ids"] = [
+            source_id for source_id in safety.get("source_ids") or []
+            if source_id in selected_source_set
+        ]
+    packet["sources_used"] = [source_map[source_id] for source_id in selected_source_ids]
     if diagnostics is not None:
         diagnostics.update({
             "grounded_url_allowlist_active": verified_source_urls is not None,

@@ -14,7 +14,7 @@ class AiPolicyTests(unittest.TestCase):
         final = get_phase_policy("final_synthesis")
 
         self.assertEqual((research.max_input_tokens, research.max_output_tokens), (10_000, 5_000))
-        self.assertEqual((recovery.max_input_tokens, recovery.max_output_tokens), (8_000, 5_000))
+        self.assertEqual((recovery.max_input_tokens, recovery.max_output_tokens), (10_000, 5_000))
         self.assertEqual((final.max_input_tokens, final.max_output_tokens), (9_000, 6_000))
         self.assertEqual(final.visible_target_tokens, 3_500)
         self.assertEqual(get_phase_policy("grounding").phase, "reliability_grounding")

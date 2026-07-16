@@ -162,13 +162,13 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "basis": "Grounded workshop estimate", "source_ids": [],
         }]
         packet["consistency_checks"] = [{
-            "check": "Mileage", "result": "CONSISTENT", "explanation": "Values match",
+            "check": "Mileage", "result": "NEEDS_VERIFICATION", "explanation": "Check records",
         }]
         normalized = _normalize_research_model_output(packet)
 
         self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
         self.assertEqual(normalized["expected_costs"][0]["cost_type"], "initial_service")
-        self.assertEqual(normalized["consistency_checks"][0]["result"], "ok")
+        self.assertEqual(normalized["consistency_checks"][0]["result"], "unknown")
         self.assertTrue(_valid_research_model_output(normalized))
         normalized["seller_claims"][0]["evidence_category"] = "MADE_UP"
         self.assertFalse(_valid_research_model_output(normalized))
@@ -297,6 +297,32 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["grounded"])
         self.assertEqual(diagnostics["backend_verified_source_count"], 1)
         self.assertEqual(diagnostics["source_rejection_counts"]["unverified_url"], 1)
+
+    def test_source_policy_keeps_grounded_other_sources_at_low_confidence(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 60
+        packet["technical_risks"] = [{
+            "component": "DQ500", "issue": "Mechatronic faults",
+            "risk_level": "CHECK", "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "Possible shifting problems", "specific_vehicle_evidence": "",
+            "verification_action": "Run diagnostics and a road test",
+            "estimated_cost_eur_low": None, "estimated_cost_eur_high": None,
+            "confidence": "HIGH", "source_ids": ["secondary"],
+        }]
+        packet["sources_used"] = [{
+            "source_id": "secondary", "source_name": "Workshop article",
+            "source_type": "OTHER", "reliability": "MEDIUM",
+            "source_url": "https://workshop.test/dq500", "verified_url": True,
+            "used_for": "DQ500 mechatronic faults and diagnostics",
+        }]
+
+        filtered = _enforce_research_source_policy(
+            _normalize_research_model_output(packet),
+            verified_source_urls={"https://workshop.test/dq500"},
+        )
+
+        self.assertEqual(len(filtered["technical_risks"]), 1)
+        self.assertEqual(filtered["technical_risks"][0]["confidence"], "Nizka")
 
     def test_incomplete_research_delivery_gate_caps_green_verdict(self):
         risk_score = {
