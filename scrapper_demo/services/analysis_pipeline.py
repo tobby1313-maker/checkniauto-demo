@@ -314,6 +314,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "SELLER_CLAIM": "LISTING_CLAIM",
         "UNVERIFIED_CLAIM": "LISTING_CLAIM",
         "UNVERIFIED": "LISTING_CLAIM",
+        "OTHER": "NEEDS_VERIFICATION",
         "MODEL_LEVEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_LEVEL_MAINTENANCE": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
@@ -365,7 +366,8 @@ def _normalize_research_model_output(value: Any) -> Any:
                 item["evidence_category"] = alias(item.get("evidence_category"), evidence_aliases)
     for item in packet.get("missing_or_uncertain_data") if isinstance(packet.get("missing_or_uncertain_data"), list) else []:
         if isinstance(item, dict):
-            item["severity"] = str(item.get("severity") or "").lower()
+            severity = str(item.get("severity") or "").lower()
+            item["severity"] = "high" if severity == "critical" else severity
     for item in packet.get("data_conflicts") if isinstance(packet.get("data_conflicts"), list) else []:
         if isinstance(item, dict):
             item["importance"] = str(item.get("importance") or "").upper()
@@ -1748,6 +1750,79 @@ def _lock_report_evidence_claims(
     return _renumber_markdown_ordered_lists(text)
 
 
+def _ensure_final_recommendation_body(
+    report_text: str,
+    risk_score: Any,
+    *,
+    output_language: str = "sk",
+) -> str:
+    """Keep a useful, evidence-safe explanation below the final verdict."""
+    risk = risk_score if isinstance(risk_score, dict) else {}
+    language = "en" if str(output_language).lower().startswith("en") else "sk"
+    lines = str(report_text or "").splitlines()
+    section_start = next(
+        (
+            index for index, line in enumerate(lines)
+            if re.match(r"^\s*##\s+", line)
+            and any(
+                term in _fold_market_text(line)
+                for term in ("zaverecne odporucanie", "final recommendation")
+            )
+        ),
+        None,
+    )
+    if section_start is None:
+        return report_text
+    section_end = next(
+        (
+            index for index in range(section_start + 1, len(lines))
+            if re.match(r"^\s*##\s+", lines[index])
+        ),
+        len(lines),
+    )
+    substantive = [
+        line.strip()
+        for line in lines[section_start + 1:section_end]
+        if line.strip()
+        and "END_ANALYSIS" not in line
+        and not (
+            line.strip().startswith("**")
+            and line.strip().endswith("**")
+            and len(line.strip()) < 100
+        )
+    ]
+    if any(len(line) >= 40 for line in substantive):
+        return report_text
+
+    verdict = str(risk.get("allowed_final_verdict") or "").strip()
+    verdict_line = f"**{verdict}**" if verdict else ""
+    gate = risk.get("research_delivery_gate")
+    incomplete = isinstance(gate, dict) and gate.get("status") == "INCOMPLETE"
+    if language == "en":
+        explanation = (
+            "The technical web verification was not completed with sufficient source support. "
+            "Do not make a purchase decision from this result; retry the analysis and, meanwhile, "
+            "request the VIN, service records, and an independent pre-purchase inspection."
+            if incomplete
+            else "The available evidence supports the verdict above. Verify the VIN, service records, and vehicle condition before making a financial commitment."
+        )
+    else:
+        explanation = (
+            "Technické webové overenie nebolo dokončené s dostatočným zdrojovým podkladom. "
+            "Podľa tohto výsledku nerobte rozhodnutie o kúpe; analýzu zopakujte a dovtedy si "
+            "vyžiadajte VIN, servisné záznamy a nezávislú predkúpnu kontrolu."
+            if incomplete
+            else "Dostupné podklady podporujú uvedený verdikt. Pred finančným záväzkom overte VIN, servisné záznamy a technický stav vozidla."
+        )
+    body = [verdict_line, "", explanation] if verdict_line else [explanation]
+    trailing_markers = [
+        line for line in lines[section_start + 1:section_end]
+        if "END_ANALYSIS" in line
+    ]
+    replacement = [lines[section_start], "", *body, "", *trailing_markers]
+    return "\n".join(lines[:section_start] + replacement + lines[section_end:]).rstrip() + "\n"
+
+
 def _lock_report_verdict(
     report_text: str, risk_score: dict[str, Any], *, language: str
 ) -> str:
@@ -2202,6 +2277,30 @@ def _multi_model_analysis_events(
     # the provenance-locked candidates.
     text_research_web_context = web_research_text
     grounded_source_urls = _grounded_research_source_urls(text_research_web_context)
+    if research_v2_active and not grounded_source_urls:
+        grounded_phase = diagnostics["phases"].setdefault("grounded_research", {})
+        if grounded_phase.get("status") != "failed":
+            grounded_phase["status"] = "incomplete"
+        grounded_phase["verified_source_url_count"] = 0
+        skip_reason = "No verifiable technical source URL was returned by grounded research."
+        for phase in ("text_research", "vision", "risk_scoring", "final_synthesis"):
+            diagnostics["phases"][phase] = {
+                "status": "skipped",
+                "reason": "grounded_research_unavailable",
+            }
+        diagnostics["delivery"] = {
+            "status": "RETRY_REQUIRED",
+            "chargeable": False,
+            "reason": "grounded_research_unavailable",
+        }
+        diagnostics["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        save_diagnostics()
+        dependencies.log(skip_reason)
+        yield _error_event(
+            "Technical web research returned no verifiable sources. "
+            "Analysis stopped before paid synthesis; please retry later."
+        )
+        return
 
     # Price discovery is independent from the language model. Direct result-
     # card parsing preserves exact local-portal detail URLs and keeps foreign
@@ -3599,6 +3698,11 @@ def _multi_model_analysis_events(
     public_text = _lock_report_evidence_claims(
         public_text,
         research_data,
+        risk_score,
+        output_language=dependencies.output_language(output_language),
+    )
+    public_text = _ensure_final_recommendation_body(
+        public_text,
         risk_score,
         output_language=dependencies.output_language(output_language),
     )

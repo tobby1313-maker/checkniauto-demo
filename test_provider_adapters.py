@@ -157,7 +157,7 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(resolved.count(results_url), 2)
         self.assertNotIn(redirect_url, resolved)
 
-    def test_grounding_rate_limit_stops_model_chain_for_outer_key_fallback(self):
+    def test_grounding_rate_limit_tries_model_chain_before_outer_key_fallback(self):
         response = FakeResponse(429, text="Resource exhausted: quota")
         with (
             patch.object(gemini.requests, "post", return_value=response) as post,
@@ -172,12 +172,48 @@ class ProviderAdapterTest(unittest.TestCase):
                     research_mode="market_sk_cz",
                 )
 
-        self.assertEqual(post.call_count, 1)
+        self.assertEqual(post.call_count, 3)
         payload = post.call_args.kwargs["json"]
         self.assertNotIn("response_format", payload)
         self.assertEqual(
             post.call_args.kwargs["headers"]["Api-Revision"], "2026-05-20"
         )
+
+    def test_grounding_model_fallback_can_recover_after_primary_rate_limit(self):
+        text = "Supported technical finding"
+        source_url = "https://workshop.test/research"
+        success = FakeResponse(200, json_data={
+            "steps": [{
+                "type": "model_output",
+                "content": [{
+                    "text": text,
+                    "annotations": [{
+                        "type": "url_citation",
+                        "start_index": 0,
+                        "end_index": len(text),
+                        "title": "Workshop research",
+                        "url": source_url,
+                    }],
+                }],
+            }],
+        })
+        responses = [
+            FakeResponse(429, text="Resource exhausted: quota"),
+            success,
+        ]
+        with (
+            patch.object(gemini.requests, "post", side_effect=responses) as post,
+            patch.object(gemini.default_tracker, "record_request"),
+            patch.object(gemini.time, "sleep"),
+        ):
+            result = gemini.run_grounded_web_research(
+                "limited-key",
+                "VW T-Roc 2023 1.5 TSI DSG FWD 159000 km",
+                model="gemini-2.5-flash",
+            )
+
+        self.assertEqual(post.call_count, 2)
+        self.assertIn(source_url, result)
 
     def test_facade_reexports_provider_implementations_and_shared_errors(self):
         self.assertIs(llm_client.analyze_with_llm, gemini.analyze_with_llm)

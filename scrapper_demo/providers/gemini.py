@@ -851,11 +851,20 @@ def run_grounded_web_research(
                 duration_ms=round((time.perf_counter() - started_at) * 1000),
                 error=detail,
                 attempt=candidate_index + 1,
+                retry_reason=(
+                    "model_fallback"
+                    if candidate_model != model_candidates[-1]
+                    else None
+                ),
                 grounding_enabled=True,
             )
-            # Let the outer API-key fallback handle quota exhaustion. Trying
-            # two more models with the same key multiplied paid input calls
-            # and did not help when the key/project quota was exhausted.
+            # Quotas can be model-specific. A later Flash/Lite model may still
+            # support Search even when the primary model is exhausted. Failed
+            # 429 calls have no output usage; completeness is more important
+            # than immediately abandoning the grounded research phase.
+            if candidate_model != model_candidates[-1]:
+                time.sleep(1)
+                continue
             raise RateLimitError(
                 "Gemini Google Search grounding limit prekroceny."
                 + (f" Detail: {detail}" if detail else "")

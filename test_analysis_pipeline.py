@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from scrapper_demo.providers.errors import ModelOutputLimitError
+from scrapper_demo.providers.errors import ModelOutputLimitError, RateLimitError
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     _apply_research_delivery_gate,
@@ -14,6 +14,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _lock_registration_age_claims,
     _canonical_research_from_v2,
     _enforce_research_source_policy,
+    _ensure_final_recommendation_body,
     _merge_backend_evidence,
     _promote_selected_key,
     _research_parse_failed,
@@ -151,10 +152,17 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
     def test_research_v2_normalizes_aliases_and_rejects_unknown_enums(self):
         packet = _unavailable_research_model_output("fixture")
         packet["evidence_summary"]["data_completeness_score"] = 50
-        packet["seller_claims"] = [{
-            "claim": "Full history", "evidence_category": "UNVERIFIED_CLAIM",
-            "verification_status": "unverified", "buyer_relevance": "Check invoices",
-        }]
+        packet["seller_claims"] = [
+            {
+                "claim": "Full history", "evidence_category": "UNVERIFIED_CLAIM",
+                "verification_status": "unverified", "buyer_relevance": "Check invoices",
+            },
+            {
+                "claim": "Recent service", "evidence_category": "OTHER",
+                "verification_status": "unverified", "buyer_relevance": "Check invoice",
+            },
+        ]
+        packet["missing_or_uncertain_data"][0]["severity"] = "critical"
         packet["expected_costs"] = [{
             "item": "Initial oil service", "why": "Service history is unknown",
             "estimated_cost_eur_low": 100, "estimated_cost_eur_high": 150,
@@ -167,6 +175,8 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         normalized = _normalize_research_model_output(packet)
 
         self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
+        self.assertEqual(normalized["seller_claims"][1]["evidence_category"], "NEEDS_VERIFICATION")
+        self.assertEqual(normalized["missing_or_uncertain_data"][0]["severity"], "high")
         self.assertEqual(normalized["expected_costs"][0]["cost_type"], "initial_service")
         self.assertEqual(normalized["consistency_checks"][0]["result"], "unknown")
         self.assertTrue(_valid_research_model_output(normalized))
@@ -345,6 +355,22 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertTrue(gate["verdict_capped"])
         self.assertEqual(risk_score["decision_status"], "INSPECT_WITH_RESERVATIONS")
         self.assertIn("NAJPRV PREVERIŤ", risk_score["allowed_final_verdict"])
+
+    def test_empty_final_recommendation_gets_safe_delivery_explanation(self):
+        report = (
+            "# Report\n\n## 🏁 Záverečné odporúčanie\n\n"
+            "**🟡 NAJPRV PREVERIŤ**\n\n<!-- END_ANALYSIS -->\n"
+        )
+        risk = {
+            "allowed_final_verdict": "🟡 NAJPRV PREVERIŤ",
+            "research_delivery_gate": {"status": "INCOMPLETE"},
+        }
+
+        repaired = _ensure_final_recommendation_body(report, risk, output_language="sk")
+
+        self.assertIn("Technické webové overenie nebolo dokončené", repaired)
+        self.assertIn("analýzu zopakujte", repaired)
+        self.assertIn("<!-- END_ANALYSIS -->", repaired)
 
     def test_successful_backup_key_is_reused_first_for_later_phases(self):
         entries = [
@@ -857,6 +883,56 @@ Vo\u013En\u00fd text z modelu.
             ['data: {"error": "Gemini API keys are not configured on the server."}\n\n'],
         )
 
+    def test_missing_grounded_sources_stops_before_paid_synthesis(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repository = ListingJobRepository(root / "jobs")
+            repository.job_dir("sample", create=True)
+            repository.write_text("sample", "car_info.md", "# Sample listing")
+            phases = []
+
+            def collect_gemini(entries, phase, factory, **kwargs):
+                yield from ()
+                phases.append(phase)
+                if phase == "component identity research":
+                    return (
+                        '{"schema_version":1,"identification_status":"UNKNOWN",'
+                        '"generation":{"resolution":"UNKNOWN"},'
+                        '"engine":{"resolution":"UNKNOWN"},'
+                        '"transmission":{"resolution":"UNKNOWN"},'
+                        '"drivetrain":{"resolution":"UNKNOWN"},'
+                        '"candidate_variants":[],"sources":[],"notes":[]}',
+                        entries[0],
+                    )
+                if phase == "web research":
+                    raise RateLimitError("quota")
+                raise AssertionError(f"Unexpected collected phase: {phase}")
+
+            dependencies = replace(
+                _dependencies(repository, root / "prompts"),
+                normalize_gemini_keys=lambda keys: [{"key": keys[0], "label": "primary"}],
+                collect_gemini=collect_gemini,
+                direct_market_search=lambda listing: (_ for _ in ()).throw(
+                    AssertionError("market search must not run")
+                ),
+            )
+
+            events = list(
+                multi_model_analysis_events(
+                    "sample",
+                    "",
+                    ["gemini-key"],
+                    dependencies=dependencies,
+                )
+            )
+            diagnostics = repository.read_json("sample", "analysis_diagnostics.json")
+
+        self.assertEqual(phases, ["component identity research", "web research"])
+        self.assertTrue(any("stopped before paid synthesis" in event for event in events))
+        self.assertEqual(diagnostics["delivery"]["status"], "RETRY_REQUIRED")
+        self.assertFalse(diagnostics["delivery"]["chargeable"])
+        self.assertEqual(diagnostics["phases"]["final_synthesis"]["status"], "skipped")
+
     def test_injected_pipeline_preserves_phase_order_and_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -889,7 +965,11 @@ Vo\u013En\u00fd text z modelu.
                         entries[0],
                     )
                 if phase == "web research":
-                    return "### Orientacna cena / trh\n- Bez priamych URL.", entries[0]
+                    return (
+                        "### Technical source\n"
+                        "- [Workshop](https://workshop.test/sample) - supported inspection point.",
+                        entries[0],
+                    )
                 if phase == "text/research analysis":
                     return '{"schema_version":2', entries[0]
                 if phase == "text/research JSON recovery":
