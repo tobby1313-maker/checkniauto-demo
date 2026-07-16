@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from scrapper_demo.providers.errors import ModelOutputLimitError
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     _lock_report_evidence_claims,
@@ -71,17 +72,21 @@ def _dependencies(repository, prompt_dir):
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
     def test_research_v2_gemini_schema_uses_supported_json_schema_subset(self):
         schema = _research_v2_response_schema(Path("prompts"))
-        serialized = json.dumps(schema)
+        serialized = json.dumps(schema, separators=(",", ":"))
 
         self.assertNotIn('"$schema"', serialized)
         self.assertNotIn('"const"', serialized)
         self.assertNotIn('"maxItems"', serialized)
         self.assertNotIn('"$defs"', serialized)
-        self.assertLess(len(serialized), 1_500)
+        self.assertLess(len(serialized), 5_000)
         self.assertEqual(schema["properties"]["schema_version"]["enum"], [2])
         self.assertEqual(
             schema["properties"]["source_role"]["enum"],
             ["research_model_output"],
+        )
+        self.assertIn(
+            "verification_action",
+            schema["properties"]["technical_risks"]["items"]["required"],
         )
 
     def test_research_v2_merges_only_model_owned_fields_with_backend_facts(self):
@@ -643,6 +648,15 @@ Vo\u013En\u00fd text z modelu.
                     ), entries[0]
                 raise AssertionError(f"Unexpected collected phase: {phase}")
 
+            final_calls = []
+
+            def call_gemini(*args, **kwargs):
+                final_calls.append(kwargs)
+                if len(final_calls) == 1:
+                    yield "# Partial report"
+                    raise ModelOutputLimitError("MAX_TOKENS")
+                yield "# Final recovered report"
+
             dependencies = replace(
                 _dependencies(repository, prompt_dir),
                 normalize_gemini_keys=lambda keys: [
@@ -690,7 +704,7 @@ Vo\u013En\u00fd text z modelu.
                         ],
                     }
                 ],
-                call_gemini=lambda *args, **kwargs: iter(("# Final report",)),
+                call_gemini=call_gemini,
                 calculate_risk_score=lambda *args, **kwargs: {
                     "risk_score": 0,
                     "allowed_final_verdict": "ZVAZIT",
@@ -808,6 +822,19 @@ Vo\u013En\u00fd text z modelu.
             self.assertIn("policy", text_diagnostics)
             self.assertIn("input_budget", text_diagnostics)
             self.assertIn("recovery_input_budget", text_diagnostics)
+            final_diagnostics = diagnostics["phases"]["final_synthesis"]
+            self.assertTrue(final_diagnostics["recovery_attempted"])
+            self.assertTrue(final_diagnostics["recovered"])
+            self.assertEqual(len(final_calls), 2)
+            self.assertEqual(final_calls[1]["temperature"], 0.1)
+            self.assertNotIn(
+                "Partial report",
+                repository.read_text("sample", "analysis_result_raw.md"),
+            )
+            self.assertIn(
+                "Final recovered report",
+                repository.read_text("sample", "analysis_result_raw.md"),
+            )
             text_attempts = json.loads(
                 repository.read_text("sample", "text_research_provider_attempts.json")
             )
@@ -829,7 +856,10 @@ Vo\u013En\u00fd text z modelu.
                 "buyer_scorecard",
                 json.loads(repository.read_text("sample", "risk_score.json")),
             )
-            self.assertEqual(repository.read_text("sample", "analysis_result_raw.md"), "# Final report")
+            self.assertEqual(
+                repository.read_text("sample", "analysis_result_raw.md"),
+                "# Final recovered report",
+            )
             self.assertIn("<!-- END_ANALYSIS -->", repository.read_text("sample", "analysis_result.md"))
             self.assertIn('"done": true', events[-1])
 

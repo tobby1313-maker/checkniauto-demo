@@ -271,7 +271,7 @@ Gemini can spend hidden thinking tokens before emitting structured JSON or
 completing the report, which may end in `MAX_TOKENS`. The quality profile uses
 `thinkingBudget=0` for Gemini 2.5 extraction and the native `minimal` thinking
 level for Gemini 3.x extraction. Final synthesis uses a small Gemini 2.5 budget or
-Gemini 3.x `low` thinking, plus a 6,000-token safety ceiling shared by thinking
+Gemini 3.x `minimal` thinking, plus a 6,000-token safety ceiling shared by thinking
 and visible output. Research V2 and vision each use a 4,000-token hard ceiling;
 their calibrated visible-output targets are 2,200 and 1,800 tokens. Text
 and final inputs are checked with Gemini REST `countTokens` (including the
@@ -279,6 +279,8 @@ Research V2 response schema); a failed count falls
 back to a labeled local estimate and does not stop the analysis. A backup Gemini
 key is still used for authentication and quota
 failures; `MAX_TOKENS` is a generation-budget condition, not a key-quota failure.
+If final synthesis still reaches that shared limit, its partial text is discarded
+and one compact complete-report recovery is attempted before the run fails.
 
 ## Public Demo UI
 

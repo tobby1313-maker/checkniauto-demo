@@ -183,40 +183,44 @@ RESEARCH_V2_REQUIRED_FIELDS = {
 
 def _research_v2_response_schema(prompt_dir: Path) -> dict[str, Any]:
     """Return a low-state Gemini serving schema; backend validation stays strict."""
-    # Gemini rejects the full audit schema as a serving constraint because the
-    # many nested maxItems/enums create too many decoder states. Keep only the
-    # shape needed to guarantee a complete JSON envelope at generation time.
-    del prompt_dir
-    array_fields = tuple(RESEARCH_V2_ARRAY_LIMITS)
-    properties: dict[str, Any] = {
-        "schema_version": {"type": "integer", "enum": [2]},
-        "source_role": {"type": "string", "enum": ["research_model_output"]},
-        "evidence_summary": {"type": "object"},
-        "safety_and_recall": {"type": "object"},
+    reference_shapes = {
+        "#/$defs/evidence_category": {"type": "string"},
+        "#/$defs/confidence": {"type": "string"},
+        "#/$defs/source_ids": {"type": "array", "items": {"type": "string"}},
     }
-    properties.update(
-        {field: {"type": "array", "items": {"type": "object"}} for field in array_fields}
+
+    def serving_subset(value: Any) -> Any:
+        if isinstance(value, dict):
+            if value.get("$ref") in reference_shapes:
+                return dict(reference_shapes[value["$ref"]])
+            normalized: dict[str, Any] = {}
+            for key, child in value.items():
+                if key in {
+                    "$schema", "$defs", "title", "description", "maxItems", "minItems",
+                    "minimum", "maximum", "enum",
+                }:
+                    continue
+                if key == "const":
+                    normalized["enum"] = [child]
+                else:
+                    normalized[key] = serving_subset(child)
+            return normalized
+        if isinstance(value, list):
+            return [serving_subset(item) for item in value]
+        return value
+
+    candidates = (
+        prompt_dir.parent / "schemas" / "research_model_output.schema.json",
+        Path(__file__).resolve().parents[2] / "schemas" / "research_model_output.schema.json",
     )
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": [
-            "schema_version",
-            "source_role",
-            "evidence_summary",
-            "seller_claims",
-            "missing_or_uncertain_data",
-            "data_conflicts",
-            "consistency_checks",
-            "safety_and_recall",
-            "web_research_findings",
-            "technical_risks",
-            "expected_costs",
-            "text_research_risk_flags",
-            "sources_used",
-        ],
-        "properties": properties,
-    }
+    for candidate in candidates:
+        try:
+            schema = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(schema, dict):
+            return serving_subset(schema)
+    raise FileNotFoundError("research_model_output.schema.json not found")
 
 
 RESEARCH_V2_NESTED_REQUIRED_FIELDS = {
@@ -2664,6 +2668,8 @@ def _multi_model_analysis_events(
 
     full_report = ""
     output_tokens = 0
+    final_recovery_attempted = False
+    final_recovered = False
     next_token_update = 250
     final_input_tokens = final_budget.post_tokens
     yield _token_event(final_input_tokens, output_tokens)
@@ -2693,13 +2699,53 @@ def _multi_model_analysis_events(
                     ):
                         attempt_text += chunk
                         attempt_output_tokens += dependencies.estimate_output_tokens(chunk)
-                        if chunk:
-                            yield _text_event(chunk)
                         if attempt_output_tokens >= next_token_update:
                             yield _token_event(final_input_tokens, attempt_output_tokens)
                             next_token_update += 250
                 full_report = attempt_text
                 output_tokens = attempt_output_tokens
+                final_done = True
+                break
+            except ModelOutputLimitError:
+                if final_recovery_attempted or final_policy.max_attempts < 2:
+                    raise
+                final_recovery_attempted = True
+                yield _status_event(
+                    "Final report reached the shared thinking/output limit; retrying once with a compact complete report..."
+                )
+                recovery_system_prompt = final_system_prompt + (
+                    "\n\nFINAL RECOVERY: Return one complete Slovak report, not a continuation. "
+                    "Use the required headings, keep all backend verdict and market facts unchanged, "
+                    "omit repetition, and stay below 2,000 visible tokens."
+                )
+                attempt_text = ""
+                attempt_output_tokens = 0
+                with tracking_context(
+                    phase="final_synthesis",
+                    attempt=index + 2,
+                    retry_reason="final_output_recovery",
+                    grounding_enabled=False,
+                ):
+                    for chunk in dependencies.call_gemini(
+                        entry["key"],
+                        recovery_system_prompt,
+                        final_content,
+                        image_data_list=None,
+                        model=GEMINI_FINAL_MODEL,
+                        listing_slug=slug,
+                        fallback_models=GEMINI_FINAL_FALLBACK_MODELS,
+                        phase="final_synthesis",
+                        max_output_tokens=final_policy.max_output_tokens,
+                        temperature=0.1,
+                    ):
+                        attempt_text += chunk
+                        attempt_output_tokens += dependencies.estimate_output_tokens(chunk)
+                        if attempt_output_tokens >= next_token_update:
+                            yield _token_event(final_input_tokens, attempt_output_tokens)
+                            next_token_update += 250
+                full_report = attempt_text
+                output_tokens = attempt_output_tokens
+                final_recovered = True
                 final_done = True
                 break
             except (ApiKeyError, RateLimitError) as exc:
@@ -2710,6 +2756,9 @@ def _multi_model_analysis_events(
 
         if not final_done:
             raise RateLimitError("Gemini final synthesis failed for all configured API keys.")
+        if full_report:
+            yield _text_event(full_report)
+            yield _token_event(final_input_tokens, output_tokens)
     else:
         try:
             with tracking_context(
@@ -2808,6 +2857,8 @@ def _multi_model_analysis_events(
         "status": "completed",
         "provider": text_provider,
         "output_tokens_estimate": output_tokens,
+        "recovery_attempted": final_recovery_attempted,
+        "recovered": final_recovered,
     })
     diagnostics["validation"] = {
         "warning_count": len(validation_warnings),

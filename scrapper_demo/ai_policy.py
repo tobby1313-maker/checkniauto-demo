@@ -56,7 +56,7 @@ _OPTIMIZED_POLICIES: Mapping[str, PhasePolicy] = MappingProxyType({
         "vision_recovery", 8_000, 3_500, 1_600, 0.0, "off", 1
     ),
     "final_synthesis": PhasePolicy(
-        "final_synthesis", 9_000, 6_000, 2_400, 0.3, "low", 2
+        "final_synthesis", 9_000, 6_000, 2_400, 0.3, "minimal", 2
     ),
 })
 

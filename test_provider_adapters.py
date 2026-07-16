@@ -362,7 +362,7 @@ class ProviderAdapterTest(unittest.TestCase):
             )
             self.assertEqual(
                 gemini._thinking_config("final_synthesis", "gemini-3.5-flash"),
-                {"thinkingLevel": "low"},
+                {"thinkingLevel": "minimal"},
             )
         with patch.dict(os.environ, {"DEMO_ANALYSIS_PROFILE": "legacy"}, clear=False):
             self.assertEqual(gemini._thinking_config("text_research"), {})
@@ -401,7 +401,7 @@ class ProviderAdapterTest(unittest.TestCase):
 
         config = payloads[0]["generationConfig"]
         self.assertEqual(config["maxOutputTokens"], 6000)
-        self.assertEqual(config["thinkingConfig"], {"thinkingLevel": "low"})
+        self.assertEqual(config["thinkingConfig"], {"thinkingLevel": "minimal"})
         self.assertNotIn("responseMimeType", config)
 
     def test_gemini_does_not_append_limit_warning_to_structured_output(self):
