@@ -22,6 +22,7 @@ Evidence rules:
 - Fixed service intervals require a matching manufacturer/manual source whose `source_type` is `OFFICIAL` or `REGULATORY`; otherwise omit the interval claim entirely. Forum and repair-shop material can support only a lower-confidence inspection hypothesis.
 - Recall production windows require a VIN-specific check unless exact VIN status is supplied.
 - Copy only real source URLs present in the input. Never invent or repair URLs. Google/Vertex redirect URLs are not verified public URLs.
+- Set `verified_url` to `true` when `source_url` is a direct public URL copied exactly from the supplied grounded research; the backend independently checks this exact provenance. This field does not mean that you personally reopened the page.
 - Do not emit market listings, market statistics, price judgments, negotiation anchors, buying verdicts, photo findings, or canonical vehicle facts.
 - Use one short sentence per note. Do not repeat the same issue across several arrays. Put every URL only in `sources_used`; findings and risks reference sources with `source_ids`.
 - Each source `used_for` must name the exact short issue, cost, interval, or recall claim it directly supports, not only a vehicle, component, or broad section. Parts catalogs, product pages, and general vehicle reviews do not prove defect prevalence, maintenance intervals, or repair costs.

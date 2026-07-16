@@ -152,8 +152,14 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         packet = _unavailable_research_model_output("fixture")
         packet["evidence_summary"]["data_completeness_score"] = 50
         packet["seller_claims"] = [{
-            "claim": "Full history", "evidence_category": "SELLER_CLAIM",
+            "claim": "Full history", "evidence_category": "UNVERIFIED_CLAIM",
             "verification_status": "unverified", "buyer_relevance": "Check invoices",
+        }]
+        packet["expected_costs"] = [{
+            "item": "Initial oil service", "why": "Service history is unknown",
+            "estimated_cost_eur_low": 100, "estimated_cost_eur_high": 150,
+            "cost_type": "MAINTENANCE", "urgency": "medium",
+            "basis": "Grounded workshop estimate", "source_ids": [],
         }]
         packet["consistency_checks"] = [{
             "check": "Mileage", "result": "CONSISTENT", "explanation": "Values match",
@@ -161,6 +167,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         normalized = _normalize_research_model_output(packet)
 
         self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
+        self.assertEqual(normalized["expected_costs"][0]["cost_type"], "initial_service")
         self.assertEqual(normalized["consistency_checks"][0]["result"], "ok")
         self.assertTrue(_valid_research_model_output(normalized))
         normalized["seller_claims"][0]["evidence_category"] = "MADE_UP"
@@ -253,6 +260,43 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         )
 
         self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["engine"])
+
+    def test_source_policy_verifies_urls_against_grounded_input_not_model_boolean(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 60
+        packet["technical_risks"] = [{
+            "component": "EA888", "issue": "Excessive oil consumption",
+            "risk_level": "HIGH", "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "Possible engine wear", "specific_vehicle_evidence": "",
+            "verification_action": "Check oil level and exhaust smoke",
+            "estimated_cost_eur_low": None, "estimated_cost_eur_high": None,
+            "confidence": "MEDIUM", "source_ids": ["grounded", "invented"],
+        }]
+        packet["sources_used"] = [
+            {
+                "source_id": "grounded", "source_name": "EA888 article",
+                "source_type": "TECHNICAL_PUBLICATION", "reliability": "MEDIUM",
+                "source_url": "https://example.test/ea888/", "verified_url": False,
+                "used_for": "EA888 piston ring wear and oil consumption",
+            },
+            {
+                "source_id": "invented", "source_name": "Invented article",
+                "source_type": "TECHNICAL_PUBLICATION", "reliability": "MEDIUM",
+                "source_url": "https://example.test/invented", "verified_url": True,
+                "used_for": "EA888 oil consumption",
+            },
+        ]
+        diagnostics = {}
+
+        filtered = _enforce_research_source_policy(
+            _normalize_research_model_output(packet),
+            verified_source_urls={"https://example.test/ea888"},
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["grounded"])
+        self.assertEqual(diagnostics["backend_verified_source_count"], 1)
+        self.assertEqual(diagnostics["source_rejection_counts"]["unverified_url"], 1)
 
     def test_incomplete_research_delivery_gate_caps_green_verdict(self):
         risk_score = {

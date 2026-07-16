@@ -49,7 +49,7 @@ _OPTIMIZED_POLICIES: Mapping[str, PhasePolicy] = MappingProxyType({
         "text_research", 10_000, 5_000, 2_200, 0.1, "off", 1
     ),
     "text_recovery": PhasePolicy(
-        "text_recovery", 8_000, 3_200, 1_800, 0.0, "off", 1
+        "text_recovery", 8_000, 5_000, 1_800, 0.0, "off", 1
     ),
     "vision": PhasePolicy("vision", 8_000, 4_000, 1_800, 0.1, "off", 1),
     "vision_recovery": PhasePolicy(

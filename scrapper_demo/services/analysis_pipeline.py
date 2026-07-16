@@ -312,6 +312,7 @@ def _normalize_research_model_output(value: Any) -> Any:
 
     evidence_aliases = {
         "SELLER_CLAIM": "LISTING_CLAIM",
+        "UNVERIFIED_CLAIM": "LISTING_CLAIM",
         "MODEL_LEVEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_LEVEL_MAINTENANCE": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
@@ -324,6 +325,8 @@ def _normalize_research_model_output(value: Any) -> Any:
     cost_aliases = {
         "MANDATORY_INSPECTION_AND_SERVICE": "initial_service",
         "INITIAL_MAINTENANCE": "initial_service",
+        "MAINTENANCE": "initial_service",
+        "PREVENTIVE_MAINTENANCE": "initial_service",
         "INSPECTION": "diagnostic",
         "DIAGNOSTICS": "diagnostic",
         "POTENTIAL_REPAIR": "conditional_repair",
@@ -444,6 +447,41 @@ def _source_topic_matches(source: Mapping[str, Any], claim_text: str) -> bool:
     )
 
 
+_BLOCKED_RESEARCH_SOURCE_HOSTS = {
+    "vertexaisearch.cloud.google.com",
+    "example.com",
+    "example.org",
+    "example.net",
+}
+
+
+def _canonical_research_source_url(value: Any) -> str:
+    """Canonicalize a direct public URL for exact grounded-source matching."""
+    text = str(value or "").strip().rstrip(".,;:!?)]}'\"")
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme.lower() not in {"http", "https"} or not host:
+        return ""
+    if any(host == blocked or host.endswith(f".{blocked}") for blocked in _BLOCKED_RESEARCH_SOURCE_HOSTS):
+        return ""
+    path = parsed.path.rstrip("/")
+    query = f"?{parsed.query}" if parsed.query else ""
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}{query}"
+
+
+def _grounded_research_source_urls(value: Any) -> set[str]:
+    """Return direct public URLs that were actually supplied to Research V2."""
+    urls: set[str] = set()
+    for match in re.finditer(r"https?://[^\s<>\"']+", str(value or "")):
+        canonical = _canonical_research_source_url(match.group(0))
+        if canonical:
+            urls.add(canonical)
+    return urls
+
+
 def _contains_fixed_service_interval(value: Any) -> bool:
     text = _fold_market_text(str(value or ""))
     return bool(
@@ -452,9 +490,21 @@ def _contains_fixed_service_interval(value: Any) -> bool:
     )
 
 
-def _enforce_research_source_policy(packet: dict[str, Any]) -> dict[str, Any]:
+def _enforce_research_source_policy(
+    packet: dict[str, Any],
+    *,
+    verified_source_urls: set[str] | None = None,
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Keep only claims backed by an existing, verified, topic-matched source."""
-    sources = [item for item in packet.get("sources_used") or [] if isinstance(item, dict)]
+    sources = [dict(item) for item in packet.get("sources_used") or [] if isinstance(item, dict)]
+    if verified_source_urls is not None:
+        for source in sources:
+            source["verified_url"] = (
+                _canonical_research_source_url(source.get("source_url"))
+                in verified_source_urls
+            )
+    packet["sources_used"] = sources
     source_map = {
         str(item.get("source_id") or "").strip(): item
         for item in sources
@@ -464,6 +514,14 @@ def _enforce_research_source_policy(packet: dict[str, Any]) -> dict[str, Any]:
         "OFFICIAL", "REGULATORY", "VEHICLE_HISTORY", "TECHNICAL_PUBLICATION",
         "REPAIR_SOURCE", "OWNER_REPORT",
     }
+    rejection_counts = {
+        "missing_source": 0,
+        "unverified_url": 0,
+        "unsupported_source_type": 0,
+        "fixed_interval_without_official_source": 0,
+        "topic_mismatch": 0,
+    }
+    filtered_claim_counts: dict[str, int] = {}
 
     def supported_ids(item: Mapping[str, Any], text_key: str) -> list[str]:
         claim_text = " ".join(
@@ -481,16 +539,24 @@ def _enforce_research_source_policy(packet: dict[str, Any]) -> dict[str, Any]:
         for raw_id in item.get("source_ids") if isinstance(item.get("source_ids"), list) else []:
             source_id = str(raw_id or "").strip()
             source = source_map.get(source_id)
-            if not source or source.get("verified_url") is not True:
+            if not source:
+                rejection_counts["missing_source"] += 1
+                continue
+            if source.get("verified_url") is not True:
+                rejection_counts["unverified_url"] += 1
                 continue
             if not str(source.get("source_url") or "").startswith(("http://", "https://")):
+                rejection_counts["unverified_url"] += 1
                 continue
             source_type = str(source.get("source_type") or "").upper()
             if source_type not in evidence_source_types:
+                rejection_counts["unsupported_source_type"] += 1
                 continue
             if fixed_interval and source_type not in {"OFFICIAL", "REGULATORY"}:
+                rejection_counts["fixed_interval_without_official_source"] += 1
                 continue
             if not _source_topic_matches(source, claim_text):
+                rejection_counts["topic_mismatch"] += 1
                 continue
             if source_id not in accepted:
                 accepted.append(source_id)
@@ -508,6 +574,7 @@ def _enforce_research_source_policy(packet: dict[str, Any]) -> dict[str, Any]:
             item = dict(raw)
             item["source_ids"] = supported_ids(item, text_key)
             if not item["source_ids"]:
+                filtered_claim_counts[field] = filtered_claim_counts.get(field, 0) + 1
                 continue
             if item.get("confidence") == "Vysoka" and not any(
                 str(source_map[source_id].get("source_type") or "").upper()
@@ -550,6 +617,17 @@ def _enforce_research_source_policy(packet: dict[str, Any]) -> dict[str, Any]:
     packet["sources_used"] = [
         item for item in sources if str(item.get("source_id") or "") in referenced
     ][:RESEARCH_V2_ARRAY_LIMITS["sources_used"]]
+    if diagnostics is not None:
+        diagnostics.update({
+            "grounded_url_allowlist_active": verified_source_urls is not None,
+            "grounded_url_count": len(verified_source_urls or ()),
+            "input_source_count": len(sources),
+            "backend_verified_source_count": sum(
+                item.get("verified_url") is True for item in sources
+            ),
+            "filtered_claim_counts": filtered_claim_counts,
+            "source_rejection_counts": rejection_counts,
+        })
     return packet
 
 
@@ -2043,6 +2121,7 @@ def _multi_model_analysis_events(
     # model; that only adds tokens and gives a second model a chance to alter
     # the provenance-locked candidates.
     text_research_web_context = web_research_text
+    grounded_source_urls = _grounded_research_source_urls(text_research_web_context)
 
     # Price discovery is independent from the language model. Direct result-
     # card parsing preserves exact local-portal detail URLs and keeps foreign
@@ -2598,12 +2677,16 @@ def _multi_model_analysis_events(
         research_data = {"_parse_error": True}
     if research_v2_active and isinstance(research_data, dict):
         raw_research_data = research_data
+        source_policy_diagnostics: dict[str, Any] = {}
         research_data = _enforce_research_source_policy(
-            _normalize_research_model_output(research_data)
+            _normalize_research_model_output(research_data),
+            verified_source_urls=grounded_source_urls,
+            diagnostics=source_policy_diagnostics,
         )
         contract_diagnostics = _research_contract_diagnostics(
             raw_research_data, research_data, attempt="initial"
         )
+        contract_diagnostics["source_policy"] = source_policy_diagnostics
         diagnostics["phases"]["text_research"]["contract_enforcement"] = contract_diagnostics
         diagnostics["phases"]["text_research"].setdefault(
             "contract_enforcement_attempts", []
@@ -2680,12 +2763,16 @@ def _multi_model_analysis_events(
             research_data = dependencies.safe_model_json(text_research_json_text)
             if research_v2_active and isinstance(research_data, dict):
                 raw_research_data = research_data
+                source_policy_diagnostics = {}
                 research_data = _enforce_research_source_policy(
-                    _normalize_research_model_output(research_data)
+                    _normalize_research_model_output(research_data),
+                    verified_source_urls=grounded_source_urls,
+                    diagnostics=source_policy_diagnostics,
                 )
                 contract_diagnostics = _research_contract_diagnostics(
                     raw_research_data, research_data, attempt="recovery"
                 )
+                contract_diagnostics["source_policy"] = source_policy_diagnostics
                 diagnostics["phases"]["text_research"]["contract_enforcement"] = contract_diagnostics
                 diagnostics["phases"]["text_research"].setdefault(
                     "contract_enforcement_attempts", []
