@@ -46,10 +46,10 @@ _OPTIMIZED_POLICIES: Mapping[str, PhasePolicy] = MappingProxyType({
         "reliability_grounding", 8_000, None, 2_500, 0.2, "off", 2
     ),
     "text_research": PhasePolicy(
-        "text_research", 10_000, 4_000, 2_500, 0.1, "off", 1
+        "text_research", 10_000, 4_000, 2_200, 0.1, "off", 1
     ),
     "text_recovery": PhasePolicy(
-        "text_recovery", 8_000, 3_200, 2_200, 0.0, "off", 1
+        "text_recovery", 8_000, 3_200, 1_800, 0.0, "off", 1
     ),
     "vision": PhasePolicy("vision", 8_000, 4_000, 1_800, 0.1, "off", 1),
     "vision_recovery": PhasePolicy(
@@ -201,21 +201,21 @@ def _compact_json_step(value: str, step: str) -> str:
                 nested.pop("listing_facts", None)
         elif step == "repeated_claims_and_risks":
             caps = {
-                "seller_claims": 4,
-                "missing_or_uncertain_data": 4,
-                "data_conflicts": 3,
-                "consistency_checks": 4,
-                "web_research_findings": 5,
-                "technical_risks": 6,
-                "expected_costs": 6,
-                "text_research_risk_flags": 4,
+                "seller_claims": 3,
+                "missing_or_uncertain_data": 3,
+                "data_conflicts": 2,
+                "consistency_checks": 3,
+                "web_research_findings": 4,
+                "technical_risks": 4,
+                "expected_costs": 4,
+                "text_research_risk_flags": 2,
             }
             for key, cap in caps.items():
                 if isinstance(mapping.get(key), list):
                     mapping[key] = mapping[key][:cap]
         elif step == "low_priority_source_prose":
             if isinstance(mapping.get("sources_used"), list):
-                mapping["sources_used"] = mapping["sources_used"][:8]
+                mapping["sources_used"] = mapping["sources_used"][:6]
             for key in ("used_for", "notes", "buyer_impact"):
                 if isinstance(mapping.get(key), str) and len(mapping[key]) > 280:
                     mapping[key] = mapping[key][:277].rstrip() + "..."
@@ -315,7 +315,7 @@ def check_and_compact_input(
             break
 
     if round(_local_token_estimate(system_prompt, current) * provider_ratio) > max_input:
-        for string_limit, list_limit in ((600, 4), (320, 3), (180, 2)):
+        for string_limit, list_limit in ((600, 4), (320, 3), (180, 2), (120, 1)):
             candidate = _aggressive_json_shrink(current, string_limit=string_limit, list_limit=list_limit)
             candidate, restored = _ensure_protected_values(candidate, protected_values)
             if candidate != current:

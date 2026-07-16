@@ -162,15 +162,15 @@ def _research_parse_failed(value: Any) -> bool:
 
 
 RESEARCH_V2_ARRAY_LIMITS = {
-    "seller_claims": 4,
-    "missing_or_uncertain_data": 4,
-    "data_conflicts": 3,
-    "consistency_checks": 4,
-    "web_research_findings": 5,
-    "technical_risks": 6,
-    "expected_costs": 6,
-    "text_research_risk_flags": 4,
-    "sources_used": 8,
+    "seller_claims": 3,
+    "missing_or_uncertain_data": 3,
+    "data_conflicts": 2,
+    "consistency_checks": 3,
+    "web_research_findings": 4,
+    "technical_risks": 4,
+    "expected_costs": 4,
+    "text_research_risk_flags": 2,
+    "sources_used": 6,
 }
 RESEARCH_V2_REQUIRED_FIELDS = {
     "schema_version",
@@ -179,6 +179,36 @@ RESEARCH_V2_REQUIRED_FIELDS = {
     "safety_and_recall",
     *RESEARCH_V2_ARRAY_LIMITS,
 }
+
+
+def _research_v2_response_schema(prompt_dir: Path) -> dict[str, Any]:
+    """Load the checked-in schema for Gemini structured JSON output."""
+    def gemini_subset(value: Any) -> Any:
+        if isinstance(value, dict):
+            normalized = {
+                key: gemini_subset(child)
+                for key, child in value.items()
+                if key != "$schema" and key != "const"
+            }
+            if "const" in value:
+                normalized["enum"] = [value["const"]]
+            return normalized
+        if isinstance(value, list):
+            return [gemini_subset(item) for item in value]
+        return value
+
+    candidates = (
+        prompt_dir.parent / "schemas" / "research_model_output.schema.json",
+        Path(__file__).resolve().parents[2] / "schemas" / "research_model_output.schema.json",
+    )
+    for candidate in candidates:
+        try:
+            schema = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(schema, dict):
+            return gemini_subset(schema)
+    raise FileNotFoundError("research_model_output.schema.json not found")
 
 
 def _valid_research_model_output(value: Any) -> bool:
@@ -1239,16 +1269,20 @@ def _multi_model_analysis_events(
     def save_diagnostics() -> None:
         repository.write_json(slug, "analysis_diagnostics.json", diagnostics)
 
-    def token_counter(model_name: str) -> Callable[[str, str], tuple[int, str]] | None:
+    def token_counter(
+        model_name: str,
+        response_json_schema: dict[str, Any] | None = None,
+    ) -> Callable[[str, str], tuple[int, str]] | None:
         if dependencies.count_input_tokens is None or not gemini_key_entries:
             return None
         key = gemini_key_entries[0]["key"]
-        return lambda system, content: dependencies.count_input_tokens(
-            key,
-            system,
-            content,
-            model=model_name,
-        )
+        def count(system: str, content: str) -> tuple[int, str]:
+            kwargs: dict[str, Any] = {"model": model_name}
+            if response_json_schema is not None:
+                kwargs["response_json_schema"] = response_json_schema
+            return dependencies.count_input_tokens(key, system, content, **kwargs)
+
+        return count
 
     save_diagnostics()
     vin_light_decode = _read_vin_light_decode(repository, slug)
@@ -1682,6 +1716,11 @@ def _multi_model_analysis_events(
     )
 
     research_policy = get_phase_policy("text_research", profile=active_profile)
+    research_response_schema = (
+        _research_v2_response_schema(dependencies.prompt_dir)
+        if research_v2_active and text_provider == "gemini"
+        else None
+    )
     if research_v2_active:
         text_research_system_prompt += (
             f"\n\nRuntime visible-output target: at most {research_policy.visible_target_tokens} tokens."
@@ -1703,7 +1742,10 @@ def _multi_model_analysis_events(
         text_research_system_prompt,
         text_research_content,
         research_policy,
-        count_tokens=token_counter(GEMINI_TEXT_RESEARCH_MODEL),
+        count_tokens=token_counter(
+            GEMINI_TEXT_RESEARCH_MODEL,
+            research_response_schema,
+        ),
         protected_values=protected_research_values,
     )
     text_research_content = research_budget.user_content
@@ -1871,6 +1913,7 @@ def _multi_model_analysis_events(
                         phase="text_research",
                         max_output_tokens=research_policy.max_output_tokens,
                         temperature=research_policy.temperature,
+                        response_json_schema=research_response_schema,
                     ),
                 )
         except ModelOutputLimitError as exc:
@@ -1925,6 +1968,11 @@ def _multi_model_analysis_events(
                         phase="text_research",
                         max_output_tokens=research_policy.max_output_tokens,
                         temperature=research_policy.temperature,
+                        response_json_schema=(
+                            _research_v2_response_schema(dependencies.prompt_dir)
+                            if research_v2_active
+                            else None
+                        ),
                     ),
                 )
     try:
@@ -1936,6 +1984,7 @@ def _multi_model_analysis_events(
         if research_v2_active
         else not _research_parse_failed(research_data)
     )
+    recovery_valid: bool | None = None
     if research_v2_active:
         repository.write_text(slug, "research_model_output.json", text_research_json_text)
     save_text_research_attempts(initial_valid=initial_research_valid)
@@ -1945,7 +1994,9 @@ def _multi_model_analysis_events(
         recovery_content = text_research_content + (
             "\n\nRECOVERY REQUIREMENT: The previous response was invalid or truncated. "
             "Return one complete schema-valid JSON object. Do not search again, add facts, "
-            "or reproduce backend-owned listing, identity, VIN, market, score, verdict, or report fields."
+            "or reproduce backend-owned listing, identity, VIN, market, score, verdict, or report fields. "
+            "Use at most 2 technical risks, 2 web findings, 2 expected costs, 1 seller claim, "
+            "1 unknown, 1 consistency check, and 4 sources; keep every string to one short sentence."
             if research_v2_active
             else
             "\n\nRECOVERY REQUIREMENT: The previous response was incomplete JSON. "
@@ -1957,7 +2008,12 @@ def _multi_model_analysis_events(
             text_research_system_prompt,
             recovery_content,
             recovery_policy,
-            count_tokens=token_counter(GEMINI_TEXT_RESEARCH_MODEL),
+            count_tokens=token_counter(
+                GEMINI_TEXT_RESEARCH_MODEL,
+                _research_v2_response_schema(dependencies.prompt_dir)
+                if research_v2_active
+                else None,
+            ),
             protected_values=protected_research_values,
         )
         recovery_content = recovery_budget.user_content
@@ -1985,6 +2041,11 @@ def _multi_model_analysis_events(
                         phase="text_recovery" if research_v2_active else "text_research",
                         max_output_tokens=recovery_policy.max_output_tokens,
                         temperature=recovery_policy.temperature,
+                        response_json_schema=(
+                            _research_v2_response_schema(dependencies.prompt_dir)
+                            if research_v2_active
+                            else None
+                        ),
                     ),
                 )
             research_data = dependencies.safe_model_json(text_research_json_text)
@@ -2045,6 +2106,18 @@ def _multi_model_analysis_events(
             component_identity,
             vin_light_decode,
         )
+    research_status = str(research_data.get("research_status") or "completed")
+    diagnostics["phases"]["text_research"].update(
+        {
+            "status": "degraded" if research_status == "unavailable" else "completed",
+            "research_status": research_status,
+            "provider_schema_valid": bool(initial_research_valid or recovery_valid),
+            "recovery_attempted": not initial_research_valid,
+            "recovered": recovery_valid is True,
+            "selected_key_label": _selected_key_label(_text_key),
+        }
+    )
+    save_diagnostics()
     # Replace, rather than merge, model-produced market candidates. Only the
     # separately grounded and backend-reconciled portal passes may feed price
     # benchmarking or customer links.
@@ -2110,11 +2183,6 @@ def _multi_model_analysis_events(
                     ),
                 }
             )
-            diagnostics["phases"]["text_research"] = {
-                "provider": text_provider,
-                "status": "completed",
-                "selected_key_label": _selected_key_label(_text_key),
-            }
             save_diagnostics()
             validation_warnings.extend(
                 dependencies.validate_json_contract(
@@ -2464,6 +2532,13 @@ def _multi_model_analysis_events(
         final_system_prompt += (
             f"\n\nRuntime visible-output target: at most {final_policy.visible_target_tokens} tokens."
         )
+    if research_data.get("research_status") == "unavailable":
+        final_system_prompt += (
+            "\n\nTechnical research is unavailable for this run. Do not supply model-specific "
+            "failure claims, component codes, service intervals, recall conclusions, or repair-cost "
+            "estimates from general knowledge. State the limitation and provide only generic "
+            "pre-purchase inspection actions supported by backend facts."
+        )
 
     final_content = dependencies.build_final_synthesis_context(
         output_language,
@@ -2490,8 +2565,16 @@ def _multi_model_analysis_events(
             )
     for risk in research_data.get("technical_risks") or []:
         if isinstance(risk, dict) and str(risk.get("risk_level") or "").upper() == "HIGH":
-            critical_final_evidence.append(
-                json.dumps(risk, ensure_ascii=False, separators=(",", ":"))
+            critical_final_evidence.extend(
+                risk.get(key)
+                for key in (
+                    "component",
+                    "issue",
+                    "evidence_category",
+                    "specific_vehicle_evidence",
+                    "verification_action",
+                )
+                if risk.get(key) not in (None, "", [], {})
             )
     protected_final_values = tuple(
         value

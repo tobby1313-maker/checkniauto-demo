@@ -82,7 +82,9 @@ The analysis pipeline is:
    these checks, the report publishes no comparable-ad link.
 4. Run compact Research V2 normalization with Gemini by default. The model owns
    only evidence summaries, claims, unknowns, conflicts, technical risks, costs,
-   flags, and source references. The backend merges these with canonical listing,
+   flags, and source references. Gemini receives the checked-in JSON response
+   schema; URLs are stored once in the source registry and referenced by ID from
+   findings and risks. The backend merges these with canonical listing,
    identity, VIN, market, benchmark, and verdict data into the compatible
    `grok_research.json`. Grok and OpenRouter remain optional provider branches.
 5. Run Gemini vision analysis on representative uploaded or scraped photos.
@@ -269,8 +271,10 @@ completing the report, which may end in `MAX_TOKENS`. The quality profile uses
 `thinkingBudget=0` for Gemini 2.5 extraction and the native `minimal` thinking
 level for Gemini 3.x extraction. Final synthesis uses a small Gemini 2.5 budget or
 Gemini 3.x `low` thinking, plus a 6,000-token safety ceiling shared by thinking
-and visible output. Research V2 and vision each use a 4,000-token ceiling. Text
-and final inputs are checked with Gemini REST `countTokens`; a failed count falls
+and visible output. Research V2 and vision each use a 4,000-token hard ceiling;
+their calibrated visible-output targets are 2,200 and 1,800 tokens. Text
+and final inputs are checked with Gemini REST `countTokens` (including the
+Research V2 response schema); a failed count falls
 back to a labeled local estimate and does not stop the analysis. A backup Gemini
 key is still used for authentication and quota
 failures; `MAX_TOKENS` is a generation-budget condition, not a key-quota failure.

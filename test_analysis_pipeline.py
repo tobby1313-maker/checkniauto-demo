@@ -14,6 +14,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _merge_backend_evidence,
     _promote_selected_key,
     _research_parse_failed,
+    _research_v2_response_schema,
     _unavailable_research_model_output,
     _unavailable_vision_payload,
     _valid_vision_payload,
@@ -68,6 +69,18 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_research_v2_gemini_schema_uses_supported_json_schema_subset(self):
+        schema = _research_v2_response_schema(Path("prompts"))
+        serialized = json.dumps(schema)
+
+        self.assertNotIn('"$schema"', serialized)
+        self.assertNotIn('"const"', serialized)
+        self.assertEqual(schema["properties"]["schema_version"]["enum"], [2])
+        self.assertEqual(
+            schema["properties"]["source_role"]["enum"],
+            ["research_model_output"],
+        )
+
     def test_research_v2_merges_only_model_owned_fields_with_backend_facts(self):
         packet = _unavailable_research_model_output("fixture")
         packet["evidence_summary"]["data_completeness_score"] = 70
@@ -772,6 +785,14 @@ Vo\u013En\u00fd text z modelu.
             self.assertTrue(repository.read_text("sample", "gemini_vision.json"))
             self.assertTrue(repository.read_text("sample", "vision_provider_attempts.json"))
             self.assertTrue(repository.read_text("sample", "text_research_provider_attempts.json"))
+            diagnostics = json.loads(repository.read_text("sample", "analysis_diagnostics.json"))
+            text_diagnostics = diagnostics["phases"]["text_research"]
+            self.assertEqual(text_diagnostics["status"], "completed")
+            self.assertTrue(text_diagnostics["recovery_attempted"])
+            self.assertTrue(text_diagnostics["recovered"])
+            self.assertIn("policy", text_diagnostics)
+            self.assertIn("input_budget", text_diagnostics)
+            self.assertIn("recovery_input_budget", text_diagnostics)
             text_attempts = json.loads(
                 repository.read_text("sample", "text_research_provider_attempts.json")
             )

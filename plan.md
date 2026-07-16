@@ -137,8 +137,8 @@ Počiatočné safety ceilings:
 |---|---:|---:|---:|
 | identity grounding | 5 000 | API/prompt bound | 600 |
 | reliability grounding | 8 000 | API/prompt bound | 2 500 |
-| text research | 10 000 | 4 000 | 2 500 |
-| text recovery | 8 000 | 3 200 | 2 200 |
+| text research | 10 000 | 4 000 | 2 200 |
+| text recovery | 8 000 | 3 200 | 1 800 |
 | vision | 8 000 + images | 4 000 | 1 800 |
 | vision recovery | 8 000 + images | 3 500 | 1 600 |
 | final synthesis | 9 000 normal | 6 000 shared | 2 400 |

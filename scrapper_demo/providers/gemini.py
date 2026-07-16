@@ -191,6 +191,7 @@ def count_tokens(
     user_content: str,
     *,
     model: str | None = None,
+    response_json_schema: dict[str, Any] | None = None,
     timeout: int = 20,
 ) -> tuple[int, str]:
     """Count text input with the Gemini REST tokenizer, without generating output."""
@@ -207,6 +208,11 @@ def count_tokens(
             ],
         }
     }
+    if response_json_schema is not None:
+        payload["generateContentRequest"]["generationConfig"] = {
+            "responseMimeType": "application/json",
+            "responseJsonSchema": response_json_schema,
+        }
     response = requests.post(
         url,
         json=payload,
@@ -325,6 +331,7 @@ def analyze_with_llm(
     phase: str | None = None,
     max_output_tokens: int | None = None,
     temperature: float | None = None,
+    response_json_schema: dict[str, Any] | None = None,
 ) -> Iterator[str]:
     """
     Send a request to Google Gemini and yield response chunks.
@@ -343,6 +350,7 @@ def analyze_with_llm(
         phase=phase,
         max_output_tokens=max_output_tokens,
         temperature=temperature,
+        response_json_schema=response_json_schema,
     )
 
 
@@ -1029,6 +1037,7 @@ def _call_gemini(
     phase: str | None = None,
     max_output_tokens: int | None = None,
     temperature: float | None = None,
+    response_json_schema: dict[str, Any] | None = None,
     diagnostics_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> Iterator[str]:
     """Call Google Gemini API with proper system_instruction support.
@@ -1073,6 +1082,8 @@ def _call_gemini(
     }
     if phase in {"text_research", "text_recovery", "vision", "vision_recovery"}:
         generation_config["responseMimeType"] = "application/json"
+    if response_json_schema is not None:
+        generation_config["responseJsonSchema"] = response_json_schema
     payload: dict[str, Any] = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]
@@ -1254,6 +1265,7 @@ def _call_gemini(
                     phase=phase,
                     max_output_tokens=max_output_tokens,
                     temperature=temperature,
+                    response_json_schema=response_json_schema,
                     diagnostics_callback=diagnostics_callback,
                 )
                 return
@@ -1318,6 +1330,7 @@ def _call_gemini(
                         phase=phase,
                         max_output_tokens=max_output_tokens,
                         temperature=temperature,
+                        response_json_schema=response_json_schema,
                         diagnostics_callback=diagnostics_callback,
                     )
                     return

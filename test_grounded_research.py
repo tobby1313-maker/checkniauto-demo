@@ -334,6 +334,28 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(parsed["text_research"]["sources_used"], [])
         self.assertEqual(parsed["listing"]["vin"], "U5YPC811BDL362988")
 
+    def test_unavailable_research_excludes_raw_web_and_blocks_technical_inference(self):
+        context = web_server._build_final_synthesis_context(
+            "sk",
+            "# Volkswagen Tiguan\n\n- **Year:** 2014",
+            json.dumps({
+                "research_status": "unavailable",
+                "web_research_findings": [],
+                "technical_risks": [],
+                "expected_costs": [],
+            }),
+            json.dumps({"photos_provided": False}),
+            json.dumps({"allowed_final_verdict": "ZVAZIT"}),
+            "EA888 DQ500 invented-risk bait",
+        )
+
+        instruction, user_payload = context.split("\n\n", 1)
+        parsed = json.loads(user_payload)
+        self.assertIn("Technical research is unavailable", instruction)
+        self.assertNotIn("EA888", context)
+        self.assertEqual(parsed["web_research"]["evidence_excerpt"], "")
+        self.assertFalse(parsed["text_research"]["technical_research_available"])
+
     def test_final_context_carries_vin_light_decode_metadata(self):
         context = web_server._build_final_synthesis_context(
             "sk",

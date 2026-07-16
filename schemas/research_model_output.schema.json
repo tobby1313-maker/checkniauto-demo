@@ -4,42 +4,111 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version",
-    "source_role",
-    "evidence_summary",
-    "seller_claims",
-    "missing_or_uncertain_data",
-    "data_conflicts",
-    "consistency_checks",
-    "safety_and_recall",
-    "web_research_findings",
-    "technical_risks",
-    "expected_costs",
-    "text_research_risk_flags",
-    "sources_used"
+    "schema_version", "source_role", "evidence_summary", "seller_claims",
+    "missing_or_uncertain_data", "data_conflicts", "consistency_checks",
+    "safety_and_recall", "web_research_findings", "technical_risks",
+    "expected_costs", "text_research_risk_flags", "sources_used"
   ],
   "properties": {
     "schema_version": {"type": "integer", "const": 2},
     "source_role": {"type": "string", "const": "research_model_output"},
     "evidence_summary": {
-      "type": "object",
+      "type": "object", "additionalProperties": false,
       "required": ["data_completeness_score", "overall_confidence", "strongest_evidence", "weakest_evidence"],
       "properties": {
         "data_completeness_score": {"type": "integer", "minimum": 0, "maximum": 100},
         "overall_confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
-        "strongest_evidence": {"type": "array", "maxItems": 4, "items": {"type": "string"}},
-        "weakest_evidence": {"type": "array", "maxItems": 4, "items": {"type": "string"}}
+        "strongest_evidence": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+        "weakest_evidence": {"type": "array", "maxItems": 3, "items": {"type": "string"}}
       }
     },
-    "seller_claims": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
-    "missing_or_uncertain_data": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
-    "data_conflicts": {"type": "array", "maxItems": 3, "items": {"type": "object"}},
-    "consistency_checks": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
-    "safety_and_recall": {"type": "object"},
-    "web_research_findings": {"type": "array", "maxItems": 5, "items": {"type": "object"}},
-    "technical_risks": {"type": "array", "maxItems": 6, "items": {"type": "object"}},
-    "expected_costs": {"type": "array", "maxItems": 6, "items": {"type": "object"}},
-    "text_research_risk_flags": {"type": "array", "maxItems": 4, "items": {"type": "object"}},
-    "sources_used": {"type": "array", "maxItems": 8, "items": {"type": "object"}}
+    "seller_claims": {
+      "type": "array", "maxItems": 3,
+      "items": {"type": "object", "additionalProperties": false, "required": ["claim", "evidence_category", "verification_status", "buyer_relevance"],
+        "properties": {
+          "claim": {"type": "string"},
+          "evidence_category": {"$ref": "#/$defs/evidence_category"},
+          "verification_status": {"type": "string"},
+          "buyer_relevance": {"type": "string"}
+        }}
+    },
+    "missing_or_uncertain_data": {
+      "type": "array", "maxItems": 3,
+      "items": {"type": "object", "additionalProperties": false, "required": ["item", "why_it_matters", "severity"],
+        "properties": {"item": {"type": "string"}, "why_it_matters": {"type": "string"}, "severity": {"type": "string", "enum": ["low", "medium", "high"]}}}
+    },
+    "data_conflicts": {
+      "type": "array", "maxItems": 2,
+      "items": {"type": "object", "additionalProperties": false, "required": ["issue", "source_a", "source_b", "interpretation", "importance"],
+        "properties": {"issue": {"type": "string"}, "source_a": {"type": "string"}, "source_b": {"type": "string"}, "interpretation": {"type": "string"}, "importance": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]}}}
+    },
+    "consistency_checks": {
+      "type": "array", "maxItems": 3,
+      "items": {"type": "object", "additionalProperties": false, "required": ["check", "result", "explanation"],
+        "properties": {"check": {"type": "string"}, "result": {"type": "string", "enum": ["ok", "concern", "unknown"]}, "explanation": {"type": "string"}}}
+    },
+    "safety_and_recall": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "summary", "required_action", "evidence_category", "source_ids"],
+      "properties": {
+        "status": {"type": "string", "enum": ["NO_RELEVANT_CAMPAIGN_FOUND", "CAMPAIGN_CONFIRMED_COMPLETED", "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK", "OPEN_CAMPAIGN", "INSUFFICIENT_DATA"]},
+        "summary": {"type": "string"}, "required_action": {"type": "string"},
+        "evidence_category": {"$ref": "#/$defs/evidence_category"},
+        "source_ids": {"$ref": "#/$defs/source_ids"}
+      }
+    },
+    "web_research_findings": {
+      "type": "array", "maxItems": 4,
+      "items": {"type": "object", "additionalProperties": false, "required": ["claim", "evidence_category", "buyer_impact", "confidence", "source_ids"],
+        "properties": {"claim": {"type": "string"}, "evidence_category": {"$ref": "#/$defs/evidence_category"}, "buyer_impact": {"type": "string"}, "confidence": {"$ref": "#/$defs/confidence"}, "source_ids": {"$ref": "#/$defs/source_ids"}}}
+    },
+    "technical_risks": {
+      "type": "array", "maxItems": 4,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["component", "issue", "risk_level", "evidence_category", "buyer_impact", "specific_vehicle_evidence", "verification_action", "estimated_cost_eur_low", "estimated_cost_eur_high", "confidence", "source_ids"],
+        "properties": {
+          "component": {"type": "string"}, "issue": {"type": "string"},
+          "risk_level": {"type": "string", "enum": ["HIGH", "MEDIUM", "CHECK"]},
+          "evidence_category": {"$ref": "#/$defs/evidence_category"},
+          "buyer_impact": {"type": "string"}, "specific_vehicle_evidence": {"type": "string"},
+          "verification_action": {"type": "string"},
+          "estimated_cost_eur_low": {"type": ["number", "null"]},
+          "estimated_cost_eur_high": {"type": ["number", "null"]},
+          "confidence": {"$ref": "#/$defs/confidence"}, "source_ids": {"$ref": "#/$defs/source_ids"}
+        }}
+    },
+    "expected_costs": {
+      "type": "array", "maxItems": 4,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["item", "why", "estimated_cost_eur_low", "estimated_cost_eur_high", "cost_type", "urgency", "basis", "source_ids"],
+        "properties": {
+          "item": {"type": "string"}, "why": {"type": "string"},
+          "estimated_cost_eur_low": {"type": ["number", "null"]}, "estimated_cost_eur_high": {"type": ["number", "null"]},
+          "cost_type": {"type": "string", "enum": ["initial_service", "diagnostic", "conditional_repair", "major_downside"]},
+          "urgency": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+          "basis": {"type": "string"}, "source_ids": {"$ref": "#/$defs/source_ids"}
+        }}
+    },
+    "text_research_risk_flags": {
+      "type": "array", "maxItems": 2,
+      "items": {"type": "object", "additionalProperties": false, "required": ["risk", "why_it_matters_to_buyer", "evidence", "confidence"],
+        "properties": {"risk": {"type": "string"}, "why_it_matters_to_buyer": {"type": "string"}, "evidence": {"type": "string"}, "confidence": {"$ref": "#/$defs/confidence"}}}
+    },
+    "sources_used": {
+      "type": "array", "maxItems": 6,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["source_id", "source_name", "source_type", "reliability", "source_url", "verified_url", "used_for"],
+        "properties": {
+          "source_id": {"type": "string"}, "source_name": {"type": "string"},
+          "source_type": {"type": "string", "enum": ["OFFICIAL", "REGULATORY", "LISTING", "VEHICLE_HISTORY", "TECHNICAL_PUBLICATION", "REPAIR_SOURCE", "OWNER_REPORT", "OTHER"]},
+          "reliability": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
+          "source_url": {"type": "string"}, "verified_url": {"type": "boolean"}, "used_for": {"type": "string"}
+        }}
+    }
+  },
+  "$defs": {
+    "evidence_category": {"type": "string", "enum": ["CONFIRMED", "LISTING_CLAIM", "VISUAL_INDICATION", "MODEL_LEVEL_RISK", "NEEDS_VERIFICATION"]},
+    "confidence": {"type": "string", "enum": ["Vysoka", "Stredna", "Nizka"]},
+    "source_ids": {"type": "array", "maxItems": 3, "items": {"type": "string"}}
   }
 }

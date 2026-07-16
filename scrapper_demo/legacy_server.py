@@ -2916,6 +2916,8 @@ def _compact_text_research_for_final(text_research_json_text):
                 "do not list or link individual foreign/background offers."
             )
     return {
+        "research_status": data.get("research_status", "completed"),
+        "technical_research_available": data.get("research_status") != "unavailable",
         "evidence_summary": _compact_value(data.get("evidence_summary")),
         "component_identity": _compact_value(data.get("component_identity")),
         "listing_facts": _compact_value(data.get("listing_facts")),
@@ -3057,6 +3059,7 @@ def _build_final_synthesis_context(
     vin_light_decode=None,
 ):
     text_research_data = _safe_model_json(text_research_json_text)
+    research_unavailable = text_research_data.get("research_status") == "unavailable"
     has_structured_web_findings = bool(text_research_data.get("web_research_findings"))
     compact_payload = {
         "output_language": _demo_output_language(output_language),
@@ -3071,7 +3074,7 @@ def _build_final_synthesis_context(
         # no findings, avoiding duplicate source prose in final synthesis.
         "web_research": (
             {"verified_source_lines": [], "unverified_source_notes": [], "evidence_excerpt": ""}
-            if has_structured_web_findings
+            if has_structured_web_findings or research_unavailable
             else _web_research_context(web_research_text, max_chars=1400)
         ),
     }
@@ -3079,7 +3082,13 @@ def _build_final_synthesis_context(
     return (
         "Use only this compact structured context. "
         "Do not infer missing details from omitted raw text. "
-        "If image_payload.full_gallery_included is true, do not describe a view as missing from the listing "
+        + (
+            "Technical research is unavailable: do not invent model-specific risks, component codes, "
+            "service intervals, recall findings, or repair costs; report the limitation instead. "
+            if research_unavailable
+            else ""
+        )
+        + "If image_payload.full_gallery_included is true, do not describe a view as missing from the listing "
         "unless vision.view_coverage says that view is absent from the full-gallery overview.\n\n"
         + _compact_json_for_prompt(compact_payload)
     )

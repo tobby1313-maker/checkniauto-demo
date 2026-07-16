@@ -38,6 +38,7 @@ class ProviderAdapterTest(unittest.TestCase):
                 "system prompt",
                 "user content",
                 model="gemini-2.5-flash",
+                response_json_schema={"type": "object"},
             )
 
         self.assertEqual(result, (321, "gemini_count_tokens"))
@@ -48,6 +49,13 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(request["model"], "models/gemini-2.5-flash")
         self.assertEqual(request["systemInstruction"]["parts"][0]["text"], "system prompt")
         self.assertEqual(request["contents"][0]["parts"][0]["text"], "user content")
+        self.assertEqual(
+            request["generationConfig"],
+            {
+                "responseMimeType": "application/json",
+                "responseJsonSchema": {"type": "object"},
+            },
+        )
 
     def test_grounding_redirect_is_preserved_until_it_can_be_resolved(self):
         redirect_url = (
@@ -239,6 +247,7 @@ class ProviderAdapterTest(unittest.TestCase):
                     model="model/primary",
                     fallback_models=["model/backup"],
                     phase="text_research",
+                    response_json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
                 )
             )
 
@@ -258,6 +267,14 @@ class ProviderAdapterTest(unittest.TestCase):
         self.assertEqual(
             payloads[0]["generationConfig"]["responseMimeType"],
             "application/json",
+        )
+        self.assertEqual(
+            payloads[0]["generationConfig"]["responseJsonSchema"],
+            {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+        )
+        self.assertEqual(
+            payloads[1]["generationConfig"]["responseJsonSchema"],
+            payloads[0]["generationConfig"]["responseJsonSchema"],
         )
 
     def test_gemini_exposes_sanitized_model_finish_and_usage_diagnostics(self):
