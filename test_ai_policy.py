@@ -16,7 +16,7 @@ class AiPolicyTests(unittest.TestCase):
         self.assertEqual((research.max_input_tokens, research.max_output_tokens), (10_000, 4_000))
         self.assertEqual((recovery.max_input_tokens, recovery.max_output_tokens), (8_000, 3_200))
         self.assertEqual((final.max_input_tokens, final.max_output_tokens), (9_000, 6_000))
-        self.assertEqual(final.visible_target_tokens, 2_400)
+        self.assertEqual(final.visible_target_tokens, 3_500)
         self.assertEqual(get_phase_policy("grounding").phase, "reliability_grounding")
 
     def test_legacy_profile_preserves_previous_generation_ceiling(self):

@@ -56,7 +56,7 @@ _OPTIMIZED_POLICIES: Mapping[str, PhasePolicy] = MappingProxyType({
         "vision_recovery", 8_000, 3_500, 1_600, 0.0, "off", 1
     ),
     "final_synthesis": PhasePolicy(
-        "final_synthesis", 9_000, 6_000, 2_400, 0.3, "minimal", 2
+        "final_synthesis", 9_000, 6_000, 3_500, 0.3, "minimal", 2
     ),
 })
 
@@ -205,9 +205,9 @@ def _compact_json_step(value: str, step: str) -> str:
                 "missing_or_uncertain_data": 3,
                 "data_conflicts": 2,
                 "consistency_checks": 3,
-                "web_research_findings": 4,
-                "technical_risks": 4,
-                "expected_costs": 4,
+                "web_research_findings": 3,
+                "technical_risks": 3,
+                "expected_costs": 3,
                 "text_research_risk_flags": 2,
             }
             for key, cap in caps.items():
@@ -215,7 +215,7 @@ def _compact_json_step(value: str, step: str) -> str:
                     mapping[key] = mapping[key][:cap]
         elif step == "low_priority_source_prose":
             if isinstance(mapping.get("sources_used"), list):
-                mapping["sources_used"] = mapping["sources_used"][:6]
+                mapping["sources_used"] = mapping["sources_used"][:5]
             for key in ("used_for", "notes", "buyer_impact"):
                 if isinstance(mapping.get(key), str) and len(mapping[key]) > 280:
                     mapping[key] = mapping[key][:277].rstrip() + "..."

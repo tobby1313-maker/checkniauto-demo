@@ -54,7 +54,7 @@ Preto musí byť prvým krokom observability bez zmeny výstupu.
 - Estimate a actual usage sú jasne oddelené.
 - Bežný run má jeden text-research request.
 - Research V2: medián `<= 2 500`, po kalibrácii cieľ `<= 2 200` output tokenov.
-- Final: bežne `<= 9 000` actual input a medián `<= 2 400` output tokenov.
+- Final: bežne `<= 9 000` actual input; mäkký output cieľ je `<= 3 500` tokenov.
 - Vision: medián `<= 1 800` output tokenov bez straty relevantného pokrytia.
 - Mobile grounding sa nespustí pri troch strict eligible lokálnych ponukách.
 - Medián ceny cache-miss analýzy klesne aspoň o 35 % bez quality regression.
@@ -141,7 +141,7 @@ Počiatočné safety ceilings:
 | text recovery | 8 000 | 3 200 | 1 800 |
 | vision | 8 000 + images | 4 000 | 1 800 |
 | vision recovery | 8 000 + images | 3 500 | 1 600 |
-| final synthesis | 9 000 normal | 6 000 shared | 2 400 |
+| final synthesis | 9 000 normal | 6 000 shared | 3 500 soft |
 
 Sprísňovať ich jednotlivo až po Fáze 1. `legacy` profil zachová súčasné stropy.
 
@@ -179,8 +179,8 @@ buyer-facing report.
 Pipeline z modelového packetu a backend listing/identity/VIN/market artefaktov
 vytvorí kompatibilný canonical `grok_research.json` pre risk scorer a final.
 
-Array limity: claims 4, unknowns 4, conflicts 3, checks 4, web findings 5,
-technical risks 6, costs 6, flags 4, sources 8. Rovnaký problém sa neopakuje vo
+Aktuálne kalibrované array limity: claims 3, unknowns 3, conflicts 2, checks 3,
+web findings 3, technical risks 3, costs 3, flags 2 a sources 5. Rovnaký problém sa neopakuje vo
 viacerých arrays; cost môže odkázať na risk ID.
 
 ### Recovery
@@ -246,7 +246,7 @@ Nespúšťať automatický druhý high-resolution request.
 - nerelevantné cards sa nepočítajú,
 - foreign links zostanú skryté a benchmark sa refaktorom nezmení,
 - final zachová sections, verdict a SK/CZ link policy,
-- final input bežne `<= 9 000`, output medián `<= 2 400`,
+- final input bežne `<= 9 000`, mäkký output cieľ `<= 3 500`,
 - image dedup funguje aj nad 20 obrázkov a rešpektuje cap/no-images/recovery.
 
 ## 9. Fáza 4 — Evaluation a rollout

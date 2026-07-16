@@ -12,10 +12,12 @@ from scrapper_demo.services.analysis_pipeline import (
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
     _canonical_research_from_v2,
+    _enforce_research_source_policy,
     _merge_backend_evidence,
     _promote_selected_key,
     _research_parse_failed,
     _research_v2_response_schema,
+    _normalize_research_model_output,
     _unavailable_research_model_output,
     _unavailable_vision_payload,
     _valid_vision_payload,
@@ -136,6 +138,88 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         packet["technical_risks"] = [{"issue": "Incomplete object"}]
 
         self.assertFalse(_valid_research_model_output(packet))
+
+    def test_research_v2_without_supported_technical_evidence_is_limited(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 40
+
+        merged = _canonical_research_from_v2(packet, {"title": "Known listing"}, {})
+
+        self.assertEqual(merged["research_status"], "limited")
+
+    def test_research_v2_normalizes_aliases_and_rejects_unknown_enums(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 50
+        packet["seller_claims"] = [{
+            "claim": "Full history", "evidence_category": "SELLER_CLAIM",
+            "verification_status": "unverified", "buyer_relevance": "Check invoices",
+        }]
+        packet["consistency_checks"] = [{
+            "check": "Mileage", "result": "CONSISTENT", "explanation": "Values match",
+        }]
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
+        self.assertEqual(normalized["consistency_checks"][0]["result"], "ok")
+        self.assertTrue(_valid_research_model_output(normalized))
+        normalized["seller_claims"][0]["evidence_category"] = "MADE_UP"
+        self.assertFalse(_valid_research_model_output(normalized))
+
+    def test_research_v2_source_policy_requires_topic_match_and_official_intervals(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 60
+        packet["web_research_findings"] = [
+            {
+                "claim": "DSG oil service interval is every 60000 km.",
+                "evidence_category": "MODEL_LEVEL_MAINTENANCE",
+                "buyer_impact": "Verify service history.",
+                "confidence": "HIGH",
+                "source_ids": ["official"],
+            },
+            {
+                "claim": "Haldex oil service interval is every 60000 km.",
+                "evidence_category": "MODEL_LEVEL_MAINTENANCE",
+                "buyer_impact": "Verify service history.",
+                "confidence": "HIGH",
+                "source_ids": ["blog"],
+            },
+        ]
+        packet["technical_risks"] = [{
+            "component": "Engine", "issue": "Timing chain tensioner failure",
+            "risk_level": "HIGH", "evidence_category": "MODEL_LEVEL_ISSUE",
+            "buyer_impact": "Possible engine damage", "specific_vehicle_evidence": "",
+            "verification_action": "Listen during cold start",
+            "estimated_cost_eur_low": 500, "estimated_cost_eur_high": 1000,
+            "confidence": "HIGH", "source_ids": ["blog", "catalog"],
+        }]
+        packet["sources_used"] = [
+            {
+                "source_id": "official", "source_name": "VW manual", "source_type": "OFFICIAL",
+                "reliability": "HIGH", "source_url": "https://vw.example/manual",
+                "verified_url": True, "used_for": "DSG oil service interval 60000 km",
+            },
+            {
+                "source_id": "blog", "source_name": "Technical article",
+                "source_type": "TECHNICAL_PUBLICATION", "reliability": "MEDIUM",
+                "source_url": "https://example.test/article", "verified_url": True,
+                "used_for": "Timing chain tensioner failure and Haldex oil service interval",
+            },
+            {
+                "source_id": "catalog", "source_name": "Parts catalog",
+                "source_type": "PARTS_CATALOG", "reliability": "HIGH",
+                "source_url": "https://parts.example/item", "verified_url": True,
+                "used_for": "Timing chain tensioner failure",
+            },
+        ]
+
+        filtered = _enforce_research_source_policy(_normalize_research_model_output(packet))
+
+        self.assertTrue(_valid_research_model_output(filtered))
+        self.assertEqual(len(filtered["web_research_findings"]), 1)
+        self.assertEqual(filtered["web_research_findings"][0]["source_ids"], ["official"])
+        self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["blog"])
+        self.assertEqual(filtered["technical_risks"][0]["confidence"], "Stredna")
+        self.assertNotIn("catalog", {item["source_id"] for item in filtered["sources_used"]})
 
     def test_successful_backup_key_is_reused_first_for_later_phases(self):
         entries = [
@@ -433,6 +517,44 @@ Vo\u013En\u00fd text z modelu.
 
         self.assertNotIn("74/100", locked)
         self.assertNotIn("UNCALIBRATED", locked)
+
+    def test_report_replaces_unsupported_technical_sections_and_fixed_intervals(self):
+        report = """# Report
+
+## Webové overenie
+- EA888 oil consumption and piston rings.
+
+## Technické riziká modelu a komponentov
+- Timing chain tensioner failure.
+
+## Očakávané náklady
+- Timing chain replacement: 1 000 EUR.
+
+## Otázky
+- DSG oil must be changed every 60000 km.
+"""
+        locked = _lock_report_evidence_claims(
+            report,
+            {
+                "research_status": "limited",
+                "web_research_findings": [],
+                "technical_risks": [],
+                "expected_costs": [],
+                "market_assessment": {
+                    "benchmark_available": True,
+                    "benchmark_comparable_count": 3,
+                    "benchmark_median_eur": 10000,
+                },
+            },
+            {},
+            output_language="sk",
+        )
+
+        self.assertIn("Backendová validácia nepotvrdila", locked)
+        self.assertIn("Žiadne modelové technické riziko", locked)
+        self.assertIn("Nie je dostupný dostatočne podložený odhad", locked)
+        self.assertNotIn("Timing chain", locked)
+        self.assertNotIn("60000", locked)
 
     def test_unsourced_model_risk_cannot_claim_this_car_has_the_defect(self):
         merged = _merge_backend_evidence(
@@ -816,12 +938,17 @@ Vo\u013En\u00fd text z modelu.
             self.assertTrue(repository.read_text("sample", "text_research_provider_attempts.json"))
             diagnostics = json.loads(repository.read_text("sample", "analysis_diagnostics.json"))
             text_diagnostics = diagnostics["phases"]["text_research"]
-            self.assertEqual(text_diagnostics["status"], "completed")
+            self.assertEqual(text_diagnostics["status"], "degraded")
+            self.assertEqual(text_diagnostics["research_status"], "limited")
             self.assertTrue(text_diagnostics["recovery_attempted"])
             self.assertTrue(text_diagnostics["recovered"])
             self.assertIn("policy", text_diagnostics)
             self.assertIn("input_budget", text_diagnostics)
             self.assertIn("recovery_input_budget", text_diagnostics)
+            self.assertEqual(
+                text_diagnostics["contract_enforcement"]["attempt"],
+                "recovery",
+            )
             final_diagnostics = diagnostics["phases"]["final_synthesis"]
             self.assertTrue(final_diagnostics["recovery_attempted"])
             self.assertTrue(final_diagnostics["recovered"])

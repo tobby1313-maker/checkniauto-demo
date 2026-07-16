@@ -356,6 +356,35 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(parsed["web_research"]["evidence_excerpt"], "")
         self.assertFalse(parsed["text_research"]["technical_research_available"])
 
+    def test_limited_research_cannot_restore_rejected_raw_web(self):
+        context = web_server._build_final_synthesis_context(
+            "sk",
+            "# Volkswagen Tiguan\n\n- **Year:** 2014",
+            json.dumps({
+                "research_packet_schema_version": 2,
+                "research_status": "limited",
+                "component_identity": {
+                    "engine": {"family": "EA888", "resolution": "AMBIGUOUS"},
+                    "sources": [{"source_name": "Rejected parts catalog AUTODOC"}],
+                },
+                "web_research_findings": [],
+                "technical_risks": [],
+                "expected_costs": [],
+            }),
+            json.dumps({"photos_provided": False}),
+            json.dumps({"allowed_final_verdict": "ZVAZIT"}),
+            "Rejected exact 60000 km interval and unsupported repair claim",
+        )
+
+        instruction, user_payload = context.split("\n\n", 1)
+        parsed = json.loads(user_payload)
+        self.assertIn("Technical research is unavailable", instruction)
+        self.assertNotIn("60000", context)
+        self.assertNotIn("AUTODOC", context)
+        self.assertEqual(parsed["text_research"]["component_identity"]["engine"]["family"], "EA888")
+        self.assertEqual(parsed["web_research"]["evidence_excerpt"], "")
+        self.assertFalse(parsed["text_research"]["technical_research_available"])
+
     def test_final_context_carries_vin_light_decode_metadata(self):
         context = web_server._build_final_synthesis_context(
             "sk",

@@ -85,7 +85,12 @@ The analysis pipeline is:
    flags, and source references. Gemini receives a low-state serving schema for
    the complete JSON envelope; the backend applies the stricter checked-in audit
    contract and array limits. URLs are stored once in the source registry and
-   referenced by ID from findings and risks. The backend merges these with canonical listing,
+   referenced by ID from findings and risks. Known provider enum aliases are
+   normalized before strict nested validation. A technical claim is retained only
+   when its source ID points to a verified, topic-matched evidence source; fixed
+   numeric service intervals additionally require an official or regulatory
+   source. Parts catalogs cannot establish defect prevalence, intervals, or repair
+   costs. The backend merges these with canonical listing,
    identity, VIN, market, benchmark, and verdict data into the compatible
    `grok_research.json`. Grok and OpenRouter remain optional provider branches.
 5. Run Gemini vision analysis on representative uploaded or scraped photos.
@@ -273,7 +278,9 @@ completing the report, which may end in `MAX_TOKENS`. The quality profile uses
 level for Gemini 3.x extraction. Final synthesis uses a small Gemini 2.5 budget or
 Gemini 3.x `minimal` thinking, plus a 6,000-token safety ceiling shared by thinking
 and visible output. Research V2 and vision each use a 4,000-token hard ceiling;
-their calibrated visible-output targets are 2,200 and 1,800 tokens. Text
+their calibrated visible-output targets are 2,200 and 1,800 tokens. Final synthesis
+uses a soft 3,500-token visible-output target so report completeness wins over
+aggressive shortening; the 6,000-token shared ceiling remains the safety bound. Text
 and final inputs are checked with Gemini REST `countTokens` (including the
 Research V2 response schema); a failed count falls
 back to a labeled local estimate and does not stop the analysis. A backup Gemini

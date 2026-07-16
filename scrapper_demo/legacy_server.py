@@ -2845,6 +2845,11 @@ def _move_pros_cons_after_quick_summary(report_text):
 
 def _compact_text_research_for_final(text_research_json_text):
     data = _safe_model_json(text_research_json_text)
+    component_identity = _compact_value(data.get("component_identity"))
+    if isinstance(component_identity, dict):
+        # Identity labels and resolution belong in final synthesis, but its
+        # discovery source registry must not bypass Research V2 evidence policy.
+        component_identity.pop("sources", None)
     all_comparables = data.get("market_comparables")
     if not isinstance(all_comparables, list):
         all_comparables = []
@@ -2917,9 +2922,9 @@ def _compact_text_research_for_final(text_research_json_text):
             )
     return {
         "research_status": data.get("research_status", "completed"),
-        "technical_research_available": data.get("research_status") != "unavailable",
+        "technical_research_available": data.get("research_status") == "completed",
         "evidence_summary": _compact_value(data.get("evidence_summary")),
-        "component_identity": _compact_value(data.get("component_identity")),
+        "component_identity": component_identity,
         "listing_facts": _compact_value(data.get("listing_facts")),
         "seller_claims": _limited_list(data.get("seller_claims"), 8, prefer_concerns=True),
         "missing_or_uncertain_data": _limited_list(data.get("missing_or_uncertain_data"), 6, prefer_concerns=True),
@@ -3059,7 +3064,7 @@ def _build_final_synthesis_context(
     vin_light_decode=None,
 ):
     text_research_data = _safe_model_json(text_research_json_text)
-    research_unavailable = text_research_data.get("research_status") == "unavailable"
+    research_unavailable = text_research_data.get("research_status") in {"unavailable", "limited"}
     has_structured_web_findings = bool(text_research_data.get("web_research_findings"))
     compact_payload = {
         "output_language": _demo_output_language(output_language),

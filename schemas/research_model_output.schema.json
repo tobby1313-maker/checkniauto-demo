@@ -58,12 +58,12 @@
       }
     },
     "web_research_findings": {
-      "type": "array", "maxItems": 4,
+      "type": "array", "maxItems": 3,
       "items": {"type": "object", "additionalProperties": false, "required": ["claim", "evidence_category", "buyer_impact", "confidence", "source_ids"],
         "properties": {"claim": {"type": "string"}, "evidence_category": {"$ref": "#/$defs/evidence_category"}, "buyer_impact": {"type": "string"}, "confidence": {"$ref": "#/$defs/confidence"}, "source_ids": {"$ref": "#/$defs/source_ids"}}}
     },
     "technical_risks": {
-      "type": "array", "maxItems": 4,
+      "type": "array", "maxItems": 3,
       "items": {"type": "object", "additionalProperties": false,
         "required": ["component", "issue", "risk_level", "evidence_category", "buyer_impact", "specific_vehicle_evidence", "verification_action", "estimated_cost_eur_low", "estimated_cost_eur_high", "confidence", "source_ids"],
         "properties": {
@@ -78,7 +78,7 @@
         }}
     },
     "expected_costs": {
-      "type": "array", "maxItems": 4,
+      "type": "array", "maxItems": 3,
       "items": {"type": "object", "additionalProperties": false,
         "required": ["item", "why", "estimated_cost_eur_low", "estimated_cost_eur_high", "cost_type", "urgency", "basis", "source_ids"],
         "properties": {
@@ -95,7 +95,7 @@
         "properties": {"risk": {"type": "string"}, "why_it_matters_to_buyer": {"type": "string"}, "evidence": {"type": "string"}, "confidence": {"$ref": "#/$defs/confidence"}}}
     },
     "sources_used": {
-      "type": "array", "maxItems": 6,
+      "type": "array", "maxItems": 5,
       "items": {"type": "object", "additionalProperties": false,
         "required": ["source_id", "source_name", "source_type", "reliability", "source_url", "verified_url", "used_for"],
         "properties": {

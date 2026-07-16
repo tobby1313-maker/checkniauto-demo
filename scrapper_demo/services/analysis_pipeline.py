@@ -166,11 +166,11 @@ RESEARCH_V2_ARRAY_LIMITS = {
     "missing_or_uncertain_data": 3,
     "data_conflicts": 2,
     "consistency_checks": 3,
-    "web_research_findings": 4,
-    "technical_risks": 4,
-    "expected_costs": 4,
+    "web_research_findings": 3,
+    "technical_risks": 3,
+    "expected_costs": 3,
     "text_research_risk_flags": 2,
-    "sources_used": 6,
+    "sources_used": 5,
 }
 RESEARCH_V2_REQUIRED_FIELDS = {
     "schema_version",
@@ -255,6 +255,287 @@ RESEARCH_V2_NESTED_REQUIRED_FIELDS = {
     },
 }
 
+RESEARCH_V2_STRING_FIELDS = {
+    "seller_claims": {"claim", "evidence_category", "verification_status", "buyer_relevance"},
+    "missing_or_uncertain_data": {"item", "why_it_matters", "severity"},
+    "data_conflicts": {"issue", "source_a", "source_b", "interpretation", "importance"},
+    "consistency_checks": {"check", "result", "explanation"},
+    "web_research_findings": {"claim", "evidence_category", "buyer_impact", "confidence"},
+    "technical_risks": {
+        "component", "issue", "risk_level", "evidence_category", "buyer_impact",
+        "specific_vehicle_evidence", "verification_action", "confidence",
+    },
+    "expected_costs": {"item", "why", "cost_type", "urgency", "basis"},
+    "text_research_risk_flags": {"risk", "why_it_matters_to_buyer", "evidence", "confidence"},
+    "sources_used": {
+        "source_id", "source_name", "source_type", "reliability", "source_url", "used_for",
+    },
+}
+
+RESEARCH_V2_ENUMS = {
+    "overall_confidence": {"LOW", "MEDIUM", "HIGH"},
+    "evidence_category": {
+        "CONFIRMED", "LISTING_CLAIM", "VISUAL_INDICATION",
+        "MODEL_LEVEL_RISK", "NEEDS_VERIFICATION",
+    },
+    "severity": {"low", "medium", "high"},
+    "importance": {"LOW", "MEDIUM", "HIGH"},
+    "check_result": {"ok", "concern", "unknown"},
+    "recall_status": {
+        "NO_RELEVANT_CAMPAIGN_FOUND", "CAMPAIGN_CONFIRMED_COMPLETED",
+        "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK", "OPEN_CAMPAIGN", "INSUFFICIENT_DATA",
+    },
+    "risk_level": {"HIGH", "MEDIUM", "CHECK"},
+    "confidence": {"Vysoka", "Stredna", "Nizka"},
+    "cost_type": {"initial_service", "diagnostic", "conditional_repair", "major_downside"},
+    "urgency": {"low", "medium", "high", "critical"},
+    "source_type": {
+        "OFFICIAL", "REGULATORY", "LISTING", "VEHICLE_HISTORY",
+        "MARKET_COMPARABLE", "TECHNICAL_PUBLICATION", "REPAIR_SOURCE",
+        "OWNER_REPORT", "OTHER",
+    },
+    "reliability": {"HIGH", "MEDIUM", "LOW"},
+}
+
+
+def _normalize_research_model_output(value: Any) -> Any:
+    """Normalize known provider aliases without accepting unknown enum values."""
+    if not isinstance(value, dict):
+        return value
+    packet = json.loads(json.dumps(value, ensure_ascii=False))
+
+    def alias(raw: Any, aliases: Mapping[str, str], *, upper: bool = True) -> Any:
+        text = str(raw or "").strip()
+        key = text.upper() if upper else text.lower()
+        return aliases.get(key, text)
+
+    evidence_aliases = {
+        "SELLER_CLAIM": "LISTING_CLAIM",
+        "MODEL_LEVEL_ISSUE": "MODEL_LEVEL_RISK",
+        "MODEL_LEVEL_MAINTENANCE": "MODEL_LEVEL_RISK",
+        "MODEL_RISK": "MODEL_LEVEL_RISK",
+    }
+    confidence_aliases = {
+        "HIGH": "Vysoka", "VYSOKA": "Vysoka",
+        "MEDIUM": "Stredna", "STREDNA": "Stredna",
+        "LOW": "Nizka", "NIZKA": "Nizka",
+    }
+    cost_aliases = {
+        "MANDATORY_INSPECTION_AND_SERVICE": "initial_service",
+        "INITIAL_MAINTENANCE": "initial_service",
+        "INSPECTION": "diagnostic",
+        "DIAGNOSTICS": "diagnostic",
+        "POTENTIAL_REPAIR": "conditional_repair",
+        "CONDITIONAL": "conditional_repair",
+        "MAJOR_REPAIR": "major_downside",
+    }
+    source_aliases = {
+        "PARTS_CATALOG": "OTHER",
+        "PARTS_RETAILER": "OTHER",
+        "OWNER_FORUM": "OWNER_REPORT",
+        "FORUM": "OWNER_REPORT",
+    }
+    urgency_aliases = {"IMMEDIATE": "high", "URGENT": "critical"}
+    check_aliases = {
+        "CONSISTENT": "ok",
+        "MATCH": "ok",
+        "POTENTIALLY_INCONSISTENT": "concern",
+        "INCONSISTENT": "concern",
+        "MISMATCH": "concern",
+        "NOT_CHECKED": "unknown",
+    }
+
+    summary = packet.get("evidence_summary")
+    if isinstance(summary, dict):
+        summary["overall_confidence"] = str(summary.get("overall_confidence") or "").upper()
+    safety = packet.get("safety_and_recall")
+    if isinstance(safety, dict):
+        safety["status"] = str(safety.get("status") or "").upper()
+        safety["evidence_category"] = alias(safety.get("evidence_category"), evidence_aliases)
+    for field in ("seller_claims", "web_research_findings", "technical_risks"):
+        for item in packet.get(field) if isinstance(packet.get(field), list) else []:
+            if isinstance(item, dict):
+                item["evidence_category"] = alias(item.get("evidence_category"), evidence_aliases)
+    for item in packet.get("missing_or_uncertain_data") if isinstance(packet.get("missing_or_uncertain_data"), list) else []:
+        if isinstance(item, dict):
+            item["severity"] = str(item.get("severity") or "").lower()
+    for item in packet.get("data_conflicts") if isinstance(packet.get("data_conflicts"), list) else []:
+        if isinstance(item, dict):
+            item["importance"] = str(item.get("importance") or "").upper()
+    for item in packet.get("consistency_checks") if isinstance(packet.get("consistency_checks"), list) else []:
+        if isinstance(item, dict):
+            item["result"] = alias(item.get("result"), check_aliases).lower()
+    for field in ("web_research_findings", "technical_risks", "text_research_risk_flags"):
+        for item in packet.get(field) if isinstance(packet.get(field), list) else []:
+            if isinstance(item, dict):
+                item["confidence"] = alias(item.get("confidence"), confidence_aliases)
+    for item in packet.get("technical_risks") if isinstance(packet.get("technical_risks"), list) else []:
+        if isinstance(item, dict):
+            item["risk_level"] = str(item.get("risk_level") or "").upper()
+    for item in packet.get("expected_costs") if isinstance(packet.get("expected_costs"), list) else []:
+        if isinstance(item, dict):
+            item["cost_type"] = alias(item.get("cost_type"), cost_aliases)
+            item["urgency"] = alias(item.get("urgency"), urgency_aliases).lower()
+    for item in packet.get("sources_used") if isinstance(packet.get("sources_used"), list) else []:
+        if isinstance(item, dict):
+            original_type = str(item.get("source_type") or "").upper()
+            item["source_type"] = source_aliases.get(original_type, original_type)
+            item["reliability"] = str(item.get("reliability") or "").upper()
+            if original_type in {"PARTS_CATALOG", "PARTS_RETAILER"}:
+                item["reliability"] = "LOW"
+    for field, limit in RESEARCH_V2_ARRAY_LIMITS.items():
+        if field != "sources_used" and isinstance(packet.get(field), list):
+            packet[field] = packet[field][:limit]
+    return packet
+
+
+_SOURCE_MATCH_STOPWORDS = {
+    "about", "after", "auto", "buyer", "component", "engine", "issue", "model",
+    "motor", "naklady", "potential", "problem", "repair", "risk", "system",
+    "technical", "vehicle", "vozidlo", "known", "regular", "generation",
+    "volkswagen", "tiguan", "transmission", "gearbox", "prevodovka", "pohon",
+    "chassis", "suspension", "karoseria", "podvozok",
+}
+
+
+def _source_topic_matches(source: Mapping[str, Any], claim_text: str) -> bool:
+    def tokens(text: Any) -> set[str]:
+        return {
+            token for token in re.findall(r"[a-z0-9]+", _fold_market_text(str(text or "")))
+            if len(token) >= 4
+            and token not in _SOURCE_MATCH_STOPWORDS
+            and not any(char.isdigit() for char in token)
+        }
+
+    claim_tokens = tokens(claim_text)
+    used_for_tokens = tokens(source.get("used_for"))
+    return len(claim_tokens & used_for_tokens) >= 2
+
+
+def _contains_fixed_service_interval(value: Any) -> bool:
+    text = _fold_market_text(str(value or ""))
+    return bool(
+        re.search(r"\b\d[\d\s.,]*(?:km|kilomet|mile|mesiac|month|rok|year)s?\b", text)
+        and any(term in text for term in ("interval", "every", "kazd", "menen", "change", "service"))
+    )
+
+
+def _enforce_research_source_policy(packet: dict[str, Any]) -> dict[str, Any]:
+    """Keep only claims backed by an existing, verified, topic-matched source."""
+    sources = [item for item in packet.get("sources_used") or [] if isinstance(item, dict)]
+    source_map = {
+        str(item.get("source_id") or "").strip(): item
+        for item in sources
+        if str(item.get("source_id") or "").strip()
+    }
+    evidence_source_types = {
+        "OFFICIAL", "REGULATORY", "VEHICLE_HISTORY", "TECHNICAL_PUBLICATION",
+        "REPAIR_SOURCE", "OWNER_REPORT",
+    }
+
+    def supported_ids(item: Mapping[str, Any], text_key: str) -> list[str]:
+        claim_text = str(item.get(text_key) or "")
+        policy_text = " ".join(
+            str(item.get(key) or "")
+            for key in (
+                text_key, "buyer_impact", "verification_action", "why", "basis"
+            )
+        )
+        fixed_interval = _contains_fixed_service_interval(policy_text)
+        accepted: list[str] = []
+        for raw_id in item.get("source_ids") if isinstance(item.get("source_ids"), list) else []:
+            source_id = str(raw_id or "").strip()
+            source = source_map.get(source_id)
+            if not source or source.get("verified_url") is not True:
+                continue
+            if not str(source.get("source_url") or "").startswith(("http://", "https://")):
+                continue
+            source_type = str(source.get("source_type") or "").upper()
+            if source_type not in evidence_source_types:
+                continue
+            if fixed_interval and source_type not in {"OFFICIAL", "REGULATORY"}:
+                continue
+            if not _source_topic_matches(source, claim_text):
+                continue
+            if source_id not in accepted:
+                accepted.append(source_id)
+        return accepted[:3]
+
+    for field, text_key in (
+        ("web_research_findings", "claim"),
+        ("technical_risks", "issue"),
+        ("expected_costs", "item"),
+    ):
+        filtered: list[dict[str, Any]] = []
+        for raw in packet.get(field) if isinstance(packet.get(field), list) else []:
+            if not isinstance(raw, dict):
+                continue
+            item = dict(raw)
+            item["source_ids"] = supported_ids(item, text_key)
+            if not item["source_ids"]:
+                continue
+            if item.get("confidence") == "Vysoka" and not any(
+                str(source_map[source_id].get("source_type") or "").upper()
+                in {"OFFICIAL", "REGULATORY"}
+                for source_id in item["source_ids"]
+            ):
+                item["confidence"] = "Stredna"
+            filtered.append(item)
+        packet[field] = filtered[:RESEARCH_V2_ARRAY_LIMITS[field]]
+
+    safety = packet.get("safety_and_recall")
+    if isinstance(safety, dict):
+        safety_ids = [
+            str(source_id) for source_id in safety.get("source_ids") or []
+            if str(source_id) in source_map
+            and source_map[str(source_id)].get("verified_url") is True
+            and str(source_map[str(source_id)].get("source_type") or "").upper()
+            in {"OFFICIAL", "REGULATORY"}
+        ]
+        safety["source_ids"] = safety_ids[:3]
+        if safety.get("status") != "INSUFFICIENT_DATA" and not safety["source_ids"]:
+            safety.update({
+                "status": "INSUFFICIENT_DATA",
+                "summary": "No authoritative recall conclusion was available.",
+                "required_action": "Verify campaigns manually with the VIN.",
+                "evidence_category": "NEEDS_VERIFICATION",
+                "source_ids": [],
+            })
+
+    referenced = {
+        str(source_id)
+        for field in ("web_research_findings", "technical_risks", "expected_costs")
+        for item in packet.get(field) or []
+        for source_id in item.get("source_ids") or []
+    }
+    referenced.update(
+        str(source_id)
+        for source_id in (safety.get("source_ids", []) if isinstance(safety, dict) else [])
+    )
+    packet["sources_used"] = [
+        item for item in sources if str(item.get("source_id") or "") in referenced
+    ][:RESEARCH_V2_ARRAY_LIMITS["sources_used"]]
+    return packet
+
+
+def _research_contract_diagnostics(before: Any, after: Any, *, attempt: str) -> dict[str, Any]:
+    before_map = before if isinstance(before, dict) else {}
+    after_map = after if isinstance(after, dict) else {}
+    tracked_fields = (
+        "web_research_findings", "technical_risks", "expected_costs", "sources_used"
+    )
+    return {
+        "attempt": attempt,
+        "normalized_or_filtered": before_map != after_map,
+        "removed_counts": {
+            field: max(
+                0,
+                len(before_map.get(field) or []) - len(after_map.get(field) or []),
+            )
+            for field in tracked_fields
+        },
+    }
+
 
 def _valid_research_model_output(value: Any) -> bool:
     """Validate the strict top-level Research V2 contract before canonical merge."""
@@ -278,11 +559,95 @@ def _valid_research_model_output(value: Any) -> bool:
         for field, limit in RESEARCH_V2_ARRAY_LIMITS.items()
     ):
         return False
-    return all(
+    if not all(
         isinstance(item, dict)
         and set(item) == RESEARCH_V2_NESTED_REQUIRED_FIELDS[field]
         for field in RESEARCH_V2_ARRAY_LIMITS
         for item in value[field]
+    ):
+        return False
+
+    summary = value["evidence_summary"]
+    score = summary.get("data_completeness_score")
+    if (
+        not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 100
+        or summary.get("overall_confidence") not in RESEARCH_V2_ENUMS["overall_confidence"]
+        or not all(
+            isinstance(summary.get(field), list)
+            and len(summary[field]) <= 3
+            and all(isinstance(item, str) for item in summary[field])
+            for field in ("strongest_evidence", "weakest_evidence")
+        )
+    ):
+        return False
+
+    safety = value["safety_and_recall"]
+    if (
+        safety.get("status") not in RESEARCH_V2_ENUMS["recall_status"]
+        or safety.get("evidence_category") not in RESEARCH_V2_ENUMS["evidence_category"]
+        or not all(isinstance(safety.get(field), str) for field in ("summary", "required_action"))
+        or not isinstance(safety.get("source_ids"), list)
+        or len(safety["source_ids"]) > 3
+        or not all(isinstance(item, str) for item in safety["source_ids"])
+    ):
+        return False
+
+    enum_checks = (
+        ("seller_claims", "evidence_category", "evidence_category"),
+        ("missing_or_uncertain_data", "severity", "severity"),
+        ("data_conflicts", "importance", "importance"),
+        ("consistency_checks", "result", "check_result"),
+        ("web_research_findings", "evidence_category", "evidence_category"),
+        ("web_research_findings", "confidence", "confidence"),
+        ("technical_risks", "risk_level", "risk_level"),
+        ("technical_risks", "evidence_category", "evidence_category"),
+        ("technical_risks", "confidence", "confidence"),
+        ("expected_costs", "cost_type", "cost_type"),
+        ("expected_costs", "urgency", "urgency"),
+        ("text_research_risk_flags", "confidence", "confidence"),
+        ("sources_used", "source_type", "source_type"),
+        ("sources_used", "reliability", "reliability"),
+    )
+    if any(
+        item.get(key) not in RESEARCH_V2_ENUMS[enum_name]
+        for field, key, enum_name in enum_checks
+        for item in value[field]
+    ):
+        return False
+    if any(
+        not isinstance(item.get(key), str)
+        for field, keys in RESEARCH_V2_STRING_FIELDS.items()
+        for item in value[field]
+        for key in keys
+    ):
+        return False
+
+    if any(
+        not isinstance(item.get("source_ids"), list)
+        or len(item["source_ids"]) > 3
+        or not all(isinstance(source_id, str) for source_id in item["source_ids"])
+        for field in ("web_research_findings", "technical_risks", "expected_costs")
+        for item in value[field]
+    ):
+        return False
+
+    for field in ("technical_risks", "expected_costs"):
+        for item in value[field]:
+            low = item.get("estimated_cost_eur_low")
+            high = item.get("estimated_cost_eur_high")
+            if any(
+                amount is not None
+                and (not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount < 0)
+                for amount in (low, high)
+            ):
+                return False
+            if low is not None and high is not None and low > high:
+                return False
+    return all(
+        isinstance(item.get("verified_url"), bool)
+        and isinstance(item.get("source_url"), str)
+        and isinstance(item.get("source_id"), str)
+        for item in value["sources_used"]
     )
 
 
@@ -332,13 +697,22 @@ def _canonical_research_from_v2(
     vin_light_decode: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Merge model-owned Research V2 fields with backend-owned canonical data."""
+    fallback_unavailable = (
+        packet.get("evidence_summary", {}).get("data_completeness_score") == 0
+        and not packet.get("web_research_findings")
+    )
+    supported_technical_evidence = any(
+        packet.get(field)
+        for field in ("web_research_findings", "technical_risks", "expected_costs")
+    )
     canonical = {
         "source_role": "text_research",
         "research_packet_schema_version": 2,
-        "research_status": "unavailable"
-        if packet.get("evidence_summary", {}).get("data_completeness_score") == 0
-        and not packet.get("web_research_findings")
-        else "completed",
+        "research_status": (
+            "unavailable" if fallback_unavailable
+            else "completed" if supported_technical_evidence
+            else "limited"
+        ),
         "component_identity": {},
         "evidence_summary": dict(packet.get("evidence_summary") or {}),
         "listing_facts": {},
@@ -783,6 +1157,59 @@ def _lock_report_evidence_claims(
     text = _remove_public_scorecard(report_text)
     language = "en" if str(output_language).lower().startswith("en") else "sk"
     text = _lock_report_verdict(text, risk, language=language)
+
+    unsupported_section_messages = {
+        "web": (
+            "No source-supported technical web finding passed backend validation."
+            if language == "en"
+            else "Backendová validácia nepotvrdila žiadne dostatočne podložené technické webové zistenie."
+        ),
+        "risks": (
+            "No model-specific technical risk has sufficiently relevant source support; verify the vehicle in an independent workshop."
+            if language == "en"
+            else "Žiadne modelové technické riziko nemá dostatočne relevantný zdrojový podklad; vozidlo overte v nezávislom servise."
+        ),
+        "costs": (
+            "No source-supported repair-cost estimate is available; request a vehicle-specific workshop quotation."
+            if language == "en"
+            else "Nie je dostupný dostatočne podložený odhad nákladov na opravy; vyžiadajte si cenovú ponuku pre konkrétne vozidlo."
+        ),
+    }
+    if not research.get("web_research_findings"):
+        text = _replace_report_section(
+            text,
+            ("webove overenie", "web verification"),
+            [unsupported_section_messages["web"]],
+        )
+    if not research.get("technical_risks"):
+        text = _replace_report_section(
+            text,
+            ("technicke rizika", "technical risks"),
+            [unsupported_section_messages["risks"]],
+        )
+    if not research.get("expected_costs"):
+        text = _replace_report_section(
+            text,
+            ("ocakavane naklady", "expected costs"),
+            [unsupported_section_messages["costs"]],
+        )
+    if not research.get("technical_risks") and not research.get("web_research_findings"):
+        unsupported_risk_terms = (
+            "rozvod", "timing chain", "spotreba oleja", "oil consumption",
+            "piestn", "piston ring", "mechatron", "haldex pump", "cerpadlo haldex",
+            "karbon", "carbon buildup",
+        )
+        text = "\n".join(
+            line
+            for line in text.splitlines()
+            if not (
+                not re.match(r"^\s*##", line)
+                and (
+                    any(term in _fold_market_text(line) for term in unsupported_risk_terms)
+                    or _contains_fixed_service_interval(line)
+                )
+            )
+        ).rstrip() + "\n"
 
     if not _market_benchmark_is_usable(research):
         raw_market = research.get("market_assessment")
@@ -2036,6 +2463,16 @@ def _multi_model_analysis_events(
         research_data = dependencies.safe_model_json(text_research_json_text)
     except Exception:
         research_data = {"_parse_error": True}
+    if research_v2_active and isinstance(research_data, dict):
+        raw_research_data = research_data
+        research_data = _enforce_research_source_policy(
+            _normalize_research_model_output(research_data)
+        )
+        diagnostics["phases"]["text_research"]["contract_enforcement"] = (
+            _research_contract_diagnostics(
+                raw_research_data, research_data, attempt="initial"
+            )
+        )
     initial_research_valid = (
         _valid_research_model_output(research_data)
         if research_v2_active
@@ -2106,6 +2543,16 @@ def _multi_model_analysis_events(
                     ),
                 )
             research_data = dependencies.safe_model_json(text_research_json_text)
+            if research_v2_active and isinstance(research_data, dict):
+                raw_research_data = research_data
+                research_data = _enforce_research_source_policy(
+                    _normalize_research_model_output(research_data)
+                )
+                diagnostics["phases"]["text_research"]["contract_enforcement"] = (
+                    _research_contract_diagnostics(
+                        raw_research_data, research_data, attempt="recovery"
+                    )
+                )
         except Exception as recovery_exc:
             dependencies.log(f"Text/research JSON recovery failed: {recovery_exc}")
             research_data = {"_parse_error": True}
@@ -2166,7 +2613,7 @@ def _multi_model_analysis_events(
     research_status = str(research_data.get("research_status") or "completed")
     diagnostics["phases"]["text_research"].update(
         {
-            "status": "degraded" if research_status == "unavailable" else "completed",
+            "status": "completed" if research_status == "completed" else "degraded",
             "research_status": research_status,
             "provider_schema_valid": bool(initial_research_valid or recovery_valid),
             "recovery_attempted": not initial_research_valid,
@@ -2589,7 +3036,7 @@ def _multi_model_analysis_events(
         final_system_prompt += (
             f"\n\nRuntime visible-output target: at most {final_policy.visible_target_tokens} tokens."
         )
-    if research_data.get("research_status") == "unavailable":
+    if research_data.get("research_status") in {"unavailable", "limited"}:
         final_system_prompt += (
             "\n\nTechnical research is unavailable for this run. Do not supply model-specific "
             "failure claims, component codes, service intervals, recall conclusions, or repair-cost "
