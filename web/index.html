@@ -120,10 +120,18 @@
   <footer class="site-footer"><div class="wrap footer-row"><span>© Checkni Auto</span><span data-sk="Orientačný AI screening nenahrádza fyzickú obhliadku vozidla." data-en="AI screening does not replace a physical vehicle inspection.">Orientačný AI screening nenahrádza fyzickú obhliadku vozidla.</span></div></footer>
 
   <div class="overlay" data-progress-overlay aria-hidden="true">
-    <section class="card progress-card" role="dialog" aria-modal="true" aria-labelledby="progressTitle">
-      <span class="eyebrow" data-sk="Prebieha analýza" data-en="Analysis in progress">Prebieha analýza</span><h2 id="progressTitle" data-progress-title>Pripravujem analýzu…</h2><p data-progress-status>Začíname.</p>
-      <div class="progress-track" aria-hidden="true"><div class="progress-fill" data-progress-fill></div></div>
-      <pre class="progress-log" data-progress-log></pre>
+    <section class="card journey-progress" role="dialog" aria-modal="true" aria-labelledby="progressTitle">
+      <span class="eyebrow" data-sk="Prebieha analýza" data-en="Analysis in progress">Prebieha analýza</span>
+      <h2 id="progressTitle" data-progress-title>Pripravujem analýzu…</h2>
+      <div class="journey-road" data-progress-road aria-hidden="true">
+        <span class="journey-label journey-label-start" data-sk="ŠTART" data-en="START">ŠTART</span>
+        <div class="journey-lane"><span></span><span></span><span></span><span></span><span></span></div>
+        <span class="journey-car" data-progress-car>🚗</span>
+        <span class="journey-finish">🏁</span>
+      </div>
+      <strong class="journey-percent" data-progress-percent aria-live="polite">5%</strong>
+      <p class="journey-description" data-progress-status>Pripravujeme údaje z inzerátu.</p>
+      <p class="journey-note" data-sk="Zostaň na tejto stránke, výsledok otvoríme automaticky." data-en="Stay on this page; we will open the result automatically.">Zostaň na tejto stránke, výsledok otvoríme automaticky.</p>
       <button class="button ghost" type="button" data-cancel-analysis data-sk="Zrušiť" data-en="Cancel">Zrušiť</button>
     </section>
   </div>

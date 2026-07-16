@@ -5,6 +5,7 @@
   let activeMode = "url";
   let selectedFiles = [];
   let previewUrls = [];
+  let highestProgress = 5;
 
   function setMode(mode) {
     activeMode = mode === "manual" ? "manual" : "url";
@@ -56,25 +57,44 @@
     }));
   }
 
-  function progressValue(status) {
+  function progressStage(status) {
     const value = String(status || "").toLowerCase();
-    if (/scrap|listing|manual/.test(value)) return 14;
-    if (/identity|component/.test(value)) return 28;
-    if (/research|web/.test(value)) return 44;
-    if (/market|compar/.test(value)) return 57;
-    if (/vision|photo|image/.test(value)) return 70;
-    if (/risk|score/.test(value)) return 82;
-    if (/final|report|synthesis/.test(value)) return 92;
-    if (/ready|done|complete/.test(value)) return 100;
-    return 8;
+    const en = Checkni.language() === "en";
+    if (/ready|done|complete/.test(value)) return en
+      ? { value: 100, title: "Your analysis is ready", description: "Opening your result now." }
+      : { value: 100, title: "Analýza je pripravená", description: "Otvárame tvoj výsledok." };
+    if (/final|report|synthesis/.test(value)) return en
+      ? { value: 92, title: "Putting it all together", description: "We are preparing a clear summary for you." }
+      : { value: 92, title: "Dávame to celé dokopy", description: "Pripravujeme pre teba jasný prehľad." };
+    if (/risk|score/.test(value)) return en
+      ? { value: 82, title: "Sorting what to check", description: "We are highlighting the things worth asking about." }
+      : { value: 82, title: "Triedime, čo preveriť", description: "Označujeme veci, na ktoré sa oplatí opýtať." };
+    if (/vision|photo|image/.test(value)) return en
+      ? { value: 70, title: "Reviewing the photos", description: "We are looking for visible details and gaps." }
+      : { value: 70, title: "Pozeráme sa na fotografie", description: "Hľadáme viditeľné detaily a chýbajúce zábery." };
+    if (/market|compar/.test(value)) return en
+      ? { value: 57, title: "Comparing with the market", description: "We are putting the asking price into context." }
+      : { value: 57, title: "Porovnávame cenu s trhom", description: "Dávame ponúkanú cenu do súvislostí." };
+    if (/research|web/.test(value)) return en
+      ? { value: 44, title: "Looking for useful context", description: "We are checking information around this model and listing." }
+      : { value: 44, title: "Hľadáme užitočné súvislosti", description: "Overujeme informácie k modelu a inzerátu." };
+    if (/identity|component/.test(value)) return en
+      ? { value: 28, title: "Checking the vehicle details", description: "We are organising the details that matter before a viewing." }
+      : { value: 28, title: "Overujeme údaje o aute", description: "Triedime detaily dôležité pred obhliadkou." };
+    if (/scrap|listing|manual/.test(value)) return en
+      ? { value: 14, title: "Reading the listing", description: "We are collecting the details and photos you provided." }
+      : { value: 14, title: "Načítavame inzerát", description: "Zbierame údaje a fotografie, ktoré si poslal." };
+    return en
+      ? { value: 5, title: "Preparing your analysis", description: "We are getting everything ready to start." }
+      : { value: 5, title: "Pripravujeme analýzu", description: "Chystáme všetko, aby sme mohli začať." };
   }
 
   function openProgress() {
     const overlay = $("[data-progress-overlay]");
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");
-    $("[data-progress-fill]").style.width = "5%";
-    $("[data-progress-log]").textContent = "";
+    highestProgress = 5;
+    updateProgress("starting");
     $("[data-cancel-analysis]").disabled = false;
   }
 
@@ -84,16 +104,13 @@
     overlay.setAttribute("aria-hidden", "true");
   }
 
-  function updateProgress(status, line) {
-    if (status) {
-      $("[data-progress-status]").textContent = status;
-      $("[data-progress-fill]").style.width = `${progressValue(status)}%`;
-    }
-    if (line) {
-      const log = $("[data-progress-log]");
-      log.textContent = `${log.textContent}${line}\n`.split("\n").slice(-11).join("\n");
-      log.scrollTop = log.scrollHeight;
-    }
+  function updateProgress(status) {
+    const stage = progressStage(status);
+    highestProgress = Math.max(highestProgress, stage.value);
+    $("[data-progress-title]").textContent = stage.title;
+    $("[data-progress-status]").textContent = stage.description;
+    $("[data-progress-percent]").textContent = `${highestProgress}%`;
+    $("[data-progress-road]").style.setProperty("--journey-progress", `${highestProgress}%`);
   }
 
   async function consumeSse(response) {
@@ -120,14 +137,14 @@
         if (raw === "[DONE]") {
           if (!slug) throw new Error("Analysis finished without a saved result.");
           Checkni.rememberAnalysis(slug);
-          updateProgress("Done", "Analysis complete");
+          updateProgress("Done");
           location.assign(`/analysis/${encodeURIComponent(slug)}`);
           return;
         }
         const data = JSON.parse(raw);
         if (data.error) throw new Error(data.error);
         if (data.slug) slug = data.slug;
-        updateProgress(data.status, data.log || data.line);
+        updateProgress(data.status);
       }
     }
     throw new Error("Connection ended before the analysis completed.");

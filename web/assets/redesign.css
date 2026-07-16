@@ -349,12 +349,22 @@ img { max-width: 100%; }
 }
 .overlay.open, .drawer.open, .lightbox.open { display: grid; }
 .overlay { place-items: center; padding: 20px; }
-.progress-card { width: min(620px, 100%); padding: 26px; }
-.progress-card h2 { font-size: 28px; }
-.progress-card p { color: var(--muted); }
-.progress-track { height: 8px; overflow: hidden; border-radius: 99px; background: var(--panel-2); }
-.progress-fill { width: 5%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--brand), var(--brand-light)); transition: width 300ms ease; }
-.progress-log { max-height: 160px; overflow: auto; padding: 12px; border-radius: var(--radius-md); background: var(--panel-2); color: var(--muted); font: 11px/1.6 var(--font-mono); white-space: pre-wrap; }
+.journey-progress { width: min(620px, 100%); padding: 28px; text-align: center; }
+.journey-progress h2 { margin: 8px 0 0; font-size: clamp(25px, 4vw, 31px); }
+.journey-road { --journey-progress: 5%; position: relative; height: 108px; margin: 22px 4px 8px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 55%, var(--panel)) 0 48%, var(--panel-2) 48%); }
+.journey-road::before { position: absolute; right: 17px; bottom: 18px; left: 17px; height: 42px; border-radius: 10px; background: #252a31; content: ""; }
+.journey-road::after { position: absolute; right: 17px; bottom: 20px; left: 17px; height: 3px; background: repeating-linear-gradient(90deg, transparent 0 16px, #f5d26a 16px 29px); content: ""; }
+.journey-lane { position: absolute; top: 10px; left: 18px; display: flex; gap: 3px; align-items: end; height: 23px; }
+.journey-lane span { width: 4px; border-radius: 3px 3px 0 0; background: var(--brand-light); opacity: 0.8; }
+.journey-lane span:nth-child(1) { height: 7px; }.journey-lane span:nth-child(2) { height: 13px; }.journey-lane span:nth-child(3) { height: 19px; }.journey-lane span:nth-child(4) { height: 10px; }.journey-lane span:nth-child(5) { height: 16px; }
+.journey-label { position: absolute; top: 13px; right: 17px; color: var(--muted); font: 700 10px/1 var(--font-mono); letter-spacing: 0.09em; }
+.journey-label-start { left: 18px; right: auto; }
+.journey-finish { position: absolute; right: 19px; bottom: 27px; z-index: 3; font-size: 24px; line-height: 1; }
+.journey-car { position: absolute; bottom: 23px; left: clamp(8%, var(--journey-progress), 89%); z-index: 4; font-size: 32px; line-height: 1; filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.35)); transform: translateX(-50%); transition: left 600ms cubic-bezier(.2,.85,.3,1); animation: journey-car-bob 900ms ease-in-out infinite alternate; }
+.journey-percent { display: block; margin-top: 12px; color: var(--brand-light); font: 800 42px/1 var(--font-mono); letter-spacing: -0.07em; }
+.journey-description { min-height: 24px; margin: 9px 0 0; color: var(--text); font-size: 16px; font-weight: 700; }
+.journey-note { margin: 7px 0 20px; color: var(--muted); font-size: 12px; }
+@keyframes journey-car-bob { to { transform: translateX(-50%) translateY(-3px); } }
 .drawer { justify-items: end; }
 .drawer-panel { width: min(420px, 100%); height: 100%; overflow: auto; padding: 24px; background: var(--panel); box-shadow: var(--shadow); }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
@@ -519,6 +529,9 @@ img { max-width: 100%; }
   .fact { grid-template-columns: 1fr; gap: 2px; }
   .report-title h2 { font-size: 25px; }
   .footer-row { flex-direction: column; }
+  .journey-progress { padding: 22px 16px; }
+  .journey-road { margin-inline: 0; }
+  .journey-percent { font-size: 38px; }
   .lightbox { padding: 18px; }
   .technical-toolbar { top: 58px; }
   .technical-toolbar .text-link span { display: none; }
