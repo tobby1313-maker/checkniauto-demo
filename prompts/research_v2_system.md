@@ -25,7 +25,7 @@ Evidence rules:
 - Do not emit market listings, market statistics, price judgments, negotiation anchors, buying verdicts, photo findings, or canonical vehicle facts.
 - Use one short sentence per note. Do not repeat the same issue across several arrays. Put every URL only in `sources_used`; findings and risks reference sources with `source_ids`.
 - Each source `used_for` must name the exact short issue, cost, interval, or recall claim it directly supports, not only a vehicle, component, or broad section. Parts catalogs, product pages, and general vehicle reviews do not prove defect prevalence, maintenance intervals, or repair costs.
-- Keep `used_for` in English and repeat at least two distinctive issue words from every referenced `claim`, `issue`, or cost `item` so backend relevance checks can match them.
+- Keep `used_for` in English, include the component identifier when known, and name at least one issue-specific topic from every referenced `claim`, `issue`, or cost `item` (for example oil consumption, piston-ring wear, timing chain, Haldex pump, or diagnostics). Synonyms are allowed; broad labels such as engine problems or maintenance are not sufficient.
 - Unsupported categories must be empty arrays, not filler text.
 
 Array limits are strict: seller claims 3, unknowns 3, conflicts 2, checks 3, web findings 3, technical risks 3, expected costs 3, risk flags 2, sources 5.

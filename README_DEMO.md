@@ -74,7 +74,11 @@ The analysis pipeline is:
    If structured text/research JSON is invalid or truncated, the pipeline makes
    one compact recovery attempt without repeating web search. If recovery also
    fails, it continues with a schema-valid unavailable packet, explicitly marks
-   the limitation, and emits no unsupported technical claims.
+   the limitation, and emits no unsupported technical claims. A research
+   delivery gate then marks the result incomplete whenever web findings,
+   technical risks, or expected costs are empty and prevents a green verdict;
+   such a result is a retry/no-charge candidate rather than a complete paid
+   analysis.
    Public comparable links use a stricter customer-facing filter than broad
    discovery: the detail URL must be verified, the visible engine,
    transmission, and drivetrain must match (Tier A), and the asking price must

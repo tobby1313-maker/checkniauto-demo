@@ -9,6 +9,7 @@ from unittest.mock import patch
 from scrapper_demo.providers.errors import ModelOutputLimitError
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
+    _apply_research_delivery_gate,
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
     _canonical_research_from_v2,
@@ -220,6 +221,60 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["blog"])
         self.assertEqual(filtered["technical_risks"][0]["confidence"], "Stredna")
         self.assertNotIn("catalog", {item["source_id"] for item in filtered["sources_used"]})
+
+    def test_source_policy_matches_issue_topics_but_rejects_wrong_component_scope(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 60
+        packet["technical_risks"] = [{
+            "component": "EA888 Gen 2", "issue": "Excessive oil consumption",
+            "risk_level": "HIGH", "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "Possible engine wear", "specific_vehicle_evidence": "",
+            "verification_action": "Check oil level and exhaust smoke",
+            "estimated_cost_eur_low": None, "estimated_cost_eur_high": None,
+            "confidence": "MEDIUM", "source_ids": ["engine", "gearbox"],
+        }]
+        packet["sources_used"] = [
+            {
+                "source_id": "engine", "source_name": "EA888 technical article",
+                "source_type": "TECHNICAL_PUBLICATION", "reliability": "MEDIUM",
+                "source_url": "https://example.test/ea888", "verified_url": True,
+                "used_for": "EA888 piston ring wear",
+            },
+            {
+                "source_id": "gearbox", "source_name": "DQ500 workshop article",
+                "source_type": "REPAIR_SOURCE", "reliability": "MEDIUM",
+                "source_url": "https://example.test/dq500", "verified_url": True,
+                "used_for": "DQ500 oil filter change",
+            },
+        ]
+
+        filtered = _enforce_research_source_policy(
+            _normalize_research_model_output(packet)
+        )
+
+        self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["engine"])
+
+    def test_incomplete_research_delivery_gate_caps_green_verdict(self):
+        risk_score = {
+            "decision_status": "WORTH_INSPECTING",
+            "allowed_final_verdict": "🟢 STOJÍ ZA OBHLIADKU",
+        }
+
+        gate = _apply_research_delivery_gate(
+            risk_score,
+            {
+                "research_status": "limited",
+                "web_research_findings": [],
+                "technical_risks": [],
+                "expected_costs": [],
+            },
+            output_language="sk",
+        )
+
+        self.assertEqual(gate["status"], "INCOMPLETE")
+        self.assertTrue(gate["verdict_capped"])
+        self.assertEqual(risk_score["decision_status"], "INSPECT_WITH_RESERVATIONS")
+        self.assertIn("NAJPRV PREVERIŤ", risk_score["allowed_final_verdict"])
 
     def test_successful_backup_key_is_reused_first_for_later_phases(self):
         entries = [

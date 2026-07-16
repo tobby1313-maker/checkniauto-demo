@@ -190,6 +190,22 @@ menší packet a má maximum jeden pokus. Druhé zlyhanie vytvorí schema-valid
 unavailable fallback; final report uvedie limitation a nepoužije unsupported
 high-impact claims.
 
+### Research content a delivery gate
+
+Bezpečný fallback je interná poistka, nie prijateľný bežný platený výsledok.
+Pred final synthesis sa kontrolujú tri zákaznícky podstatné sekcie:
+`web_research_findings`, `technical_risks` a `expected_costs`.
+
+- úspešná plnohodnotná analýza musí mať aspoň jednu podloženú položku v každej
+  z troch sekcií;
+- ak grounding našiel technické dáta, ale normalizácia ich všetky odstránila,
+  ide o chybu/obmedzenie pipeline a stav je `INCOMPLETE`, nie úspešný research;
+- pri neúplnom research sa zelený verdikt backendovo obmedzí najmenej na
+  `🟡 NAJPRV PREVERIŤ`;
+- presné intervaly a ceny zostávajú zakázané bez zodpovedajúceho zdroja;
+- produkčný billing má pri `INCOMPLETE` umožniť automatický bezplatný rerun
+  alebo nespotrebovať zákaznícky kredit.
+
 ### Testy a exit gate
 
 Pridať `test_ai_policy.py` a testy budget hraníc, compaction priority,
@@ -276,7 +292,9 @@ sa nesmie spustiť ani účtovať dvakrát.
 
 Quality gates: všetky testy prejdú; identity/schema quality neklesne; nepribudnú
 unsupported high-impact claims; market policy a report completeness zostanú;
-medián ceny klesne aspoň o 35 %; retry/recovery náklady sú viditeľné.
+medián ceny klesne aspoň o 35 %; retry/recovery náklady sú viditeľné. Na
+20-case kalibračnej vzorke nesmie byť žiadny úspešne označený report s prázdnou
+sekciou web findings, technical risks alebo expected costs.
 
 ## 10. Súbory a test scope
 
@@ -326,6 +344,8 @@ dashboard redesign nemajú byť v jednom veľkom commite.
 10. Medián ceny klesne aspoň o 35 % bez material quality regression.
 11. `quality_optimized` umožňuje okamžitý rollback.
 12. README dokumentuje policies, artefakty, env vars, eval a rollback.
+13. Neúplný Research V2 nemôže dostať zelený verdikt ani byť označený ako
+    plnohodnotný platený výsledok.
 
 ## 13. Prvý krok
 

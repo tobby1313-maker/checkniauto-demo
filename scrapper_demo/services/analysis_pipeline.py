@@ -67,6 +67,7 @@ from scrapper_demo.validation import (
     _soft_validate_json_contract,
     _write_validation_warnings,
 )
+from scrapper_demo.verdicts import STATUS_RANK, label_for_status
 from token_tracker import (
     analysis_run_context,
     current_tracking_value,
@@ -391,25 +392,56 @@ def _normalize_research_model_output(value: Any) -> Any:
 
 _SOURCE_MATCH_STOPWORDS = {
     "about", "after", "auto", "buyer", "component", "engine", "issue", "model",
-    "motor", "naklady", "potential", "problem", "repair", "risk", "system",
+    "motor", "naklady", "potential", "problem", "repair", "risk", "service",
+    "maintenance", "cost", "costs", "system",
     "technical", "vehicle", "vozidlo", "known", "regular", "generation",
     "volkswagen", "tiguan", "transmission", "gearbox", "prevodovka", "pohon",
     "chassis", "suspension", "karoseria", "podvozok",
 }
+
+_SOURCE_SCOPE_TERMS = {
+    "0bh", "4motion", "cczb", "dq200", "dq250", "dq381", "dq500", "dsg",
+    "ea888", "haldex", "tfsi", "tsi",
+}
+
+_SOURCE_TOPIC_GROUPS = (
+    {"consumption", "burning", "piston", "rings", "spotreba", "piest", "kruzky"},
+    {"timing", "chain", "tensioner", "rozvod", "retaz", "napinak"},
+    {"carbon", "carbonization", "decarbonization", "karbon", "dekarbonizacia"},
+    {"mechatronic", "mechatronics", "mechatronika"},
+    {"pump", "cerpadlo"},
+    {"corrosion", "rust", "korozi", "hrdza"},
+    {"bearing", "bearings", "lozisko", "loziska"},
+    {"bushing", "bushings", "silentblok", "silentbloky"},
+    {"recall", "campaign", "zvolavacia", "kampan"},
+    {"diagnostic", "diagnostics", "diagnostika"},
+    {"leak", "leaks", "leakage", "unik", "uniku", "zatekanie"},
+)
 
 
 def _source_topic_matches(source: Mapping[str, Any], claim_text: str) -> bool:
     def tokens(text: Any) -> set[str]:
         return {
             token for token in re.findall(r"[a-z0-9]+", _fold_market_text(str(text or "")))
-            if len(token) >= 4
+            if len(token) >= 3
             and token not in _SOURCE_MATCH_STOPWORDS
-            and not any(char.isdigit() for char in token)
         }
 
     claim_tokens = tokens(claim_text)
     used_for_tokens = tokens(source.get("used_for"))
-    return len(claim_tokens & used_for_tokens) >= 2
+    claim_scope = claim_tokens & _SOURCE_SCOPE_TERMS
+    source_scope = used_for_tokens & _SOURCE_SCOPE_TERMS
+    if claim_scope and source_scope and not claim_scope.intersection(source_scope):
+        return False
+
+    claim_topics = claim_tokens - _SOURCE_SCOPE_TERMS
+    source_topics = used_for_tokens - _SOURCE_SCOPE_TERMS
+    if claim_topics.intersection(source_topics):
+        return True
+    return any(
+        claim_topics.intersection(group) and source_topics.intersection(group)
+        for group in _SOURCE_TOPIC_GROUPS
+    )
 
 
 def _contains_fixed_service_interval(value: Any) -> bool:
@@ -434,7 +466,10 @@ def _enforce_research_source_policy(packet: dict[str, Any]) -> dict[str, Any]:
     }
 
     def supported_ids(item: Mapping[str, Any], text_key: str) -> list[str]:
-        claim_text = str(item.get(text_key) or "")
+        claim_text = " ".join(
+            str(item.get(key) or "")
+            for key in ("component", text_key, "why", "basis")
+        ).strip()
         policy_text = " ".join(
             str(item.get(key) or "")
             for key in (
@@ -785,6 +820,63 @@ def _canonical_research_from_v2(
         component_identity,
         vin_light_decode,
     )
+
+
+def _apply_research_delivery_gate(
+    risk_score: dict[str, Any],
+    research: Mapping[str, Any],
+    *,
+    output_language: str,
+) -> dict[str, Any]:
+    """Prevent a paid-looking green verdict when core research is incomplete."""
+    section_counts = {
+        "web_research_findings": len(research.get("web_research_findings") or []),
+        "technical_risks": len(research.get("technical_risks") or []),
+        "expected_costs": len(research.get("expected_costs") or []),
+    }
+    missing_sections = [key for key, count in section_counts.items() if count == 0]
+    gate_passed = not missing_sections and research.get("research_status") == "completed"
+    gate = {
+        "status": "PASSED" if gate_passed else "INCOMPLETE",
+        "research_status": str(research.get("research_status") or "unknown"),
+        "section_counts": section_counts,
+        "missing_sections": missing_sections,
+        "verdict_capped": False,
+    }
+    risk_score["research_delivery_gate"] = gate
+    if gate_passed:
+        return gate
+
+    current = str(risk_score.get("decision_status") or "WORTH_INSPECTING")
+    if current not in STATUS_RANK:
+        current = "WORTH_INSPECTING"
+    minimum = "INSPECT_WITH_RESERVATIONS"
+    if STATUS_RANK[current] < STATUS_RANK[minimum]:
+        risk_score["decision_status"] = minimum
+        risk_score["allowed_final_verdict"] = label_for_status(
+            minimum, output_language
+        )
+        gate["verdict_capped"] = True
+
+    flags = risk_score.setdefault("missing_data_flags", [])
+    if isinstance(flags, list) and "technical_research_incomplete" not in flags:
+        flags.append("technical_research_incomplete")
+    overrides = risk_score.setdefault("override_rules_applied", [])
+    if isinstance(overrides, list):
+        overrides.append({
+            "rule": "research_delivery_gate",
+            "reason": "Core technical research sections are incomplete.",
+            "missing_sections": missing_sections,
+        })
+    checks = risk_score.setdefault("buyer_priority_checks", [])
+    gate_action = (
+        "Pred rozhodnutím doplniť technické overenie modelu a orientačné náklady."
+        if not str(output_language).lower().startswith("en")
+        else "Complete the model-specific technical and cost research before deciding."
+    )
+    if isinstance(checks, list) and gate_action not in checks:
+        checks.insert(0, gate_action)
+    return gate
 
 
 def _budget_diagnostics(result: BudgetResult) -> dict[str, Any]:
@@ -2509,11 +2601,13 @@ def _multi_model_analysis_events(
         research_data = _enforce_research_source_policy(
             _normalize_research_model_output(research_data)
         )
-        diagnostics["phases"]["text_research"]["contract_enforcement"] = (
-            _research_contract_diagnostics(
-                raw_research_data, research_data, attempt="initial"
-            )
+        contract_diagnostics = _research_contract_diagnostics(
+            raw_research_data, research_data, attempt="initial"
         )
+        diagnostics["phases"]["text_research"]["contract_enforcement"] = contract_diagnostics
+        diagnostics["phases"]["text_research"].setdefault(
+            "contract_enforcement_attempts", []
+        ).append(contract_diagnostics)
     initial_research_valid = (
         _valid_research_model_output(research_data)
         if research_v2_active
@@ -2589,11 +2683,13 @@ def _multi_model_analysis_events(
                 research_data = _enforce_research_source_policy(
                     _normalize_research_model_output(research_data)
                 )
-                diagnostics["phases"]["text_research"]["contract_enforcement"] = (
-                    _research_contract_diagnostics(
-                        raw_research_data, research_data, attempt="recovery"
-                    )
+                contract_diagnostics = _research_contract_diagnostics(
+                    raw_research_data, research_data, attempt="recovery"
                 )
+                diagnostics["phases"]["text_research"]["contract_enforcement"] = contract_diagnostics
+                diagnostics["phases"]["text_research"].setdefault(
+                    "contract_enforcement_attempts", []
+                ).append(contract_diagnostics)
         except Exception as recovery_exc:
             dependencies.log(f"Text/research JSON recovery failed: {recovery_exc}")
             research_data = {"_parse_error": True}
@@ -3041,6 +3137,11 @@ def _multi_model_analysis_events(
         listing_text=car_info_text,
         output_language=dependencies.output_language(output_language),
     )
+    research_delivery_gate = _apply_research_delivery_gate(
+        risk_score,
+        research_data,
+        output_language=dependencies.output_language(output_language),
+    )
     risk_score["buyer_scorecard"] = build_buyer_scorecard(
         text_research_json_text,
         vision_result_json,
@@ -3060,6 +3161,7 @@ def _multi_model_analysis_events(
         "status": "completed",
         "schema_version": risk_score.get("schema_version"),
         "policy_version": risk_score.get("policy_version"),
+        "research_delivery_gate": research_delivery_gate,
     }
     save_diagnostics()
     verdict = risk_score.get("allowed_final_verdict", "unknown")
