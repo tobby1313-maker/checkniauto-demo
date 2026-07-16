@@ -182,33 +182,74 @@ RESEARCH_V2_REQUIRED_FIELDS = {
 
 
 def _research_v2_response_schema(prompt_dir: Path) -> dict[str, Any]:
-    """Load the checked-in schema for Gemini structured JSON output."""
-    def gemini_subset(value: Any) -> Any:
-        if isinstance(value, dict):
-            normalized = {
-                key: gemini_subset(child)
-                for key, child in value.items()
-                if key != "$schema" and key != "const"
-            }
-            if "const" in value:
-                normalized["enum"] = [value["const"]]
-            return normalized
-        if isinstance(value, list):
-            return [gemini_subset(item) for item in value]
-        return value
-
-    candidates = (
-        prompt_dir.parent / "schemas" / "research_model_output.schema.json",
-        Path(__file__).resolve().parents[2] / "schemas" / "research_model_output.schema.json",
+    """Return a low-state Gemini serving schema; backend validation stays strict."""
+    # Gemini rejects the full audit schema as a serving constraint because the
+    # many nested maxItems/enums create too many decoder states. Keep only the
+    # shape needed to guarantee a complete JSON envelope at generation time.
+    del prompt_dir
+    array_fields = tuple(RESEARCH_V2_ARRAY_LIMITS)
+    properties: dict[str, Any] = {
+        "schema_version": {"type": "integer", "enum": [2]},
+        "source_role": {"type": "string", "enum": ["research_model_output"]},
+        "evidence_summary": {"type": "object"},
+        "safety_and_recall": {"type": "object"},
+    }
+    properties.update(
+        {field: {"type": "array", "items": {"type": "object"}} for field in array_fields}
     )
-    for candidate in candidates:
-        try:
-            schema = json.loads(candidate.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(schema, dict):
-            return gemini_subset(schema)
-    raise FileNotFoundError("research_model_output.schema.json not found")
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "schema_version",
+            "source_role",
+            "evidence_summary",
+            "seller_claims",
+            "missing_or_uncertain_data",
+            "data_conflicts",
+            "consistency_checks",
+            "safety_and_recall",
+            "web_research_findings",
+            "technical_risks",
+            "expected_costs",
+            "text_research_risk_flags",
+            "sources_used",
+        ],
+        "properties": properties,
+    }
+
+
+RESEARCH_V2_NESTED_REQUIRED_FIELDS = {
+    "evidence_summary": {
+        "data_completeness_score", "overall_confidence", "strongest_evidence", "weakest_evidence"
+    },
+    "safety_and_recall": {
+        "status", "summary", "required_action", "evidence_category", "source_ids"
+    },
+    "seller_claims": {"claim", "evidence_category", "verification_status", "buyer_relevance"},
+    "missing_or_uncertain_data": {"item", "why_it_matters", "severity"},
+    "data_conflicts": {"issue", "source_a", "source_b", "interpretation", "importance"},
+    "consistency_checks": {"check", "result", "explanation"},
+    "web_research_findings": {
+        "claim", "evidence_category", "buyer_impact", "confidence", "source_ids"
+    },
+    "technical_risks": {
+        "component", "issue", "risk_level", "evidence_category", "buyer_impact",
+        "specific_vehicle_evidence", "verification_action", "estimated_cost_eur_low",
+        "estimated_cost_eur_high", "confidence", "source_ids"
+    },
+    "expected_costs": {
+        "item", "why", "estimated_cost_eur_low", "estimated_cost_eur_high",
+        "cost_type", "urgency", "basis", "source_ids"
+    },
+    "text_research_risk_flags": {
+        "risk", "why_it_matters_to_buyer", "evidence", "confidence"
+    },
+    "sources_used": {
+        "source_id", "source_name", "source_type", "reliability",
+        "source_url", "verified_url", "used_for"
+    },
+}
 
 
 def _valid_research_model_output(value: Any) -> bool:
@@ -218,14 +259,26 @@ def _valid_research_model_output(value: Any) -> bool:
         or value.get("_parse_error") is True
         or value.get("schema_version") != 2
         or value.get("source_role") != "research_model_output"
-        or not RESEARCH_V2_REQUIRED_FIELDS <= set(value)
+        or set(value) != RESEARCH_V2_REQUIRED_FIELDS
         or not isinstance(value.get("evidence_summary"), dict)
         or not isinstance(value.get("safety_and_recall"), dict)
     ):
         return False
-    return all(
+    if any(
+        set(value[field]) != RESEARCH_V2_NESTED_REQUIRED_FIELDS[field]
+        for field in ("evidence_summary", "safety_and_recall")
+    ):
+        return False
+    if not all(
         isinstance(value.get(field), list) and len(value[field]) <= limit
         for field, limit in RESEARCH_V2_ARRAY_LIMITS.items()
+    ):
+        return False
+    return all(
+        isinstance(item, dict)
+        and set(item) == RESEARCH_V2_NESTED_REQUIRED_FIELDS[field]
+        for field in RESEARCH_V2_ARRAY_LIMITS
+        for item in value[field]
     )
 
 

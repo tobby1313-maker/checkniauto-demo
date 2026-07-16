@@ -75,6 +75,9 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
 
         self.assertNotIn('"$schema"', serialized)
         self.assertNotIn('"const"', serialized)
+        self.assertNotIn('"maxItems"', serialized)
+        self.assertNotIn('"$defs"', serialized)
+        self.assertLess(len(serialized), 1_500)
         self.assertEqual(schema["properties"]["schema_version"]["enum"], [2])
         self.assertEqual(
             schema["properties"]["source_role"]["enum"],
@@ -122,6 +125,12 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(fallback["research_status"], "unavailable")
         self.assertEqual(fallback["technical_risks"], [])
         self.assertIn("Both attempts failed", fallback["missing_or_uncertain_data"][0]["why_it_matters"])
+
+    def test_research_v2_rejects_malformed_nested_items_after_serving_validation(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["technical_risks"] = [{"issue": "Incomplete object"}]
+
+        self.assertFalse(_valid_research_model_output(packet))
 
     def test_successful_backup_key_is_reused_first_for_later_phases(self):
         entries = [
@@ -618,7 +627,13 @@ Vo\u013En\u00fd text z modelu.
                             "missing_or_uncertain_data": [],
                             "data_conflicts": [],
                             "consistency_checks": [],
-                            "safety_and_recall": {},
+                            "safety_and_recall": {
+                                "status": "INSUFFICIENT_DATA",
+                                "summary": "No supported recall conclusion.",
+                                "required_action": "Verify with VIN.",
+                                "evidence_category": "NEEDS_VERIFICATION",
+                                "source_ids": [],
+                            },
                             "web_research_findings": [],
                             "technical_risks": [],
                             "expected_costs": [],

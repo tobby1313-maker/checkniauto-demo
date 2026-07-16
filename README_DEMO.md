@@ -82,9 +82,10 @@ The analysis pipeline is:
    these checks, the report publishes no comparable-ad link.
 4. Run compact Research V2 normalization with Gemini by default. The model owns
    only evidence summaries, claims, unknowns, conflicts, technical risks, costs,
-   flags, and source references. Gemini receives the checked-in JSON response
-   schema; URLs are stored once in the source registry and referenced by ID from
-   findings and risks. The backend merges these with canonical listing,
+   flags, and source references. Gemini receives a low-state serving schema for
+   the complete JSON envelope; the backend applies the stricter checked-in audit
+   contract and array limits. URLs are stored once in the source registry and
+   referenced by ID from findings and risks. The backend merges these with canonical listing,
    identity, VIN, market, benchmark, and verdict data into the compatible
    `grok_research.json`. Grok and OpenRouter remain optional provider branches.
 5. Run Gemini vision analysis on representative uploaded or scraped photos.
