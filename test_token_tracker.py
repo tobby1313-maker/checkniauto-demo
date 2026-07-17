@@ -78,6 +78,7 @@ class TokenTrackerThinkingTests(unittest.TestCase):
 
             summary = tracker.summarize_run("run-123")
             phase = summary["usage_by_phase"]["text_research"]
+            model = summary["usage_by_model"]["gemini-test"]
 
             self.assertEqual(summary["call_count"], 1)
             self.assertEqual(summary["retry_count"], 1)
@@ -86,6 +87,9 @@ class TokenTrackerThinkingTests(unittest.TestCase):
             self.assertEqual(phase["cached_input_tokens"], 700)
             self.assertEqual(phase["total_tokens"], 1120)
             self.assertEqual(phase["actual_coverage"]["total"], 1.0)
+            self.assertEqual(model["calls"], 1)
+            self.assertEqual(model["retries"], 1)
+            self.assertEqual(model["total_tokens"], 1120)
 
     def test_failed_request_without_provider_usage_has_no_confirmed_cost(self):
         with tempfile.TemporaryDirectory() as temp:

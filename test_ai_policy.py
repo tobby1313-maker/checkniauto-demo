@@ -25,6 +25,17 @@ class AiPolicyTests(unittest.TestCase):
         self.assertEqual(policy.max_output_tokens, 65_536)
         self.assertEqual(policy.thinking_mode, "default")
 
+    def test_cost_optimized_profile_is_an_opt_in_lower_budget_candidate(self):
+        quality_research = get_phase_policy("text_research", profile="quality_optimized")
+        cost_research = get_phase_policy("text_research", profile="cost_optimized")
+        quality_final = get_phase_policy("final_synthesis", profile="quality_optimized")
+        cost_final = get_phase_policy("final_synthesis", profile="cost_optimized")
+
+        self.assertLess(cost_research.max_input_tokens, quality_research.max_input_tokens)
+        self.assertLess(cost_research.visible_target_tokens, quality_research.visible_target_tokens)
+        self.assertLess(cost_final.max_input_tokens, quality_final.max_input_tokens)
+        self.assertLess(cost_final.visible_target_tokens, quality_final.visible_target_tokens)
+
     def test_budget_compacts_in_priority_order_and_preserves_critical_values(self):
         payload = {
             "listing": {"vin": "WVWZZZ5NZDW123456", "price": "11800 EUR", "year": 2014},

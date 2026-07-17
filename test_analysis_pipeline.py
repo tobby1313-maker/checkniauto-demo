@@ -720,7 +720,9 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "- **Kedy sa prejavuje:** Servis je každých 60 000 km.\n"
             "- **Odhadovaný náklad:** 800 – 2 500 EUR.\n\n"
             "## 🛠️ Očakávané náklady na najbližších 30 000 km\n\n"
-            "| Položka | Odhad EUR |\n|---|---:|\n| DSG servis | 185 – 228 |\n"
+            "| Položka | Odhad EUR |\n|---|---:|\n| DSG servis | 185 – 228 |\n\n"
+            "## Otázky pre predajcu\n\n"
+            "1. Bol olej v DSG menený každých 60 000 km?\n"
         )
         research = {
             "web_research_findings": [{"claim": "DQ500 needs regular oil service"}],
@@ -749,6 +751,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         locked = _lock_report_evidence_claims(report, research, {}, output_language="sk")
 
         self.assertNotIn("60 000 km", locked)
+        self.assertIn("podľa servisného plánu výrobcu", locked)
         self.assertNotIn("800 – 2 500", locked)
         self.assertIn("185 – 228", locked)
 
@@ -800,6 +803,46 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertNotIn("https://", locked)
         self.assertNotIn("potvrdzujú pravidelnú údržbu", locked)
         self.assertIn("Predajca uvádza servisnú knižku", locked)
+
+    def test_report_lock_preserves_first_check_and_limits_visual_claims(self):
+        report = (
+            "# Report\n\n## Rýchle zhrnutie\n\n"
+            "- **Čo overiť ako prvé:** Vyžiadajte si VIN a preverte, či boli pravidelne menené oleje v DSG a Haldexe.\n\n"
+            "## 📸 Analýza fotografií\n\n"
+            "- **Foto 01-10:** Panelové medzery sú konzistentné, čo naznačuje, že vozidlo nebolo vážne poškodené. Naznačuje dobrú integritu karosérie.\n\n"
+            "## ✅ Klady\n\n"
+            "- **Nové pneumatiky:** Viditeľný dezén potvrdzuje tvrdenie o nových pneumatikách.\n"
+        )
+        research = {
+            "seller_claims": [
+                {
+                    "claim": "Úplná servisná história a pravidelný servis DSG a Haldex.",
+                    "verification_status": "UNVERIFIED",
+                },
+                {
+                    "claim": "Nové pneumatiky Continental.",
+                    "verification_status": "UNVERIFIED",
+                },
+            ],
+            "listing_facts": {"vin": ""},
+            "vin_check": {"vin_present": False},
+            "market_assessment": {"benchmark_available": False},
+            "market_comparables": [],
+            "web_research_findings": [],
+            "technical_risks": [],
+            "expected_costs": [],
+            "sources_used": [],
+        }
+
+        locked = _lock_report_evidence_claims(report, research, {}, output_language="sk")
+
+        self.assertIn("**Čo overiť ako prvé:**", locked)
+        self.assertIn("konkrétne úkony na DSG a Haldexe overte podľa dokumentácie", locked)
+        self.assertNotIn("nebolo vážne poškodené", locked)
+        self.assertNotIn("dobrú integritu karosérie", locked)
+        self.assertIn("fotografie však nepotvrdzujú nehodovú ani opravárenskú históriu", locked.lower())
+        self.assertNotIn("potvrdzuje tvrdenie o nových pneumatikách", locked)
+        self.assertIn("DOT a merania dezénu", locked)
 
     def test_report_lock_removes_unsupported_table_costs_and_technical_quantities(self):
         report = (
@@ -1241,8 +1284,8 @@ Vo\u013En\u00fd text z modelu.
         )
 
         self.assertIn("1. Request the VIN.", locked)
-        self.assertIn("2. Test drive the car.", locked)
-        self.assertNotIn("3. Test drive the car.", locked)
+        self.assertIn("2. Change DSG oil according to the manufacturer service schedule.", locked)
+        self.assertIn("3. Test drive the car.", locked)
         self.assertNotIn("60000", locked)
 
     def test_unsourced_model_risk_cannot_claim_this_car_has_the_defect(self):

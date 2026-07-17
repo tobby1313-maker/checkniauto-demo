@@ -29,6 +29,7 @@ CALIBRATION_FILES = (
     "gemini_vision.json",
     "validation_warnings.json",
     "analysis_diagnostics.json",
+    "ai_usage_summary.json",
 )
 
 DEBUGGING_FILES = (
@@ -79,8 +80,9 @@ REPRODUCIBILITY_FILES = (
 )
 
 LABEL_TEMPLATE: dict[str, Any] = {
-    "label_schema_version": 2,
+    "label_schema_version": 3,
     "case_id": "",
+    "comparison_group": "",
     "expected_component_identity": {
         "generation": "",
         "engine_code": "",
@@ -107,6 +109,13 @@ LABEL_TEMPLATE: dict[str, Any] = {
     "normal_wear_observations": [{"evidence_reference": "", "notes": ""}],
     "unresolved_information": [{"item": "", "should_worsen_vehicle": False, "notes": ""}],
     "later_outcome": None,
+    "post_unblinding_report_review": {
+        "slovak_language_rating": None,
+        "report_completeness": None,
+        "unsupported_claim_count": None,
+        "market_link_violation_count": None,
+        "notes": ""
+    },
     "notes": "",
 }
 

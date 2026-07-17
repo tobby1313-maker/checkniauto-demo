@@ -62,6 +62,14 @@ class DemoServerConfigTest(unittest.TestCase):
                 environ={"DEMO_JOB_TTL_MINUTES": "one-hour"},
             )
 
+    def test_cost_optimized_profile_is_accepted_for_internal_evaluation(self):
+        config = DemoServerConfig.from_env(
+            Path(__file__).parent,
+            environ={"DEMO_ANALYSIS_PROFILE": "cost_optimized"},
+        )
+
+        self.assertEqual(config.demo_analysis_profile, "cost_optimized")
+
 
 class ApplicationFactoryTest(unittest.TestCase):
     def test_registered_http_views_are_owned_by_route_blueprints(self):

@@ -78,7 +78,72 @@ class CalibrationWorkflowTest(unittest.TestCase):
                     "schema_version": 1,
                     "risk_scorer_v2_active": True,
                     "build_commit": "test-commit",
+                    "analysis_profile": "quality_optimized",
                     "models": {"vision": "test-model"},
+                    "phases": {
+                        "text_research": {
+                            "status": "completed",
+                            "provider_schema_valid": True,
+                        },
+                        "vision": {
+                            "status": "completed",
+                            "parse_error": False,
+                        },
+                        "risk_scoring": {
+                            "status": "completed",
+                            "research_delivery_gate": {
+                                "section_counts": {
+                                    "web_research_findings": 1,
+                                    "technical_risks": 1,
+                                    "expected_costs": 1,
+                                }
+                            },
+                        },
+                        "final_synthesis": {"status": "completed"},
+                    },
+                    "validation": {"warning_count": 0, "warning_types": []},
+                }
+            ),
+            encoding="utf-8",
+        )
+        (job / "ai_usage_summary.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "call_count": 6,
+                    "successful_calls": 5,
+                    "failed_calls": 1,
+                    "retry_count": 1,
+                    "recovery_count": 0,
+                    "grounding_call_count": 2,
+                    "duration_ms": 120000,
+                    "actual_usage_coverage": {"total": 1.0},
+                    "usage_by_phase": {
+                        "text_research": {
+                            "input_tokens": 2000,
+                            "visible_output_tokens": 1000,
+                            "thinking_tokens": 0,
+                            "cached_input_tokens": 0,
+                            "total_tokens": 3000,
+                            "actual_usage": {"total": 3000},
+                        },
+                        "final_synthesis": {
+                            "input_tokens": 3000,
+                            "visible_output_tokens": 1500,
+                            "thinking_tokens": 0,
+                            "cached_input_tokens": 0,
+                            "total_tokens": 4500,
+                            "actual_usage": {"total": 4500},
+                        },
+                    },
+                    "usage_by_model": {
+                        "test-model": {
+                            "calls": 6,
+                            "estimated_cost": 0.12,
+                        }
+                    },
+                    "estimated_cost": 0.12,
+                    "cost_currency": "EUR",
                 }
             ),
             encoding="utf-8",
@@ -173,10 +238,10 @@ class CalibrationWorkflowTest(unittest.TestCase):
             self.assertIn("market_research.md", names)
             self.assertIn("market_search_results.json", names)
             self.assertIn("analysis_diagnostics.json", names)
+            self.assertIn("ai_usage_summary.json", names)
             self.assertIn("validation_warnings.json", names)
             self.assertNotIn("vision_provider_attempts.json", names)
             self.assertNotIn("text_research_provider_attempts.json", names)
-            self.assertNotIn("ai_usage_summary.json", names)
             self.assertIn("reproducibility/risk_policy_v2.json", names)
             self.assertIn(
                 "reproducibility/prompts/grok_final_synthesis_system.md", names
@@ -324,6 +389,12 @@ class CalibrationWorkflowTest(unittest.TestCase):
         self.assertEqual(result["metrics"]["exact_agreement"], 1.0)
         self.assertEqual(result["component_identity"]["engine_code_exact_agreement"], 1.0)
         self.assertEqual(result["component_identity"]["false_verified_count"], 0)
+        self.assertEqual(result["operational"]["telemetry_case_count"], 1)
+        self.assertEqual(result["operational"]["call_count"]["median"], 6)
+        self.assertEqual(result["operational"]["estimated_cost"]["median"], 0.12)
+        self.assertEqual(result["operational"]["schema_valid_case_count"], 1)
+        self.assertEqual(result["operational"]["research_complete_case_count"], 1)
+        self.assertEqual(result["operational"]["by_model"]["test-model"]["calls"], 6)
 
     def test_legacy_visible_verdict_label_remains_importable(self):
         job = self._job("legacy-label-case")
@@ -343,6 +414,51 @@ class CalibrationWorkflowTest(unittest.TestCase):
         })
         label_path.write_text(json.dumps(label, ensure_ascii=False), encoding="utf-8")
         self.assertEqual(validate_label(case), [])
+
+    def test_phase_four_evaluation_compares_profile_costs(self):
+        dataset = Path(self.temp.name) / "profile-dataset"
+        for slug, profile, cost in (
+            ("paired-legacy", "legacy", 0.20),
+            ("paired-optimized", "cost_optimized", 0.10),
+        ):
+            job = self._job(slug)
+            diagnostics_path = job / "analysis_diagnostics.json"
+            diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            diagnostics["analysis_profile"] = profile
+            diagnostics_path.write_text(json.dumps(diagnostics), encoding="utf-8")
+            usage_path = job / "ai_usage_summary.json"
+            usage = json.loads(usage_path.read_text(encoding="utf-8"))
+            usage["estimated_cost"] = cost
+            usage["usage_by_model"]["test-model"]["estimated_cost"] = cost
+            usage_path.write_text(json.dumps(usage), encoding="utf-8")
+            bundle = create_calibration_bundle(job, slug)
+            case = safe_extract_bundle(bundle, dataset)
+            bundle.unlink(missing_ok=True)
+            label_path = case / "expert_label.json"
+            label = json.loads(label_path.read_text(encoding="utf-8"))
+            label.update({
+                "comparison_group": "same-car-run",
+                "expected_status": "WORTH_INSPECTING",
+                "proceed_to_inspection": True,
+                "reviewer_confidence": "HIGH",
+                "reviewer_role": "mechanic",
+                "dataset_split": "tuning",
+            })
+            label_path.write_text(json.dumps(label), encoding="utf-8")
+
+        result = evaluate_dataset(dataset, split="tuning")
+
+        self.assertEqual(result["by_profile"]["legacy"]["estimated_cost"]["median"], 0.2)
+        self.assertEqual(
+            result["by_profile"]["cost_optimized"]["estimated_cost"]["median"],
+            0.1,
+        )
+        self.assertEqual(len(result["profile_comparisons"]), 1)
+        self.assertEqual(
+            result["profile_comparisons"][0]["cost_reduction_percent"],
+            50.0,
+        )
+        self.assertTrue(result["quality_gates"]["cost_reduction_at_least_35_percent"])
 
     def test_pipeline_config_activates_v2_and_failure_falls_back_to_yellow(self):
         research = json.dumps({"listing_facts": {"vin": "TESTVIN", "service_history": "full"}, "vin_check": {"vin_present": True, "format_check": "ok"}})

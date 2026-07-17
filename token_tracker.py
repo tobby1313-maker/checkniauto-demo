@@ -547,6 +547,7 @@ class TokenTracker:
         """Build a compact, admin-only usage summary for one analysis."""
         requests = self.get_requests_for_run(analysis_run_id)
         by_phase: dict[str, dict[str, Any]] = {}
+        by_model: dict[str, dict[str, Any]] = {}
         actual_fields = {
             "input": "actual_input_tokens",
             "visible_output": "actual_output_tokens",
@@ -586,6 +587,23 @@ class TokenTracker:
                 },
             )
 
+        def model_bucket(name: str) -> dict[str, Any]:
+            return by_model.setdefault(
+                name,
+                {
+                    "calls": 0,
+                    "successful_calls": 0,
+                    "failed_calls": 0,
+                    "retries": 0,
+                    "input_tokens": 0,
+                    "visible_output_tokens": 0,
+                    "thinking_tokens": 0,
+                    "cached_input_tokens": 0,
+                    "total_tokens": 0,
+                    "estimated_cost": 0.0,
+                },
+            )
+
         total_actual_counts = {key: 0 for key in actual_fields}
         total_estimated_cost = 0.0
         retry_count = 0
@@ -595,17 +613,22 @@ class TokenTracker:
         failed_count = 0
         for entry in requests:
             bucket = phase_bucket(str(entry.get("phase") or "unknown"))
+            model = model_bucket(str(entry.get("model") or "unknown"))
             bucket["calls"] += 1
+            model["calls"] += 1
             if entry.get("status") == "success":
                 bucket["successful_calls"] += 1
+                model["successful_calls"] += 1
                 successful_count += 1
             else:
                 bucket["failed_calls"] += 1
+                model["failed_calls"] += 1
                 failed_count += 1
             attempt = entry.get("attempt")
             retry_reason = str(entry.get("retry_reason") or "")
             if (isinstance(attempt, int) and attempt > 1) or retry_reason:
                 bucket["retries"] += 1
+                model["retries"] += 1
                 retry_count += 1
             if "recovery" in str(entry.get("phase") or "").lower() or "recover" in retry_reason.lower():
                 recovery_count += 1
@@ -621,8 +644,10 @@ class TokenTracker:
                 "total_tokens",
             ):
                 bucket[key] += effective[key]
+                model[key] += effective[key]
             cost = float(entry.get("estimated_cost") or _entry_cost(entry))
             bucket["estimated_cost"] += cost
+            model["estimated_cost"] += cost
             total_estimated_cost += cost
             for summary_key, entry_key in actual_fields.items():
                 if entry.get(entry_key) is not None:
@@ -650,6 +675,8 @@ class TokenTracker:
                     / calls,
                     3,
                 )
+        for bucket in by_model.values():
+            bucket["estimated_cost"] = round(bucket["estimated_cost"], 6)
 
         return {
             "schema_version": 1,
@@ -666,6 +693,7 @@ class TokenTracker:
                 for key, count in total_actual_counts.items()
             },
             "usage_by_phase": by_phase,
+            "usage_by_model": by_model,
             "estimated_cost": round(total_estimated_cost, 6),
             "cost_currency": TOKEN_COST_CURRENCY,
             "cost_rates_source": "per-request model rates with configured fallback",

@@ -101,7 +101,7 @@ class DemoServerConfig:
             demo_analysis_profile=(
                 values.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
                 if values.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
-                in {"legacy", "quality_optimized"}
+                in {"legacy", "quality_optimized", "cost_optimized"}
                 else "quality_optimized"
             ),
             demo_max_upload_mb=_as_int(

@@ -60,6 +60,30 @@ _OPTIMIZED_POLICIES: Mapping[str, PhasePolicy] = MappingProxyType({
     ),
 })
 
+# Phase 4 internal-evaluation candidate.  It is intentionally opt-in until the
+# labelled holdout gates pass; customer jobs keep using quality_optimized.
+_COST_OPTIMIZED_POLICIES: Mapping[str, PhasePolicy] = MappingProxyType({
+    "component_identity_grounding": PhasePolicy(
+        "component_identity_grounding", 4_500, None, 500, 0.1, "off", 2
+    ),
+    "reliability_grounding": PhasePolicy(
+        "reliability_grounding", 7_000, None, 2_000, 0.2, "off", 2
+    ),
+    "text_research": PhasePolicy(
+        "text_research", 8_000, 4_000, 1_800, 0.1, "off", 1
+    ),
+    "text_recovery": PhasePolicy(
+        "text_recovery", 8_000, 3_500, 1_400, 0.0, "off", 1
+    ),
+    "vision": PhasePolicy("vision", 6_500, 3_000, 1_400, 0.1, "off", 1),
+    "vision_recovery": PhasePolicy(
+        "vision_recovery", 6_500, 2_500, 1_200, 0.0, "off", 1
+    ),
+    "final_synthesis": PhasePolicy(
+        "final_synthesis", 7_500, 5_000, 2_800, 0.3, "minimal", 2
+    ),
+})
+
 _LEGACY_POLICIES: Mapping[str, PhasePolicy] = {
     name: PhasePolicy(name, None, 65_536, policy.visible_target_tokens, 0.7, "default", policy.max_attempts)
     for name, policy in _OPTIMIZED_POLICIES.items()
@@ -91,7 +115,13 @@ def analysis_profile(value: str | None = None) -> str:
 def get_phase_policy(phase: str, *, profile: str | None = None) -> PhasePolicy:
     """Resolve one phase policy, including stable aliases used by telemetry."""
     normalized = _PHASE_ALIASES.get(str(phase or "").strip().lower(), str(phase or "").strip().lower())
-    policies = _LEGACY_POLICIES if analysis_profile(profile) == "legacy" else _OPTIMIZED_POLICIES
+    active_profile = analysis_profile(profile)
+    if active_profile == "legacy":
+        policies = _LEGACY_POLICIES
+    elif active_profile == "cost_optimized":
+        policies = _COST_OPTIMIZED_POLICIES
+    else:
+        policies = _OPTIMIZED_POLICIES
     if normalized not in policies:
         raise KeyError(f"Unknown AI phase policy: {phase!r}")
     return policies[normalized]

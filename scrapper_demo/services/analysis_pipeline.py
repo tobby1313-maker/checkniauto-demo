@@ -2037,6 +2037,12 @@ def _guard_unverified_service_history_claims(
         cs="Deklarovaná servisní historie",
         en="Claimed service history",
     )
+    safe_action = _localized(
+        language,
+        sk="Vyžiadajte si VIN, servisné záznamy a faktúry; konkrétne úkony na DSG a Haldexe overte podľa dokumentácie.",
+        cs="Vyžádejte si VIN, servisní záznamy a faktury; konkrétní úkony na DSG a Haldexu ověřte podle dokumentace.",
+        en="Request the VIN, service records, and invoices; verify the specific DSG and Haldex work from the documentation.",
+    )
     rewritten: list[str] = []
     report_section = "preamble"
     guarded_sections: set[str] = set()
@@ -2058,13 +2064,140 @@ def _guard_unverified_service_history_claims(
         if report_section in guarded_sections:
             continue
         guarded_sections.add(report_section)
-        summary_prefix = re.match(r"^(\s*[-*]\s+\*\*(?:Najväčší plus|Největší plus|Biggest plus):\*\*)", line, re.I)
-        if summary_prefix:
+        action_prefix = re.match(
+            r"^(\s*[-*]\s+\*\*(?:Čo overiť ako prvé|Co ověřit jako první|What to verify first):\*\*)",
+            line,
+            re.I,
+        )
+        summary_prefix = re.match(
+            r"^(\s*[-*]\s+\*\*(?:Najväčší plus|Největší plus|Biggest plus):\*\*)",
+            line,
+            re.I,
+        )
+        if action_prefix:
+            rewritten.append(f"{action_prefix.group(1)} {safe_action}")
+        elif summary_prefix:
             rewritten.append(f"{summary_prefix.group(1)} {safe_text}")
         elif re.match(r"^\s*[-*]\s+\*\*", line):
             rewritten.append(f"- **{safe_label}:** {safe_text}")
         else:
             rewritten.append(safe_text)
+    return "\n".join(rewritten).rstrip() + "\n"
+
+
+def _guard_visual_history_and_tire_claims(
+    report_text: str,
+    research: Mapping[str, Any],
+    *,
+    language: str,
+) -> str:
+    """Keep photos from proving accident history or unverified new-tire claims."""
+    unverified_tire_claim = any(
+        isinstance(item, Mapping)
+        and str(item.get("verification_status") or "").strip().lower()
+        not in {"verified", "confirmed", "supported"}
+        and any(
+            term in _fold_market_text(item.get("claim"))
+            for term in ("pneumat", "tire", "tyre")
+        )
+        for item in research.get("seller_claims") or []
+    )
+    accident_terms = (
+        "nehod", "nehavar", "havar", "accident", "collision",
+        "vazne poskoden", "seriously damaged", "integritu karoser", "body integrity",
+    )
+    visual_terms = (
+        "foto", "photo", "panel", "medzer", "gap", "lak", "paint",
+        "karoser", "bodywork", "vizual", "visual",
+    )
+    tire_terms = ("pneumat", "tire", "tyre")
+    tire_upgrade_terms = (
+        "nov pneumatik", "nove pneumatik", "new tire", "new tyre",
+        "potvrd", "confirm",
+    )
+    attribution_terms = ("predajca", "seller", "inzerat", "listing", "deklar", "uvadza")
+    verification_terms = ("over", "skontrol", "vyziad", "verify", "check", "request", "dot")
+    accident_limitation = _localized(
+        language,
+        sk="Fotografie však nepotvrdzujú nehodovú ani opravárenskú históriu.",
+        cs="Fotografie však nepotvrzují nehodovou ani opravárenskou historii.",
+        en="The photos do not confirm the vehicle's accident or repair history.",
+    )
+    panel_limitation = _localized(
+        language,
+        sk="Viditeľné medzery medzi panelmi pôsobia na fotografiách konzistentne; fotografie však nepotvrdzujú nehodovú ani opravárenskú históriu.",
+        cs="Viditelné mezery mezi panely působí na fotografiích konzistentně; fotografie však nepotvrzují nehodovou ani opravárenskou historii.",
+        en="Visible panel gaps appear consistent in the photos, but the photos do not confirm the vehicle's accident or repair history.",
+    )
+    tire_text = _localized(
+        language,
+        sk="Fotografie nepreukazujú vek ani stav celej sady; tvrdenie predajcu o nových pneumatikách overte podľa DOT a merania dezénu.",
+        cs="Fotografie neprokazují stáří ani stav celé sady; tvrzení prodejce o nových pneumatikách ověřte podle DOT a měření dezénu.",
+        en="The photos do not establish the age or condition of the full set; verify the seller's new-tire claim using the DOT codes and tread measurements.",
+    )
+    tire_label = _localized(
+        language,
+        sk="Pneumatiky na overenie",
+        cs="Pneumatiky k ověření",
+        en="Tires to verify",
+    )
+
+    rewritten: list[str] = []
+    report_section = "preamble"
+    guarded_tire_sections: set[str] = set()
+    for line in str(report_text or "").splitlines():
+        heading = re.match(r"^\s*##\s+(.+?)\s*$", line)
+        if heading:
+            report_section = _fold_market_text(heading.group(1)) or "other"
+            rewritten.append(line)
+            continue
+
+        folded = _fold_market_text(line)
+        in_photo_section = any(
+            term in report_section
+            for term in ("analyza fotografii", "analyza fotek", "photo analysis")
+        )
+        if (
+            any(term in folded for term in accident_terms)
+            and (in_photo_section or any(term in folded for term in visual_terms))
+        ):
+            prefix_match = re.match(r"^(\s*[-*]\s+(?:\*\*[^*]+:\*\*\s*)?)", line)
+            prefix = prefix_match.group(1) if prefix_match else ""
+            content = line[len(prefix):]
+            had_panel_observation = any(term in _fold_market_text(content) for term in ("panel", "medzer", "gap"))
+            sentences = re.split(r"(?<=[.!?])\s+", content)
+            kept = [
+                sentence
+                for sentence in sentences
+                if not any(term in _fold_market_text(sentence) for term in accident_terms)
+            ]
+            kept.append(panel_limitation if had_panel_observation else accident_limitation)
+            line = prefix + " ".join(sentence for sentence in kept if sentence).strip()
+            folded = _fold_market_text(line)
+
+        should_guard_tires = (
+            unverified_tire_claim
+            and any(term in folded for term in tire_terms)
+            and any(term in folded for term in tire_upgrade_terms)
+            and not any(term in folded for term in attribution_terms)
+            and not any(term in folded for term in verification_terms)
+        )
+        if should_guard_tires:
+            if report_section in guarded_tire_sections:
+                continue
+            guarded_tire_sections.add(report_section)
+            summary_prefix = re.match(
+                r"^(\s*[-*]\s+\*\*(?:Najväčší plus|Největší plus|Biggest plus):\*\*)",
+                line,
+                re.I,
+            )
+            if summary_prefix:
+                line = f"{summary_prefix.group(1)} {tire_text}"
+            elif re.match(r"^\s*[-*]\s+", line):
+                line = f"- **{tire_label}:** {tire_text}"
+            else:
+                line = tire_text
+        rewritten.append(line)
     return "\n".join(rewritten).rstrip() + "\n"
 
 
@@ -2198,7 +2331,10 @@ def _lock_report_evidence_claims(
             else:
                 report_section = "other"
         if not authoritative_interval_available and _contains_fixed_service_interval(line):
-            continue
+            line = _redact_fixed_service_interval(line)
+            if not line:
+                continue
+            folded = _fold_market_text(line)
         if report_section in {"web", "risks"}:
             line = redact_unsupported_technical_sentences(line)
             if not line:
@@ -2518,6 +2654,11 @@ def _lock_report_evidence_claims(
             rewritten.append(line)
         text = "\n".join(rewritten).rstrip() + "\n"
     text = _guard_unverified_service_history_claims(
+        text,
+        research,
+        language=language,
+    )
+    text = _guard_visual_history_and_tire_claims(
         text,
         research,
         language=language,

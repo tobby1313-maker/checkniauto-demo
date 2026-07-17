@@ -269,7 +269,7 @@ temp directory in `scrapper-demo/Auta`.
 | `DEMO_MODE` | `true` | Restricts the app to public demo routes. |
 | `DEMO_PROMPT_FILE` | `analyze_prompt_v4_koyeb.txt` | Prompt file used by demo analysis payloads. |
 | `DEMO_SKIP_KB` | `true` | Prevents public demo analysis from reading or writing the private knowledge base. |
-| `DEMO_ANALYSIS_PROFILE` | `quality_optimized` | Generation profile. `quality_optimized` uses Research V2, phase input/output ceilings, Gemini `countTokens`, safe ordered compaction, and minimal/off thinking for structured phases; `legacy` restores the previous research contract and generation limits. |
+| `DEMO_ANALYSIS_PROFILE` | `quality_optimized` | Generation profile. `quality_optimized` uses Research V2, phase input/output ceilings, Gemini `countTokens`, safe ordered compaction, and minimal/off thinking for structured phases; `legacy` restores the previous research contract and generation limits. `cost_optimized` is an opt-in Phase 4 evaluation candidate with lower phase budgets and must not become the customer default before holdout gates pass. |
 | `FLASK_SECRET_KEY` | `dev-demo-secret-change-me` | Flask secret; replace in every deployed environment. |
 | `ADMIN_DASHBOARD_TOKEN` | empty | Required secret for the token dashboard, telemetry, diagnostic artifacts, raw results, and calibration exports. Protected routes return unavailable until configured. |
 | `RISK_SCORER_V2_ACTIVE` | `false` | Activates the offline-calibrated gate scorer. Leave disabled until holdout acceptance criteria pass. |
@@ -474,8 +474,10 @@ has two administrator-only exports:
 - **Download calibration bundle** creates a blind reviewer package. It excludes
   `risk_score.json` and both final reports, but includes scorer inputs, original
   and analysis images, an empty expert label, per-phase diagnostics, an always-
-  present validation-warning artifact, and versioned prompt/policy/schema
-  snapshots under `reproducibility/`.
+  present validation-warning artifact, the sanitized `ai_usage_summary.json`,
+  and versioned prompt/policy/schema snapshots under `reproducibility/`. The
+  usage summary contains counts, token totals, duration, retries, grounding and
+  estimated cost, but no prompts, provider responses, credentials, or API keys.
 - **Download debugging bundle** includes the complete artifact chain, including
   `analysis_request.md`, `risk_score.json`, raw final model output, and the
   public report. It also includes `vision_provider_attempts.json`, which records
@@ -504,6 +506,7 @@ Render does not retain a calibration dataset. Download selected bundles before
 python -m scrapper_demo.calibration_cli import calibration-car.zip D:\private-calibration
 python -m scrapper_demo.calibration_cli validate-labels D:\private-calibration
 python -m scrapper_demo.calibration_cli evaluate D:\private-calibration --split tuning
+python -m scrapper_demo.calibration_cli compare D:\private-calibration --split tuning
 python -m scrapper_demo.calibration_cli report D:\private-calibration --split holdout `
   --json-output evaluation.json --markdown-output evaluation.md
 ```
@@ -512,7 +515,19 @@ The reviewer edits only `expert_label.json`. Schema v2 can additionally record
 the expert-expected generation, engine code, transmission code, drivetrain,
 identity confidence, and verification source. Identity accuracy is reported
 separately from verdict agreement, including any incorrectly asserted
-`VERIFIED` identity. Rule changes belong in the shared,
+`VERIFIED` identity. Schema v3 adds an optional `comparison_group` for paired
+legacy/optimized cases and a `post_unblinding_report_review` block. That block
+is filled only after the independent vehicle label is locked; it records a
+1-5 Slovak-language rating, report completeness, unsupported-claim count, and
+market-link violations without contaminating the blind judgement.
+
+The JSON and Markdown evaluation reports include median/p90/max calls, retries,
+recoveries, grounding calls, duration, actual/effective token totals, estimated
+cost, per-model cost, schema validity, research/report completeness, market-link
+violations, profile comparisons, and Phase 4 quality gates. Missing historical
+telemetry is reported as unavailable instead of being treated as zero. Unit
+tests and offline evaluation never call a live AI provider. Rule changes belong
+in the shared,
 versioned `risk_policy_v2.json` and must be based on repeated tuning-set errors,
 not individual makes, models, or listing slugs.
 
@@ -572,6 +587,7 @@ vision_provider_attempts.json
 risk_score.json
 validation_warnings.json
 analysis_diagnostics.json
+ai_usage_summary.json
 analysis_result_raw.md
 analysis_result.md
 images/

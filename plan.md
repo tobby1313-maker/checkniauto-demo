@@ -226,6 +226,11 @@ Vision deduplikuje pred gallery-size vetvením a rešpektuje
 Kontrolný production bundle následne sprísnil verejné odkazy na ±1 rok a
 max(25 000 km, 15 %) rozdiel nájazdu, zakázal technické hyperlinky mimo ceny,
 uzamkol neoverené servisné tvrdenia a uložil vision metadata do diagnostiky.
+Posledný Tiguan control bundle potvrdil tieto gates; následná deterministická
+oprava zachovala akčný riadok a seller question pri redakcii neoficiálneho
+servisného intervalu a zakázala z fotografií odvodzovať nehodovú históriu alebo
+potvrdenie celej sady „nových“ pneumatík. Ďalší Tiguan live run už nie je gate
+pre prechod do fázy 4.
 
 ### Conditional Mobile.de grounding
 
@@ -276,6 +281,17 @@ Nespúšťať automatický druhý high-resolution request.
 - image dedup funguje aj nad 20 obrázkov a rešpektuje cap/no-images/recovery.
 
 ## 9. Fáza 4 — Evaluation a rollout
+
+**Stav 17. 7. 2026: implementačný základ hotový, kalibračná vzorka čaká na
+dáta.** Calibration bundle obsahuje sanitizovaný usage summary a label schema
+v3 podporuje párovanie profilov aj post-unblinding hodnotenie slovenčiny.
+Offline evaluator reportuje call/retry/recovery/grounding count, tokeny,
+latenciu, cost, modelové náklady, schema validity, completeness, unsupported
+claims, market-link violations, median/p90/max a quality gates. Profil
+`cost_optimized` je dostupný iba ako explicitný interný kandidát s nižšími
+budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
+stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
+tuning/holdout výsledky.
 
 Použiť najmenej 20 anonymizovaných calibration bundles: rôzne palivá,
 prevodovky, vek, kilometre, VIN/no-VIN, fotografie a dostupnosť market
