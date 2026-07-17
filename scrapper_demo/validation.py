@@ -297,7 +297,7 @@ def _soft_validate_final_report(report_text, backend_verdict):
                 }
             )
 
-    for label, url in _markdown_links(text):
+    for label, url, start, _end in _iter_markdown_links(text):
         if not _is_verified_public_url(url):
             warnings.append(
                 {
@@ -306,6 +306,24 @@ def _soft_validate_final_report(report_text, backend_verdict):
                     "label": label,
                     "url": url,
                     "message": "Final public report contains an unverified or placeholder Markdown link.",
+                }
+            )
+        preceding = text[:start]
+        headings = list(re.finditer(r"(?m)^\s*##\s+(.+?)\s*$", preceding))
+        heading = headings[-1].group(1) if headings else ""
+        normalized_heading = _normalize_heading_key(heading)
+        in_price_section = (
+            ("cena" in normalized_heading and "vyjed" in normalized_heading)
+            or ("price" in normalized_heading and "negoti" in normalized_heading)
+        )
+        if not in_price_section:
+            warnings.append(
+                {
+                    "artifact": "analysis_result.md",
+                    "type": "public_link_outside_price_section",
+                    "label": label,
+                    "url": url,
+                    "message": "Final public report contains a hyperlink outside the verified comparable-ad section.",
                 }
             )
 

@@ -367,11 +367,11 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
         self.assertEqual(benchmark["diagnostic_counts"]["europe_background_only"], 0)
 
     def test_public_benchmark_and_links_use_strict_configuration_and_price_band(self):
-        def candidate(index, *, tier, price, mileage):
+        def candidate(index, *, tier, price, mileage, year=2008):
             return {
                 "candidate_id": f"strict-{index}",
                 "description": f"Toyota RAV4 2.0 TSI DSG 4x4 {index}",
-                "year": 2008,
+                "year": year,
                 "mileage_km": mileage,
                 "price_eur": price,
                 "price_basis": "gross_asking",
@@ -395,6 +395,9 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
                 candidate(1, tier="A", price=11000, mileage=126000),
                 candidate(2, tier="A", price=15000, mileage=127000),
                 candidate(3, tier="B", price=10500, mileage=128000),
+                candidate(4, tier="A", price=9900, mileage=None),
+                candidate(5, tier="A", price=9900, mileage=125000, year=2015),
+                candidate(6, tier="A", price=9900, mileage=220000),
             ],
         }
 
@@ -411,7 +414,17 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
             item["candidate_id"]: item["display_in_report"]
             for item in research["market_comparables"]
         }
-        self.assertEqual(flags, {"strict-1": True, "strict-2": False, "strict-3": False})
+        self.assertEqual(
+            flags,
+            {
+                "strict-1": True,
+                "strict-2": False,
+                "strict-3": False,
+                "strict-4": False,
+                "strict-5": False,
+                "strict-6": False,
+            },
+        )
 
     def test_recommendations_have_no_fallback_when_no_candidate_is_in_price_band(self):
         items = [

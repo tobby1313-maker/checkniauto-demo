@@ -804,6 +804,8 @@ def select_market_recommendations(
     items: list[dict[str, Any]],
     advertised_price_eur: int | float | None,
     *,
+    listing_year: int | None = None,
+    listing_mileage: int | None = None,
     price_tolerance: float = MARKET_RECOMMENDATION_PRICE_TOLERANCE,
     max_links: int = MARKET_RECOMMENDATION_MAX_LINKS,
 ) -> list[dict[str, Any]]:
@@ -832,9 +834,19 @@ def select_market_recommendations(
             continue
         if not is_customer_facing_market_comparable(item):
             continue
-        # Tier A means the visible engine, transmission, and drivetrain all
-        # match. Tier B is intentionally diagnostic-only for public links.
-        if _similarity_tier(item) != "A":
+        if _similarity_tier(item) != "A" or _excluded_price_basis(item):
+            continue
+        item_year = _year(item)
+        item_mileage = _number(item.get("mileage_km"))
+        if None in (listing_year, listing_mileage, item_year, item_mileage):
+            continue
+        mileage_limit = max(
+            BACKGROUND_MILEAGE_FLOOR,
+            int(float(listing_mileage) * BACKGROUND_MILEAGE_RATIO),
+        )
+        if abs(int(item_year) - int(listing_year)) > BACKGROUND_YEAR_DELTA:
+            continue
+        if abs(int(item_mileage) - int(listing_mileage)) > mileage_limit:
             continue
         normalized_price = _number(item.get("normalized_price_eur"))
         if normalized_price is None:
@@ -843,7 +855,7 @@ def select_market_recommendations(
         if abs(delta_percent) > price_tolerance * 100:
             continue
         item["recommendation_price_delta_percent"] = round(delta_percent, 1)
-        item["recommendation_filter"] = "WITHIN_PRICE_BAND_AND_TIER_A"
+        item["recommendation_filter"] = "WITHIN_PRICE_BAND_AND_STRICT_TIER_A"
         candidates.append(item)
 
     candidates.sort(
@@ -1484,7 +1496,12 @@ def build_market_benchmark(
         advertised = _number(market.get("advertised_price_eur"))
     if advertised is None:
         advertised = listing_identity.get("price_eur")
-    recommendations = select_market_recommendations(items, advertised)
+    recommendations = select_market_recommendations(
+        items,
+        advertised,
+        listing_year=listing_year,
+        listing_mileage=listing_mileage,
+    )
     delta_percent = (
         round(((advertised - median_eur) / median_eur) * 100, 1)
         if advertised is not None and median_eur
@@ -1580,6 +1597,10 @@ def build_market_benchmark(
                 MARKET_RECOMMENDATION_PRICE_TOLERANCE * 100
             ),
             "similarity_tier": "A",
+            "year_and_mileage_gate": "STRICT",
+            "year_delta": BACKGROUND_YEAR_DELTA,
+            "mileage_floor_km": BACKGROUND_MILEAGE_FLOOR,
+            "mileage_ratio": BACKGROUND_MILEAGE_RATIO,
             "basis": "ADVERTISED_PRICE_EUR",
             "recommended_candidate_ids": [
                 str(item.get("candidate_id") or "") for item in recommendations

@@ -223,6 +223,9 @@ vzorke a jeho direct aj grounded výsledky majú vlastný strict count. Final
 system prompt je pod 9 000 znakov bez tvrdého skrátenia výstupného reportu.
 Vision deduplikuje pred gallery-size vetvením a rešpektuje
 `AI_MAX_VISION_ATTACHMENTS` (default 5) s auditovateľnými coverage metadátami.
+Kontrolný production bundle následne sprísnil verejné odkazy na ±1 rok a
+max(25 000 km, 15 %) rozdiel nájazdu, zakázal technické hyperlinky mimo ceny,
+uzamkol neoverené servisné tvrdenia a uložil vision metadata do diagnostiky.
 
 ### Conditional Mobile.de grounding
 

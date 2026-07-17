@@ -228,6 +228,23 @@ Cena je orientacna.
             },
         )
 
+    def test_final_report_warns_on_link_outside_price_section(self):
+        warnings = web_server._soft_validate_final_report(
+            "# Report\n\n## Webové overenie\n\n"
+            "[Technical source](https://www.auto.cz/article)\n\n"
+            "## Cena a vyjednávanie\n\n"
+            "[Comparable](https://auto.bazos.sk/inzerat/123/car.php)\n\n"
+            "**RISKY**\n\n<!-- END_ANALYSIS -->",
+            "RISKY",
+        )
+
+        outside = [
+            warning for warning in warnings
+            if warning["type"] == "public_link_outside_price_section"
+        ]
+        self.assertEqual(len(outside), 1)
+        self.assertEqual(outside[0]["label"], "Technical source")
+
     def test_public_report_normalization_removes_all_external_links(self):
         cleaned = web_server.normalize_analysis_markdown(
             "# Report\n\n"

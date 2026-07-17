@@ -78,6 +78,29 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_normalization_removes_unverified_seller_claim_from_strongest_evidence(self):
+        packet = {
+            "evidence_summary": {
+                "overall_confidence": "LOW",
+                "strongest_evidence": [
+                    "Záznamy potvrdzujú pravidelnú údržbu DSG a Haldexu.",
+                    "Technický zdroj opisuje riziko rozvodovej reťaze.",
+                ],
+            },
+            "seller_claims": [{
+                "claim": "Úplná servisná história a servisná knižka.",
+                "verification_status": "UNVERIFIED",
+                "evidence_category": "NEEDS_VERIFICATION",
+            }],
+        }
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(
+            normalized["evidence_summary"]["strongest_evidence"],
+            ["Technický zdroj opisuje riziko rozvodovej reťaze."],
+        )
+
     def test_grounded_source_registry_is_stable_deduplicated_and_public(self):
         registry = _build_grounded_source_registry(
             "https://workshop.test/dq500/ https://workshop.test/dq500 "
@@ -728,6 +751,55 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertNotIn("60 000 km", locked)
         self.assertNotIn("800 – 2 500", locked)
         self.assertIn("185 – 228", locked)
+
+    def test_report_lock_keeps_sources_internal_and_attributes_service_claim(self):
+        report = (
+            "# Report\n\n## 🌐 Webové overenie\n\n- Modelové riziko.\n\n"
+            "## 🔧 Technické riziká modelu a komponentov\n\n- Riziko.\n\n"
+            "## 🛠️ Očakávané náklady na najbližších 30 000 km\n\n- Náklad.\n\n"
+            "## ✅ Klady\n\n"
+            "- **Pravidelný servis:** Záznamy v servisnej knižke potvrdzujú pravidelnú údržbu DSG.\n"
+        )
+        research = {
+            "seller_claims": [{
+                "claim": "Úplná servisná história a servisná knižka.",
+                "verification_status": "UNVERIFIED",
+            }],
+            "web_research_findings": [{
+                "claim": "Modelové riziko",
+                "buyer_impact": "Preveriť vozidlo",
+                "source_ids": ["source"],
+            }],
+            "technical_risks": [{
+                "component": "Motor",
+                "issue": "Modelové riziko",
+                "verification_action": "Diagnostika",
+                "source_ids": ["source"],
+            }],
+            "expected_costs": [{
+                "item": "Diagnostika",
+                "why": "Vstupná kontrola",
+                "estimated_cost_eur_low": 30,
+                "estimated_cost_eur_high": 80,
+                "source_ids": ["source"],
+            }],
+            "sources_used": [{
+                "source_id": "source",
+                "source_name": "Workshop",
+                "source_url": "https://workshop.test/source",
+                "verified_url": True,
+            }],
+            "listing_facts": {},
+            "vin_check": {},
+            "market_assessment": {"benchmark_available": False},
+            "market_comparables": [],
+        }
+
+        locked = _lock_report_evidence_claims(report, research, {}, output_language="sk")
+
+        self.assertNotIn("https://", locked)
+        self.assertNotIn("potvrdzujú pravidelnú údržbu", locked)
+        self.assertIn("Predajca uvádza servisnú knižku", locked)
 
     def test_report_lock_removes_unsupported_table_costs_and_technical_quantities(self):
         report = (
@@ -1574,6 +1646,17 @@ Vo\u013En\u00fd text z modelu.
                     "risk_score": 0,
                     "allowed_final_verdict": "ZVAZIT",
                 },
+                prepare_images=lambda slug_dir: ([], {
+                    "coverage_mode": "detail_all",
+                    "original_count": 20,
+                    "unique_count": 18,
+                    "duplicate_count": 2,
+                    "selected_count": 18,
+                    "attachment_count": 5,
+                    "attachment_limit": 5,
+                    "full_gallery_included": True,
+                    "selection_reason": "all_unique_photos_in_detail_collages_after_perceptual_deduplication",
+                }),
                 estimate_request_tokens=lambda *args: 10,
                 estimate_output_tokens=lambda chunk: 3,
                 validate_json_contract=lambda *args: [],
@@ -1688,6 +1771,14 @@ Vo\u013En\u00fd text z modelu.
             self.assertIn("policy", text_diagnostics)
             self.assertIn("input_budget", text_diagnostics)
             self.assertIn("recovery_input_budget", text_diagnostics)
+            self.assertEqual(
+                diagnostics["phases"]["vision"]["image_payload"]["duplicate_count"],
+                2,
+            )
+            self.assertEqual(
+                diagnostics["phases"]["vision"]["image_payload"]["attachment_count"],
+                5,
+            )
             self.assertEqual(
                 text_diagnostics["contract_enforcement"]["attempt"],
                 "recovery",

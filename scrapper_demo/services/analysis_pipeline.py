@@ -304,6 +304,46 @@ RESEARCH_V2_ENUMS = {
 }
 
 
+def _remove_unverified_claims_from_strongest_evidence(packet: dict[str, Any]) -> None:
+    """Do not let seller claims masquerade as the packet's strongest evidence."""
+    claims = [item for item in packet.get("seller_claims") or [] if isinstance(item, dict)]
+    unverified = [
+        _fold_market_text(item.get("claim"))
+        for item in claims
+        if str(item.get("verification_status") or "").strip().lower()
+        not in {"verified", "confirmed", "supported"}
+    ]
+    if not unverified:
+        return
+    topic_groups = (
+        {"servis", "service", "maintenance", "udrzb", "histori", "faktur", "dsg", "haldex"},
+        {"nehavar", "havari", "accident", "collision"},
+        {"kilometr", "mileage", "odometer", "najazd"},
+        {"brzd", "brake", "pneumat", "tire", "tyre"},
+        {"povod", "origin", "majitel", "owner", "import"},
+    )
+    attribution_terms = {
+        "predajca", "seller", "inzerat", "listing", "deklar", "claim", "uvadza",
+    }
+
+    def overlaps_unverified_claim(value: Any) -> bool:
+        folded = _fold_market_text(value)
+        if not folded or any(term in folded for term in attribution_terms):
+            return False
+        return any(
+            any(term in folded for term in group)
+            and any(any(term in claim for term in group) for claim in unverified)
+            for group in topic_groups
+        )
+
+    summary = packet.get("evidence_summary")
+    if isinstance(summary, dict) and isinstance(summary.get("strongest_evidence"), list):
+        summary["strongest_evidence"] = [
+            item for item in summary["strongest_evidence"]
+            if not overlaps_unverified_claim(item)
+        ]
+
+
 def _normalize_research_model_output(value: Any) -> Any:
     """Normalize known provider aliases without accepting unknown enum values."""
     if not isinstance(value, dict):
@@ -427,6 +467,7 @@ def _normalize_research_model_output(value: Any) -> Any:
     for field, limit in RESEARCH_V2_ARRAY_LIMITS.items():
         if field != "sources_used" and isinstance(packet.get(field), list):
             packet[field] = packet[field][:limit]
+    _remove_unverified_claims_from_strongest_evidence(packet)
     return packet
 
 
@@ -1871,24 +1912,6 @@ def _comparable_price_label(item: Mapping[str, Any], *, language: str) -> str:
     return prefix + label
 
 
-def _evidence_source_links(
-    item: Mapping[str, Any],
-    source_map: Mapping[str, Mapping[str, Any]],
-) -> str:
-    links: list[str] = []
-    for raw_source_id in item.get("source_ids") or []:
-        source = source_map.get(str(raw_source_id or ""))
-        if not isinstance(source, Mapping):
-            continue
-        name = str(source.get("source_name") or raw_source_id).strip()
-        url = str(source.get("source_url") or "").strip()
-        if not name or not url.startswith(("http://", "https://")):
-            continue
-        safe_name = name.replace("[", "").replace("]", "")
-        links.append(f"[{safe_name}]({url})")
-    return ", ".join(links)
-
-
 def _markdown_table_cell(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().replace("|", "\\|")
 
@@ -1900,12 +1923,6 @@ def _render_locked_research_sections(
     unsupported_messages: Mapping[str, str],
 ) -> dict[str, list[str]]:
     """Render critical report sections only from provenance-locked structures."""
-    source_map = {
-        str(source.get("source_id") or ""): source
-        for source in research.get("sources_used") or []
-        if isinstance(source, Mapping) and str(source.get("source_id") or "")
-    }
-    source_label = _localized(language, sk="Zdroje", cs="Zdroje", en="Sources")
     impact_label = _localized(language, sk="Dopad pre kupujúceho", cs="Dopad pro kupujícího", en="Buyer impact")
     verify_label = _localized(language, sk="Ako overiť", cs="Jak ověřit", en="How to verify")
     evidence_label = _localized(language, sk="Dôkaz na vozidle", cs="Důkaz na vozidle", en="Vehicle evidence")
@@ -1919,9 +1936,6 @@ def _render_locked_research_sections(
         impact = str(item.get("buyer_impact") or "").strip()
         if impact:
             web_lines.append(f"  - **{impact_label}:** {impact}")
-        links = _evidence_source_links(item, source_map)
-        if links:
-            web_lines.append(f"  - **{source_label}:** {links}")
     if not web_lines:
         web_lines = [unsupported_messages["web"]]
 
@@ -1949,9 +1963,6 @@ def _render_locked_research_sections(
             low_label = f"{int(round(low)):,}".replace(",", " ")
             high_label = f"{int(round(high)):,}".replace(",", " ")
             risk_lines.append(f"- **{estimate_label}:** {low_label} – {high_label} EUR")
-        links = _evidence_source_links(item, source_map)
-        if links:
-            risk_lines.append(f"- **{source_label}:** {links}")
         risk_lines.append("")
     if not risk_lines:
         risk_lines = [unsupported_messages["risks"]]
@@ -1964,7 +1975,6 @@ def _render_locked_research_sections(
             "en": ("Item", "Why", "Estimated EUR", "Urgency"),
         }[normalize_language(language)]
         cost_lines = ["| " + " | ".join(headers) + " |", "|---|---|---:|---|"]
-        cost_source_lines: list[str] = []
         for item in costs:
             low = item.get("estimated_cost_eur_low")
             high = item.get("estimated_cost_eur_high")
@@ -1981,16 +1991,81 @@ def _render_locked_research_sections(
                     _markdown_table_cell(item.get("urgency")),
                 )) + " |"
             )
-            links = _evidence_source_links(item, source_map)
-            if links and links not in cost_source_lines:
-                cost_source_lines.append(links)
         if len(cost_lines) == 2:
             cost_lines = [unsupported_messages["costs"]]
-        elif cost_source_lines:
-            cost_lines.extend(["", f"**{source_label}:** " + ", ".join(cost_source_lines)])
     else:
         cost_lines = [unsupported_messages["costs"]]
     return {"web": web_lines, "risks": risk_lines, "costs": cost_lines}
+
+
+def _guard_unverified_service_history_claims(
+    report_text: str,
+    research: Mapping[str, Any],
+    *,
+    language: str,
+) -> str:
+    """Attribute service-history statements when the input is only a seller claim."""
+    unverified_service_claim = any(
+        isinstance(item, Mapping)
+        and str(item.get("verification_status") or "").strip().lower()
+        not in {"verified", "confirmed", "supported"}
+        and any(
+            term in _fold_market_text(item.get("claim"))
+            for term in ("servis", "service", "maintenance", "histori", "dsg", "haldex")
+        )
+        for item in research.get("seller_claims") or []
+    )
+    if not unverified_service_claim:
+        return report_text
+
+    service_terms = ("servis", "service", "maintenance", "histori", "dsg", "haldex")
+    upgrade_terms = (
+        "potvrd", "confirm", "dolozen", "documented", "jasna histori",
+        "clear history", "pravideln", "regularly maintained", "complete history",
+        "uplna histori",
+    )
+    attribution_terms = ("predajca", "seller", "inzerat", "listing", "deklar", "uvadza")
+    safe_text = _localized(
+        language,
+        sk="Predajca uvádza servisnú knižku a úplnú servisnú históriu; konkrétny rozsah údržby treba overiť v záznamoch a faktúrach.",
+        cs="Prodejce uvádí servisní knížku a úplnou servisní historii; konkrétní rozsah údržby je třeba ověřit v záznamech a fakturách.",
+        en="The seller claims a service book and full service history; verify the actual maintenance in records and invoices.",
+    )
+    safe_label = _localized(
+        language,
+        sk="Deklarovaná servisná história",
+        cs="Deklarovaná servisní historie",
+        en="Claimed service history",
+    )
+    rewritten: list[str] = []
+    report_section = "preamble"
+    guarded_sections: set[str] = set()
+    for line in str(report_text or "").splitlines():
+        heading = re.match(r"^\s*##\s+(.+?)\s*$", line)
+        if heading:
+            report_section = _fold_market_text(heading.group(1)) or "other"
+        folded = _fold_market_text(line)
+        should_guard = (
+            not re.match(r"^\s*##", line)
+            and "|" not in line
+            and any(term in folded for term in service_terms)
+            and any(term in folded for term in upgrade_terms)
+            and not any(term in folded for term in attribution_terms)
+        )
+        if not should_guard:
+            rewritten.append(line)
+            continue
+        if report_section in guarded_sections:
+            continue
+        guarded_sections.add(report_section)
+        summary_prefix = re.match(r"^(\s*[-*]\s+\*\*(?:Najväčší plus|Největší plus|Biggest plus):\*\*)", line, re.I)
+        if summary_prefix:
+            rewritten.append(f"{summary_prefix.group(1)} {safe_text}")
+        elif re.match(r"^\s*[-*]\s+\*\*", line):
+            rewritten.append(f"- **{safe_label}:** {safe_text}")
+        else:
+            rewritten.append(safe_text)
+    return "\n".join(rewritten).rstrip() + "\n"
 
 
 def _lock_report_evidence_claims(
@@ -2442,6 +2517,11 @@ def _lock_report_evidence_claims(
                 continue
             rewritten.append(line)
         text = "\n".join(rewritten).rstrip() + "\n"
+    text = _guard_unverified_service_history_claims(
+        text,
+        research,
+        language=language,
+    )
     return _renumber_markdown_ordered_lists(text)
 
 
@@ -4022,6 +4102,26 @@ def _multi_model_analysis_events(
             vision_provider_events.append(allowed)
 
     image_data_list, _image_meta = dependencies.prepare_images(slug_dir)
+    image_meta = _image_meta if isinstance(_image_meta, dict) else {}
+    diagnostics["phases"]["vision"]["image_payload"] = {
+        key: image_meta.get(key)
+        for key in (
+            "coverage_mode",
+            "original_count",
+            "unique_count",
+            "duplicate_count",
+            "unreadable_count",
+            "selected_count",
+            "overview_count",
+            "detail_count",
+            "attachment_count",
+            "attachment_limit",
+            "full_gallery_included",
+            "selection_reason",
+        )
+        if key in image_meta
+    }
+    save_diagnostics()
     if image_data_list:
         image_payload_context = dependencies.compact_json_for_prompt(_image_meta)
         vision_language = {
