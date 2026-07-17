@@ -517,6 +517,14 @@ def _grounded_research_source_urls(value: Any) -> set[str]:
     return urls
 
 
+def _build_grounded_source_registry(value: Any) -> dict[str, str]:
+    """Assign stable backend IDs to every public URL in grounded research."""
+    return {
+        f"gsrc_{index:03d}": url
+        for index, url in enumerate(sorted(_grounded_research_source_urls(value)), start=1)
+    }
+
+
 def _contains_fixed_service_interval(value: Any) -> bool:
     text = _fold_market_text(str(value or ""))
     return bool(
@@ -557,16 +565,47 @@ def _enforce_research_source_policy(
     packet: dict[str, Any],
     *,
     verified_source_urls: set[str] | None = None,
+    verified_source_registry: Mapping[str, str] | None = None,
     diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Keep only claims backed by an existing, verified, topic-matched source."""
     sources = [dict(item) for item in packet.get("sources_used") or [] if isinstance(item, dict)]
+    source_registry = {
+        str(source_id).strip(): canonical
+        for source_id, source_url in (verified_source_registry or {}).items()
+        if str(source_id).strip()
+        and (canonical := _canonical_research_source_url(source_url))
+    }
+    registry_resolved_count = 0
+    unknown_registry_id_count = 0
+    rejected_url_samples: list[dict[str, str]] = []
     if verified_source_urls is not None:
         for source in sources:
-            source["verified_url"] = (
-                _canonical_research_source_url(source.get("source_url"))
-                in verified_source_urls
-            )
+            source_id = str(source.get("source_id") or "").strip()
+            registered_url = source_registry.get(source_id)
+            if registered_url and registered_url in verified_source_urls:
+                # The model selects a backend-owned ID. Restore the original URL
+                # instead of trusting a URL that the model may have reformatted.
+                source["source_url"] = registered_url
+                source["verified_url"] = True
+                registry_resolved_count += 1
+                continue
+            canonical_url = _canonical_research_source_url(source.get("source_url"))
+            if source_registry and source_id.startswith("gsrc_"):
+                source["verified_url"] = False
+                unknown_registry_id_count += 1
+                if canonical_url and len(rejected_url_samples) < 5:
+                    rejected_url_samples.append({
+                        "source_id": source_id,
+                        "source_url": canonical_url,
+                    })
+                continue
+            source["verified_url"] = canonical_url in verified_source_urls
+            if not source["verified_url"] and canonical_url and len(rejected_url_samples) < 5:
+                rejected_url_samples.append({
+                    "source_id": source_id,
+                    "source_url": canonical_url,
+                })
     packet["sources_used"] = sources
     source_map = {
         str(item.get("source_id") or "").strip(): item
@@ -817,10 +856,14 @@ def _enforce_research_source_policy(
         diagnostics.update({
             "grounded_url_allowlist_active": verified_source_urls is not None,
             "grounded_url_count": len(verified_source_urls or ()),
+            "verified_source_registry_count": len(source_registry),
+            "registry_resolved_source_count": registry_resolved_count,
+            "unknown_registry_id_count": unknown_registry_id_count,
             "input_source_count": len(sources),
             "backend_verified_source_count": sum(
                 item.get("verified_url") is True for item in sources
             ),
+            "rejected_url_samples": rejected_url_samples,
             "filtered_claim_counts": filtered_claim_counts,
             "source_rejection_counts": rejection_counts,
         })
@@ -2633,7 +2676,8 @@ def _multi_model_analysis_events(
     # model; that only adds tokens and gives a second model a chance to alter
     # the provenance-locked candidates.
     text_research_web_context = web_research_text
-    grounded_source_urls = _grounded_research_source_urls(text_research_web_context)
+    grounded_source_registry = _build_grounded_source_registry(text_research_web_context)
+    grounded_source_urls = set(grounded_source_registry.values())
     if research_v2_active and not grounded_source_urls:
         grounded_phase = diagnostics["phases"].setdefault("grounded_research", {})
         if grounded_phase.get("status") != "failed":
@@ -2945,6 +2989,7 @@ def _multi_model_analysis_events(
         research_v2=research_v2_active,
         listing_context=listing_context_data,
         vin_light_decode=vin_light_decode,
+        verified_source_registry=grounded_source_registry,
     )
 
     research_policy = get_phase_policy("text_research", profile=active_profile)
@@ -2957,6 +3002,11 @@ def _multi_model_analysis_events(
         text_research_system_prompt += (
             f"\n\nRuntime visible-output target: at most {research_policy.visible_target_tokens} tokens."
         )
+        diagnostics["phases"]["text_research"].update({
+            "raw_grounded_research_chars": len(text_research_web_context),
+            "normalized_research_context_chars": len(text_research_content),
+            "verified_source_registry_count": len(grounded_source_registry),
+        })
     protected_research_values = tuple(
         value
         for value in (
@@ -3217,6 +3267,7 @@ def _multi_model_analysis_events(
         research_data = _enforce_research_source_policy(
             _normalize_research_model_output(research_data),
             verified_source_urls=grounded_source_urls,
+            verified_source_registry=grounded_source_registry,
             diagnostics=source_policy_diagnostics,
         )
         contract_diagnostics = _research_contract_diagnostics(
@@ -3272,6 +3323,7 @@ def _multi_model_analysis_events(
         diagnostics["phases"]["text_research"]["recovery_input_budget"] = (
             _budget_diagnostics(recovery_budget)
         )
+        diagnostics["phases"]["text_research"]["recovery_reuses_compact_context"] = True
         save_diagnostics()
         try:
             with tracking_context(
@@ -3307,6 +3359,7 @@ def _multi_model_analysis_events(
                 research_data = _enforce_research_source_policy(
                     _normalize_research_model_output(research_data),
                     verified_source_urls=grounded_source_urls,
+                    verified_source_registry=grounded_source_registry,
                     diagnostics=source_policy_diagnostics,
                 )
                 contract_diagnostics = _research_contract_diagnostics(

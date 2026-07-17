@@ -10,6 +10,7 @@ from scrapper_demo.providers.errors import ModelOutputLimitError, RateLimitError
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     _apply_research_delivery_gate,
+    _build_grounded_source_registry,
     _contains_fixed_service_interval,
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
@@ -75,6 +76,18 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_grounded_source_registry_is_stable_deduplicated_and_public(self):
+        registry = _build_grounded_source_registry(
+            "https://workshop.test/dq500/ https://workshop.test/dq500 "
+            "https://vertexaisearch.cloud.google.com/redirect "
+            "https://official.test/recall"
+        )
+
+        self.assertEqual(registry, {
+            "gsrc_001": "https://official.test/recall",
+            "gsrc_002": "https://workshop.test/dq500",
+        })
+
     def test_research_v2_gemini_schema_uses_supported_json_schema_subset(self):
         schema = _research_v2_response_schema(Path("prompts"))
         serialized = json.dumps(schema, separators=(",", ":"))
@@ -331,6 +344,53 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["grounded"])
         self.assertEqual(diagnostics["backend_verified_source_count"], 1)
         self.assertEqual(diagnostics["source_rejection_counts"]["unverified_url"], 1)
+
+    def test_source_policy_restores_registered_url_but_rejects_unknown_registry_id(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 60
+        packet["technical_risks"] = [{
+            "component": "EA888", "issue": "Excessive oil consumption",
+            "risk_level": "HIGH", "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "Possible engine wear", "specific_vehicle_evidence": "",
+            "verification_action": "Check oil level and exhaust smoke",
+            "estimated_cost_eur_low": None, "estimated_cost_eur_high": None,
+            "confidence": "MEDIUM", "source_ids": ["gsrc_001", "gsrc_999"],
+        }]
+        packet["sources_used"] = [
+            {
+                "source_id": "gsrc_001", "source_name": "EA888 article",
+                "source_type": "TECHNICAL_PUBLICATION", "reliability": "MEDIUM",
+                "source_url": "https://model-rewrote.test/wrong-path",
+                "verified_url": False,
+                "used_for": "EA888 piston ring wear and oil consumption",
+            },
+            {
+                "source_id": "gsrc_999", "source_name": "Invented article",
+                "source_type": "TECHNICAL_PUBLICATION", "reliability": "MEDIUM",
+                "source_url": "https://invented.test/ea888",
+                "verified_url": True,
+                "used_for": "EA888 oil consumption",
+            },
+        ]
+        grounded_url = "https://workshop.test/ea888-oil-consumption"
+        diagnostics = {}
+
+        filtered = _enforce_research_source_policy(
+            _normalize_research_model_output(packet),
+            verified_source_urls={grounded_url},
+            verified_source_registry={"gsrc_001": grounded_url},
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(filtered["technical_risks"][0]["source_ids"], ["gsrc_001"])
+        self.assertEqual(filtered["sources_used"][0]["source_url"], grounded_url)
+        self.assertEqual(diagnostics["registry_resolved_source_count"], 1)
+        self.assertEqual(diagnostics["unknown_registry_id_count"], 1)
+        self.assertEqual(diagnostics["backend_verified_source_count"], 1)
+        self.assertEqual(
+            diagnostics["rejected_url_samples"],
+            [{"source_id": "gsrc_999", "source_url": "https://invented.test/ea888"}],
+        )
 
     def test_source_policy_keeps_grounded_other_sources_at_low_confidence(self):
         packet = _unavailable_research_model_output("fixture")

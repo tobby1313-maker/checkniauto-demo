@@ -24,6 +24,29 @@
     target.classList.toggle("hidden", !message);
   }
 
+  async function showDebuggingBundleLink(form, slug) {
+    if (!slug) return;
+    try {
+      const adminCheck = await fetch("/api/token-usage?limit=1", {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!adminCheck.ok) return;
+    } catch (_error) {
+      return;
+    }
+    const target = form.querySelector("[data-form-error]");
+    const link = document.createElement("a");
+    link.className = "button ghost small debug-download";
+    link.href = `/api/admin/debugging-bundles/${encodeURIComponent(slug)}`;
+    link.download = "";
+    link.textContent = Checkni.language() === "en"
+      ? "Download debugging bundle"
+      : "Stiahnuť debugging bundle";
+    target.append(document.createElement("br"), link);
+    target.classList.remove("hidden");
+  }
+
   function syncSelectedFiles() {
     const input = $("#manualImages");
     if (typeof DataTransfer === "undefined") return;
@@ -149,7 +172,11 @@
           return;
         }
         const data = JSON.parse(raw);
-        if (data.error) throw new Error(data.error);
+        if (data.error) {
+          const error = new Error(data.error);
+          error.slug = data.slug || slug;
+          throw error;
+        }
         if (data.slug) slug = data.slug;
         updateProgress(data.status);
       }
@@ -175,6 +202,7 @@
       closeProgress();
       if (error.name === "AbortError") return;
       showError(form, error.message);
+      await showDebuggingBundleLink(form, error.slug);
       if (/manual|not supported|mobile\.de/i.test(error.message)) {
         $("#sourceUrl").value = $("#listingUrl").value.trim();
         setMode("manual");
@@ -202,6 +230,7 @@
       closeProgress();
       if (error.name === "AbortError") return;
       showError(form, error.message);
+      await showDebuggingBundleLink(form, error.slug);
     }
   }
 

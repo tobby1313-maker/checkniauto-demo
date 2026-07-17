@@ -1884,6 +1884,92 @@ def healthz():
     return jsonify({"status": "ok", "demo_mode": bool(_runtime_config("DEMO_MODE", DEMO_MODE))})
 
 
+RESEARCH_V2_GROUNDED_MAX_CHARS = 12_000
+
+
+def _research_heading_key(value):
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    ).casefold()
+
+
+def _clip_research_section(value, max_chars):
+    """Clip at a Markdown line boundary so partial claims are never supplied."""
+    kept = []
+    used = 0
+    for line in str(value or "").splitlines():
+        addition = len(line) + (1 if kept else 0)
+        if used + addition > max_chars:
+            break
+        kept.append(line)
+        used += addition
+    return "\n".join(kept).strip()
+
+
+def _compact_grounded_research_for_v2(value, max_chars=RESEARCH_V2_GROUNDED_MAX_CHARS):
+    """Keep claim-bearing grounded sections while dropping duplicated source prose."""
+    text = str(value or "").strip()
+    if not text or len(text) <= max_chars:
+        return text
+
+    matches = list(re.finditer(r"(?m)^###\s+(.+?)\s*$", text))
+    if not matches:
+        return _clip_research_section(text, max_chars)
+
+    sections = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        heading = match.group(1).strip()
+        key = _research_heading_key(heading)
+        section_text = text[match.start():end].strip()
+        sections.append((index, key, section_text))
+
+    # Component identity and VIN are supplied as backend-owned structured data.
+    # The long source bibliography and citation list are replaced by the exact
+    # backend source registry, so retaining them here only wastes input tokens.
+    excluded_markers = (
+        "identifikacia komponentov", "component identification",
+        "vin /", "vin history", "vin / history",
+        "citacie", "citations",
+    )
+    candidates = [
+        section for section in sections
+        if not any(marker in section[1] for marker in excluded_markers)
+        and section[1] not in {"zdroje", "sources"}
+    ]
+    if not candidates:
+        return _clip_research_section(text, max_chars)
+
+    compact = "\n\n".join(section[2] for section in candidates)
+    if len(compact) <= max_chars:
+        return compact
+
+    def priority(key):
+        groups = (
+            (6, ("najdolezitejs", "key finding", "most important")),
+            (5, ("motor", "engine", "prevodov", "pohon", "transmission", "gearbox", "drivetrain")),
+            (4, ("zvolav", "recall", "kampan", "naklad", "cost")),
+            (3, ("generac", "karoser", "podvoz", "generation", "body", "chassis")),
+        )
+        for rank, markers in groups:
+            if any(marker in key for marker in markers):
+                return rank
+        return 1
+
+    # Share the budget across the strongest sections so one verbose engine
+    # section cannot crowd out transmission, recall, cost, or chassis evidence.
+    ranked = sorted(candidates, key=lambda item: (-priority(item[1]), item[0]))[:6]
+    separators = 2 * max(0, len(ranked) - 1)
+    per_section = max(900, (max_chars - separators) // max(1, len(ranked)))
+    clipped = [
+        (index, _clip_research_section(section_text, per_section))
+        for index, _key, section_text in ranked
+    ]
+    result = "\n\n".join(text for _index, text in sorted(clipped) if text)
+    return _clip_research_section(result, max_chars)
+
+
 def _build_text_research_context(
     car_info_text,
     output_language="sk",
@@ -1893,6 +1979,7 @@ def _build_text_research_context(
     research_v2=False,
     listing_context=None,
     vin_light_decode=None,
+    verified_source_registry=None,
 ):
     if research_v2:
         compact_identity = (
@@ -1911,7 +1998,12 @@ def _build_text_research_context(
             # roughly a thousand tokens without supporting Research V2 claims.
             "component_identity": compact_identity,
             "vin_light_check": vin_light_decode if isinstance(vin_light_decode, dict) else {},
-            "grounded_research": str(web_research_text or ""),
+            "grounded_research": _compact_grounded_research_for_v2(web_research_text),
+            "verified_source_registry": (
+                dict(verified_source_registry)
+                if isinstance(verified_source_registry, dict)
+                else {}
+            ),
             "output_language": _demo_output_language(output_language),
         }
         return (

@@ -38,6 +38,12 @@ class RedesignProgressTest(unittest.TestCase):
         self.assertNotIn("journey-wheel-spin", self.css)
         self.assertIn("--journey-progress", self.css)
 
+    def test_failed_admin_analysis_exposes_debug_bundle_button(self):
+        self.assertIn("showDebuggingBundleLink", self.javascript)
+        self.assertIn("/api/admin/debugging-bundles/", self.javascript)
+        self.assertIn("/api/token-usage?limit=1", self.javascript)
+        self.assertIn("error.slug = data.slug || slug", self.javascript)
+
 
 if __name__ == "__main__":
     unittest.main()

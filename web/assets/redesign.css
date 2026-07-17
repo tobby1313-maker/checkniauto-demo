@@ -175,6 +175,7 @@ img { max-width: 100%; }
 .upload-preview button { position: absolute; top: 5px; right: 5px; display: grid; width: 25px; height: 25px; padding: 0; place-items: center; border: 1px solid rgba(255,255,255,.28); border-radius: 50%; background: rgba(0,0,0,.7); color: #fff; cursor: pointer; }
 .form-hint { margin: 8px 3px 0; color: var(--muted-2); font-size: 12px; }
 .form-error { margin: 8px 3px 0; color: var(--risk); font-size: 13px; }
+.form-error .debug-download { margin-top: 10px; color: var(--ink); }
 
 .scan-demo { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 18px; max-width: 960px; margin: 68px auto 0; text-align: left; }
 .demo-card, .card { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--panel); box-shadow: var(--shadow); }

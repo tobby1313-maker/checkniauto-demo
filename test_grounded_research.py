@@ -134,6 +134,39 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("Source-backed engine finding", context)
         self.assertNotIn("Knowledge base matches", context)
 
+    def test_research_v2_context_compacts_grounded_prose_and_includes_source_registry(self):
+        grounded = "\n\n".join((
+            "### Identifikacia komponentov\n" + ("duplicate identity " * 800),
+            "### Zdroje\n" + ("verbose source bibliography " * 900),
+            "### Motor\n" + ("Oil consumption evidence.\n" * 300),
+            "### Prevodovka a pohon\n" + ("Mechatronic evidence.\n" * 300),
+            "### Zvolavacie a servisne kampane\nVIN recall check required.",
+            "### Naklady\nA direct workshop price is required.",
+            "### Najdolezitejsie webove zistenia\nInspect the engine and gearbox.",
+            "### Citacie z Google Search\nhttps://workshop.test/ea888",
+        ))
+        registry = {"gsrc_001": "https://workshop.test/ea888"}
+
+        context = web_server._build_text_research_context(
+            "ignored legacy listing",
+            "sk",
+            grounded,
+            {"identification_status": "PROBABLE", "sources": [{"large": "value"}]},
+            research_v2=True,
+            listing_context={"title": "VW Tiguan"},
+            verified_source_registry=registry,
+        )
+        payload = json.loads(context.split("\n\n", 1)[1])
+        compacted = payload["grounded_research"]
+
+        self.assertEqual(payload["verified_source_registry"], registry)
+        self.assertEqual(payload["component_identity"], {"identification_status": "PROBABLE"})
+        self.assertLessEqual(len(compacted), web_server.RESEARCH_V2_GROUNDED_MAX_CHARS)
+        self.assertIn("### Motor", compacted)
+        self.assertIn("### Prevodovka a pohon", compacted)
+        self.assertNotIn("verbose source bibliography", compacted)
+        self.assertNotIn("duplicate identity", compacted)
+
     def test_markdown_link_parser_keeps_parentheses_inside_urls(self):
         links = web_server._markdown_links(
             "[Engine Finders](https://enginefinder.co.uk/blog/example-(test)) "
