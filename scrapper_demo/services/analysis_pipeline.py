@@ -371,6 +371,9 @@ def _normalize_research_model_output(value: Any) -> Any:
         "TECHNICAL_SPECIFICATION": "NEEDS_VERIFICATION",
         "MODEL_LEVEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_LEVEL_MAINTENANCE": "MODEL_LEVEL_RISK",
+        "MAINTENANCE_RECOMMENDATION": "MODEL_LEVEL_RISK",
+        "MAINTENANCE_ITEM": "MODEL_LEVEL_RISK",
+        "OFFICIAL_RECALL": "NEEDS_VERIFICATION",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
     }
     recall_aliases = {
@@ -383,7 +386,7 @@ def _normalize_research_model_output(value: Any) -> Any:
     }
     confidence_aliases = {
         "HIGH": "Vysoka", "VYSOKA": "Vysoka",
-        "MEDIUM": "Stredna", "STREDNA": "Stredna",
+        "MEDIUM": "Stredna", "MODERATE": "Stredna", "STREDNA": "Stredna",
         "LOW": "Nizka", "NIZKA": "Nizka",
     }
     cost_aliases = {
@@ -468,6 +471,51 @@ def _normalize_research_model_output(value: Any) -> Any:
         if field != "sources_used" and isinstance(packet.get(field), list):
             packet[field] = packet[field][:limit]
     _remove_unverified_claims_from_strongest_evidence(packet)
+    return packet
+
+
+def _salvage_research_enum_values(value: Any) -> Any:
+    """Downgrade unknown provider enums instead of discarding useful content.
+
+    This runs only in the limited-evidence path after the strict response and
+    its single recovery have failed.  Structural/type errors remain invalid;
+    only enum values receive conservative defaults.
+    """
+    packet = _normalize_research_model_output(value)
+    if not isinstance(packet, dict):
+        return packet
+
+    summary = packet.get("evidence_summary")
+    if isinstance(summary, dict):
+        if summary.get("overall_confidence") not in RESEARCH_V2_ENUMS["overall_confidence"]:
+            summary["overall_confidence"] = "LOW"
+    safety = packet.get("safety_and_recall")
+    if isinstance(safety, dict):
+        if safety.get("status") not in RESEARCH_V2_ENUMS["recall_status"]:
+            safety["status"] = "INSUFFICIENT_DATA"
+        if safety.get("evidence_category") not in RESEARCH_V2_ENUMS["evidence_category"]:
+            safety["evidence_category"] = "NEEDS_VERIFICATION"
+
+    defaults = (
+        ("seller_claims", "evidence_category", "evidence_category", "NEEDS_VERIFICATION"),
+        ("missing_or_uncertain_data", "severity", "severity", "medium"),
+        ("data_conflicts", "importance", "importance", "MEDIUM"),
+        ("consistency_checks", "result", "check_result", "unknown"),
+        ("web_research_findings", "evidence_category", "evidence_category", "MODEL_LEVEL_RISK"),
+        ("web_research_findings", "confidence", "confidence", "Nizka"),
+        ("technical_risks", "risk_level", "risk_level", "CHECK"),
+        ("technical_risks", "evidence_category", "evidence_category", "MODEL_LEVEL_RISK"),
+        ("technical_risks", "confidence", "confidence", "Nizka"),
+        ("expected_costs", "cost_type", "cost_type", "diagnostic"),
+        ("expected_costs", "urgency", "urgency", "medium"),
+        ("text_research_risk_flags", "confidence", "confidence", "Nizka"),
+        ("sources_used", "source_type", "source_type", "OTHER"),
+        ("sources_used", "reliability", "reliability", "LOW"),
+    )
+    for field, key, enum_name, default in defaults:
+        for item in packet.get(field) if isinstance(packet.get(field), list) else []:
+            if isinstance(item, dict) and item.get(key) not in RESEARCH_V2_ENUMS[enum_name]:
+                item[key] = default
     return packet
 
 
@@ -1325,7 +1373,7 @@ def _limited_research_model_output(
     output_language: str = "sk",
 ) -> dict[str, Any]:
     """Keep useful low-confidence content when exact source linking fails."""
-    packet = _normalize_research_model_output(value)
+    packet = _salvage_research_enum_values(value)
     if not _valid_research_model_output(packet):
         return _unavailable_research_model_output(
             "Research output did not satisfy the structured contract.",
@@ -1927,6 +1975,13 @@ def _render_locked_research_sections(
     verify_label = _localized(language, sk="Ako overiť", cs="Jak ověřit", en="How to verify")
     evidence_label = _localized(language, sk="Dôkaz na vozidle", cs="Důkaz na vozidle", en="Vehicle evidence")
     estimate_label = _localized(language, sk="Odhadovaný náklad", cs="Odhadovaný náklad", en="Estimated cost")
+    limitation_label = _localized(language, sk="Úroveň podkladu", cs="Úroveň podkladu", en="Evidence level")
+    limited_evidence_text = _localized(
+        language,
+        sk="Orientačný modelový kontrolný bod; nejde o dôkaz vady konkrétneho vozidla.",
+        cs="Orientační modelový kontrolní bod; nejde o důkaz vady konkrétního vozidla.",
+        en="Indicative model-level inspection point; this is not evidence of a defect in this specific vehicle.",
+    )
 
     web_lines: list[str] = []
     for item in research.get("web_research_findings") or []:
@@ -1936,6 +1991,8 @@ def _render_locked_research_sections(
         impact = str(item.get("buyer_impact") or "").strip()
         if impact:
             web_lines.append(f"  - **{impact_label}:** {impact}")
+        if not item.get("source_ids") or str(item.get("confidence") or "") == "Nizka":
+            web_lines.append(f"  - **{limitation_label}:** {limited_evidence_text}")
     if not web_lines:
         web_lines = [unsupported_messages["web"]]
 
@@ -1957,6 +2014,8 @@ def _render_locked_research_sections(
             value = str(item.get(key) or "").strip()
             if value:
                 risk_lines.append(f"- **{label}:** {value}")
+        if not item.get("source_ids") or str(item.get("confidence") or "") == "Nizka":
+            risk_lines.append(f"- **{limitation_label}:** {limited_evidence_text}")
         low = item.get("estimated_cost_eur_low")
         high = item.get("estimated_cost_eur_high")
         if isinstance(low, (int, float)) and isinstance(high, (int, float)):
@@ -1975,24 +2034,36 @@ def _render_locked_research_sections(
             "en": ("Item", "Why", "Estimated EUR", "Urgency"),
         }[normalize_language(language)]
         cost_lines = ["| " + " | ".join(headers) + " |", "|---|---|---:|---|"]
+        estimate_unavailable = _localized(
+            language,
+            sk="Cena na overenie",
+            cs="Cena k ověření",
+            en="Quote required",
+        )
+        urgency_labels = {
+            "low": _localized(language, sk="nízka", cs="nízká", en="low"),
+            "medium": _localized(language, sk="stredná", cs="střední", en="medium"),
+            "high": _localized(language, sk="vysoká", cs="vysoká", en="high"),
+            "critical": _localized(language, sk="kritická", cs="kritická", en="critical"),
+        }
         for item in costs:
             low = item.get("estimated_cost_eur_low")
             high = item.get("estimated_cost_eur_high")
-            if not isinstance(low, (int, float)) or not isinstance(high, (int, float)):
-                continue
-            low_label = f"{int(round(low)):,}".replace(",", " ")
-            high_label = f"{int(round(high)):,}".replace(",", " ")
-            estimate = low_label if low_label == high_label else f"{low_label} – {high_label}"
+            if isinstance(low, (int, float)) and isinstance(high, (int, float)):
+                low_label = f"{int(round(low)):,}".replace(",", " ")
+                high_label = f"{int(round(high)):,}".replace(",", " ")
+                estimate = low_label if low_label == high_label else f"{low_label} – {high_label}"
+            else:
+                estimate = estimate_unavailable
+            urgency = str(item.get("urgency") or "").strip()
             cost_lines.append(
                 "| " + " | ".join((
                     _markdown_table_cell(item.get("item")),
                     _markdown_table_cell(item.get("why")),
                     estimate,
-                    _markdown_table_cell(item.get("urgency")),
+                    _markdown_table_cell(urgency_labels.get(urgency.lower(), urgency)),
                 )) + " |"
             )
-        if len(cost_lines) == 2:
-            cost_lines = [unsupported_messages["costs"]]
     else:
         cost_lines = [unsupported_messages["costs"]]
     return {"web": web_lines, "risks": risk_lines, "costs": cost_lines}

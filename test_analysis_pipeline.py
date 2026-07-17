@@ -341,6 +341,123 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(normalized["expected_costs"][0]["cost_type"], "diagnostic")
         self.assertTrue(_valid_research_model_output(normalized))
 
+    def test_research_v2_normalizes_aliases_seen_in_honda_recovery(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["web_research_findings"] = [{
+            "claim": "Hybrid-system inspection is recommended.",
+            "evidence_category": "MAINTENANCE_RECOMMENDATION",
+            "buyer_impact": "Check the system before purchase.",
+            "confidence": "MODERATE",
+            "source_ids": [],
+        }]
+        packet["text_research_risk_flags"] = [{
+            "risk": "Unknown service scope",
+            "why_it_matters_to_buyer": "Maintenance may be due.",
+            "evidence": "Listing claim only.",
+            "confidence": "MODERATE",
+        }]
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(
+            normalized["web_research_findings"][0]["evidence_category"],
+            "MODEL_LEVEL_RISK",
+        )
+        self.assertEqual(normalized["web_research_findings"][0]["confidence"], "Stredna")
+        self.assertEqual(normalized["text_research_risk_flags"][0]["confidence"], "Stredna")
+        self.assertTrue(_valid_research_model_output(normalized))
+
+    def test_limited_research_salvages_unknown_enums_with_safe_defaults(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 70
+        packet["web_research_findings"] = [{
+            "claim": "Model-level inspection point",
+            "evidence_category": "NEW_PROVIDER_ENUM",
+            "buyer_impact": "Inspect before purchase.",
+            "confidence": "UNCERTAIN",
+            "source_ids": [],
+        }]
+        packet["technical_risks"] = [{
+            "component": "Hybrid system",
+            "issue": "Inspect system operation",
+            "risk_level": "REVIEW",
+            "evidence_category": "NEW_PROVIDER_ENUM",
+            "buyer_impact": "A workshop check is prudent.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Run diagnostics.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "UNCERTAIN",
+            "source_ids": [],
+        }]
+        packet["expected_costs"] = [{
+            "item": "Pre-purchase diagnostics",
+            "why": "Check the hybrid system.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "cost_type": "CHECKUP",
+            "urgency": "SOON",
+            "basis": "Request a workshop quote.",
+            "source_ids": [],
+        }]
+
+        limited = _limited_research_model_output(packet, output_language="sk")
+
+        self.assertTrue(_valid_research_model_output(limited))
+        self.assertEqual(limited["web_research_findings"][0]["confidence"], "Nizka")
+        self.assertEqual(limited["technical_risks"][0]["risk_level"], "CHECK")
+        self.assertEqual(limited["expected_costs"][0]["cost_type"], "diagnostic")
+        self.assertEqual(limited["expected_costs"][0]["urgency"], "medium")
+
+    def test_report_renders_limited_evidence_and_non_numeric_cost_actions(self):
+        report = (
+            "# Report\n\n## 🌐 Webové overenie\n\nplaceholder\n\n"
+            "## 🔧 Technické riziká modelu a komponentov\n\nplaceholder\n\n"
+            "## 🛠️ Očakávané náklady na najbližších 30 000 km\n\nplaceholder\n"
+        )
+        research = {
+            "web_research_findings": [{
+                "claim": "Skontrolovať funkciu hybridného systému",
+                "buyer_impact": "Kontrola môže odhaliť uložené chyby.",
+                "confidence": "Nizka",
+                "source_ids": [],
+            }],
+            "technical_risks": [{
+                "component": "Hybridný systém",
+                "issue": "Orientačný kontrolný bod",
+                "risk_level": "CHECK",
+                "buyer_impact": "Overiť diagnostikou.",
+                "verification_action": "Vykonať predkúpnu diagnostiku.",
+                "confidence": "Nizka",
+                "source_ids": [],
+            }],
+            "expected_costs": [{
+                "item": "Predkúpna diagnostika",
+                "why": "Kontrola hybridného systému",
+                "estimated_cost_eur_low": None,
+                "estimated_cost_eur_high": None,
+                "urgency": "medium",
+                "source_ids": [],
+            }],
+            "sources_used": [],
+            "listing_facts": {},
+            "vin_check": {},
+            "market_assessment": {
+                "benchmark_available": True,
+                "benchmark_comparable_count": 3,
+                "benchmark_median_eur": 20_000,
+            },
+            "market_comparables": [],
+        }
+
+        locked = _lock_report_evidence_claims(report, research, {}, output_language="sk")
+
+        self.assertIn("Orientačný modelový kontrolný bod", locked)
+        self.assertIn("nejde o dôkaz vady konkrétneho vozidla", locked)
+        self.assertIn("Predkúpna diagnostika", locked)
+        self.assertIn("Cena na overenie", locked)
+        self.assertIn("stredná", locked)
+
     def test_research_v2_source_policy_requires_topic_match_and_official_intervals(self):
         packet = _unavailable_research_model_output("fixture")
         packet["evidence_summary"]["data_completeness_score"] = 60

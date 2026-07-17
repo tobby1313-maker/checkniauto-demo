@@ -293,6 +293,15 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
+Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy
+sa normalizujú a po jednom neúspešnom recovery sa neznáme enum hodnoty znížia
+na bezpečné low-confidence defaults, aby sa zachovali použiteľné modelové
+kontrolné body. Limited-evidence report ich musí označiť ako orientačné a môže
+uviesť servisný úkon s cenou na overenie. Naďalej sa striktne blokujú nepodložené
+VIN/nehodové/recall závery, presné servisné intervaly, konkrétne náklady a
+neoverené verejné odkazy. Sprísňovanie sa robí až podľa opakovaných chýb v
+tuning vzorke, nikdy podľa jedného modelu auta.
+
 Použiť najmenej 20 anonymizovaných calibration bundles: rôzne palivá,
 prevodovky, vek, kilometre, VIN/no-VIN, fotografie a dostupnosť market
 benchmarku; minimálne tri známe production regressions.

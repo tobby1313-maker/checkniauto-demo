@@ -531,6 +531,14 @@ in the shared,
 versioned `risk_policy_v2.json` and must be based on repeated tuning-set errors,
 not individual makes, models, or listing slugs.
 
+Research calibration uses field-level salvage after the one allowed structured
+recovery. Known provider enum aliases are normalized; any remaining unknown enum
+is downgraded to a conservative low-confidence value while structural/type
+errors still fail validation. A limited report may retain model-level inspection
+points and non-numeric workshop actions, but labels them as indicative rather
+than evidence of a defect in the specific car. VIN, accident, recall, exact
+service-interval, exact-cost, and public-link claims remain fail-closed.
+
 Calibration labels use the language-independent `expected_status`, not the
 rendered Slovak, Czech, or English verdict text. The customer-facing labels are:
 
