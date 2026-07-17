@@ -61,38 +61,39 @@
     const value = String(status || "").toLowerCase();
     const en = Checkni.language() === "en";
     if (/ready|done|complete/.test(value)) return en
-      ? { value: 100, title: "Your analysis is ready", description: "Opening your result now." }
-      : { value: 100, title: "Analýza je pripravená", description: "Otvárame tvoj výsledok." };
+      ? { value: 100, message: "Your analysis is ready and we are opening the result." }
+      : { value: 100, message: "Analýza je pripravená a otvárame tvoj výsledok." };
     if (/final|report|synthesis/.test(value)) return en
-      ? { value: 92, title: "Putting it all together", description: "We are preparing a clear summary for you." }
-      : { value: 92, title: "Dávame to celé dokopy", description: "Pripravujeme pre teba jasný prehľad." };
+      ? { value: 92, message: "We are preparing a clear summary of everything we found." }
+      : { value: 92, message: "Pripravujeme jasný prehľad všetkého, čo sme zistili." };
     if (/risk|score/.test(value)) return en
-      ? { value: 82, title: "Sorting what to check", description: "We are highlighting the things worth asking about." }
-      : { value: 82, title: "Triedime, čo preveriť", description: "Označujeme veci, na ktoré sa oplatí opýtať." };
+      ? { value: 82, message: "We are sorting the things worth checking with the seller." }
+      : { value: 82, message: "Triedime veci, ktoré sa oplatí preveriť s predajcom." };
     if (/vision|photo|image/.test(value)) return en
-      ? { value: 70, title: "Reviewing the photos", description: "We are looking for visible details and gaps." }
-      : { value: 70, title: "Pozeráme sa na fotografie", description: "Hľadáme viditeľné detaily a chýbajúce zábery." };
+      ? { value: 70, message: "We are checking the photos for visible details and missing views." }
+      : { value: 70, message: "Na fotografiách hľadáme viditeľné detaily a chýbajúce zábery." };
     if (/market|compar/.test(value)) return en
-      ? { value: 57, title: "Comparing with the market", description: "We are putting the asking price into context." }
-      : { value: 57, title: "Porovnávame cenu s trhom", description: "Dávame ponúkanú cenu do súvislostí." };
+      ? { value: 57, message: "We are comparing the asking price with similar cars on the market." }
+      : { value: 57, message: "Porovnávame ponúkanú cenu s podobnými autami na trhu." };
     if (/research|web/.test(value)) return en
-      ? { value: 44, title: "Looking for useful context", description: "We are checking information around this model and listing." }
-      : { value: 44, title: "Hľadáme užitočné súvislosti", description: "Overujeme informácie k modelu a inzerátu." };
+      ? { value: 44, message: "We are checking useful information about this model and listing." }
+      : { value: 44, message: "Overujeme užitočné informácie k modelu a inzerátu." };
     if (/identity|component/.test(value)) return en
-      ? { value: 28, title: "Checking the vehicle details", description: "We are organising the details that matter before a viewing." }
-      : { value: 28, title: "Overujeme údaje o aute", description: "Triedime detaily dôležité pred obhliadkou." };
+      ? { value: 28, message: "We are organising the vehicle details that matter before a viewing." }
+      : { value: 28, message: "Triedime údaje o aute dôležité pred obhliadkou." };
     if (/scrap|listing|manual/.test(value)) return en
-      ? { value: 14, title: "Reading the listing", description: "We are collecting the details and photos you provided." }
-      : { value: 14, title: "Načítavame inzerát", description: "Zbierame údaje a fotografie, ktoré si poslal." };
+      ? { value: 14, message: "We are collecting the details and photos from the listing." }
+      : { value: 14, message: "Zbierame údaje a fotografie z inzerátu." };
     return en
-      ? { value: 5, title: "Preparing your analysis", description: "We are getting everything ready to start." }
-      : { value: 5, title: "Pripravujeme analýzu", description: "Chystáme všetko, aby sme mohli začať." };
+      ? { value: 5, message: "We are getting everything ready to start the analysis." }
+      : { value: 5, message: "Chystáme všetko, aby sme mohli začať s analýzou." };
   }
 
   function openProgress() {
     const overlay = $("[data-progress-overlay]");
     overlay.classList.add("open");
     overlay.setAttribute("aria-hidden", "false");
+    $("[data-progress-road]").classList.remove("is-complete");
     highestProgress = 5;
     updateProgress("starting");
     $("[data-cancel-analysis]").disabled = false;
@@ -107,10 +108,16 @@
   function updateProgress(status) {
     const stage = progressStage(status);
     highestProgress = Math.max(highestProgress, stage.value);
-    $("[data-progress-title]").textContent = stage.title;
-    $("[data-progress-status]").textContent = stage.description;
+    $("[data-progress-status]").textContent = stage.message;
     $("[data-progress-percent]").textContent = `${highestProgress}%`;
     $("[data-progress-road]").style.setProperty("--journey-progress", `${highestProgress}%`);
+  }
+
+  function completeJourney() {
+    updateProgress("Done");
+    $("[data-progress-road]").classList.add("is-complete");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 220 : 1050));
   }
 
   async function consumeSse(response) {
@@ -137,7 +144,7 @@
         if (raw === "[DONE]") {
           if (!slug) throw new Error("Analysis finished without a saved result.");
           Checkni.rememberAnalysis(slug);
-          updateProgress("Done");
+          await completeJourney();
           location.assign(`/analysis/${encodeURIComponent(slug)}`);
           return;
         }

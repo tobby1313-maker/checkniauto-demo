@@ -173,6 +173,17 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         packet["consistency_checks"] = [{
             "check": "Mileage", "result": "NEEDS_VERIFICATION", "explanation": "Check records",
         }]
+        packet["safety_and_recall"].update({
+            "status": "RECALLS_IDENTIFIED_PENDING_VIN_CHECK",
+            "evidence_category": "REGULATORY",
+        })
+        packet["web_research_findings"] = [{
+            "claim": "Published model-level issue",
+            "evidence_category": "TECHNICAL_PUBLICATION",
+            "buyer_impact": "Inspect the component",
+            "confidence": "MEDIUM",
+            "source_ids": [],
+        }]
         normalized = _normalize_research_model_output(packet)
 
         self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
@@ -180,6 +191,18 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(normalized["missing_or_uncertain_data"][0]["severity"], "high")
         self.assertEqual(normalized["expected_costs"][0]["cost_type"], "initial_service")
         self.assertEqual(normalized["consistency_checks"][0]["result"], "unknown")
+        self.assertEqual(
+            normalized["safety_and_recall"]["status"],
+            "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+        )
+        self.assertEqual(
+            normalized["safety_and_recall"]["evidence_category"],
+            "NEEDS_VERIFICATION",
+        )
+        self.assertEqual(
+            normalized["web_research_findings"][0]["evidence_category"],
+            "MODEL_LEVEL_RISK",
+        )
         self.assertTrue(_valid_research_model_output(normalized))
         normalized["seller_claims"][0]["evidence_category"] = "MADE_UP"
         self.assertFalse(_valid_research_model_output(normalized))

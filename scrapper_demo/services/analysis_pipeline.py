@@ -315,9 +315,25 @@ def _normalize_research_model_output(value: Any) -> Any:
         "UNVERIFIED_CLAIM": "LISTING_CLAIM",
         "UNVERIFIED": "LISTING_CLAIM",
         "OTHER": "NEEDS_VERIFICATION",
+        # Providers sometimes copy source provenance into an evidence-category
+        # field. Preserve the meaning without accepting source-type values as
+        # part of the stricter evidence-category enum.
+        "TECHNICAL_PUBLICATION": "MODEL_LEVEL_RISK",
+        "REPAIR_SOURCE": "MODEL_LEVEL_RISK",
+        "OWNER_REPORT": "MODEL_LEVEL_RISK",
+        "OFFICIAL": "NEEDS_VERIFICATION",
+        "REGULATORY": "NEEDS_VERIFICATION",
         "MODEL_LEVEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_LEVEL_MAINTENANCE": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
+    }
+    recall_aliases = {
+        "RECALLS_IDENTIFIED": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+        "RECALLS_IDENTIFIED_PENDING_VIN_CHECK": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+        "RECALL_IDENTIFIED": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+        "RECALL_PENDING_VIN_CHECK": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+        "NO_RECALL_FOUND": "NO_RELEVANT_CAMPAIGN_FOUND",
+        "NO_RECALLS_FOUND": "NO_RELEVANT_CAMPAIGN_FOUND",
     }
     confidence_aliases = {
         "HIGH": "Vysoka", "VYSOKA": "Vysoka",
@@ -358,7 +374,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         summary["overall_confidence"] = str(summary.get("overall_confidence") or "").upper()
     safety = packet.get("safety_and_recall")
     if isinstance(safety, dict):
-        safety["status"] = str(safety.get("status") or "").upper()
+        safety["status"] = alias(safety.get("status"), recall_aliases)
         safety["evidence_category"] = alias(safety.get("evidence_category"), evidence_aliases)
     for field in ("seller_claims", "web_research_findings", "technical_risks"):
         for item in packet.get(field) if isinstance(packet.get(field), list) else []:
@@ -3155,6 +3171,29 @@ def _multi_model_analysis_events(
         }
     )
     save_diagnostics()
+    if research_v2_active and research_status == "unavailable":
+        # A schema-valid limitation report is useful internally, but it is not
+        # a complete paid analysis. Stop before vision/scoring/final synthesis
+        # instead of charging more to produce a knowingly incomplete report.
+        text_research_json_text = dependencies.compact_json_for_prompt(research_data)
+        repository.write_text(slug, "grok_research.json", text_research_json_text)
+        for phase in ("vision", "risk_scoring", "final_synthesis"):
+            diagnostics["phases"][phase] = {
+                "status": "skipped",
+                "reason": "text_research_unavailable",
+            }
+        diagnostics["delivery"] = {
+            "status": "RETRY_REQUIRED",
+            "chargeable": False,
+            "reason": "text_research_unavailable",
+        }
+        diagnostics["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        save_diagnostics()
+        yield _error_event(
+            "Technical research remained incomplete after recovery. "
+            "Analysis stopped before vision and final synthesis; please retry later."
+        )
+        return
     # Replace, rather than merge, model-produced market candidates. Only the
     # separately grounded and backend-reconciled portal passes may feed price
     # benchmarking or customer links.

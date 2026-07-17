@@ -350,21 +350,25 @@ img { max-width: 100%; }
 .overlay.open, .drawer.open, .lightbox.open { display: grid; }
 .overlay { place-items: center; padding: 20px; }
 .journey-progress { width: min(620px, 100%); padding: 28px; text-align: center; }
-.journey-progress h2 { margin: 8px 0 0; font-size: clamp(25px, 4vw, 31px); }
-.journey-road { --journey-progress: 5%; position: relative; height: 108px; margin: 22px 4px 8px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 55%, var(--panel)) 0 48%, var(--panel-2) 48%); }
-.journey-road::before { position: absolute; right: 17px; bottom: 18px; left: 17px; height: 42px; border-radius: 10px; background: #252a31; content: ""; }
-.journey-road::after { position: absolute; right: 17px; bottom: 20px; left: 17px; height: 3px; background: repeating-linear-gradient(90deg, transparent 0 16px, #f5d26a 16px 29px); content: ""; }
-.journey-lane { position: absolute; top: 10px; left: 18px; display: flex; gap: 3px; align-items: end; height: 23px; }
-.journey-lane span { width: 4px; border-radius: 3px 3px 0 0; background: var(--brand-light); opacity: 0.8; }
-.journey-lane span:nth-child(1) { height: 7px; }.journey-lane span:nth-child(2) { height: 13px; }.journey-lane span:nth-child(3) { height: 19px; }.journey-lane span:nth-child(4) { height: 10px; }.journey-lane span:nth-child(5) { height: 16px; }
-.journey-label { position: absolute; top: 13px; right: 17px; color: var(--muted); font: 700 10px/1 var(--font-mono); letter-spacing: 0.09em; }
-.journey-label-start { left: 18px; right: auto; }
-.journey-finish { position: absolute; right: 19px; bottom: 27px; z-index: 3; font-size: 24px; line-height: 1; }
-.journey-car { position: absolute; bottom: 23px; left: clamp(8%, var(--journey-progress), 89%); z-index: 4; font-size: 32px; line-height: 1; filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.35)); transform: translateX(-50%); transition: left 600ms cubic-bezier(.2,.85,.3,1); animation: journey-car-bob 900ms ease-in-out infinite alternate; }
-.journey-percent { display: block; margin-top: 12px; color: var(--brand-light); font: 800 42px/1 var(--font-mono); letter-spacing: -0.07em; }
-.journey-description { min-height: 24px; margin: 9px 0 0; color: var(--text); font-size: 16px; font-weight: 700; }
-.journey-note { margin: 7px 0 20px; color: var(--muted); font-size: 12px; }
-@keyframes journey-car-bob { to { transform: translateX(-50%) translateY(-3px); } }
+.journey-progress > .eyebrow { display: block; margin-bottom: 8px; }
+.journey-road { --journey-progress: 5%; position: relative; height: 104px; margin: 4px 2px 8px; overflow: hidden; border-radius: 12px; }
+.journey-road-surface { position: absolute; right: 0; bottom: 9px; left: 0; height: 35px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 9px; background: linear-gradient(180deg, #4b586a 0%, #313a48 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 -12px 20px rgba(0,0,0,.18); }
+.journey-road-surface::before { position: absolute; top: 50%; right: 0; left: 0; height: 3px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.92) 0 18px, transparent 18px 38px); content: ""; transform: translateY(-50%); animation: journey-road-marks 900ms linear infinite; }
+.journey-curb { position: absolute; right: 8px; left: 8px; height: 2px; border-radius: 999px; background: rgba(226,232,240,.82); }
+.journey-curb.top { top: 6px; }
+.journey-curb.bottom { bottom: 6px; }
+.journey-finish { position: absolute; right: 4px; bottom: 11px; z-index: 3; width: 18px; height: 39px; border-radius: 3px 3px 1px 1px; background: conic-gradient(#f8fafc 25%, #1f2937 0 50%, #f8fafc 0 75%, #1f2937 0) 0 0 / 9px 9px; box-shadow: 0 0 0 1px rgba(15,23,42,.3), 0 5px 12px rgba(0,0,0,.25); }
+.journey-car { position: absolute; bottom: 15px; left: clamp(7%, var(--journey-progress), 84%); z-index: 4; display: block; width: 118px; line-height: 0; filter: drop-shadow(0 6px 7px rgba(0,0,0,.32)); transform: translateX(-50%); transition: left 650ms cubic-bezier(.2,.85,.3,1); animation: journey-car-bob 760ms ease-in-out infinite alternate; }
+.journey-car-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.journey-wheel { transform-box: view-box; animation: journey-wheel-spin 520ms linear infinite; }
+.journey-wheel-rear { transform-origin: 68px 80px; }
+.journey-wheel-front { transform-origin: 202px 80px; }
+.journey-road.is-complete .journey-car { left: 116%; transition-duration: 950ms; transition-timing-function: cubic-bezier(.3,.75,.25,1); }
+.journey-percent { display: block; margin-top: 8px; color: var(--brand-light); font: 800 42px/1 var(--font-mono); letter-spacing: -0.07em; }
+.journey-description { min-height: 26px; margin: 9px 0 20px; color: var(--text); font-size: 16px; font-weight: 700; }
+@keyframes journey-road-marks { to { background-position-x: -38px; } }
+@keyframes journey-car-bob { to { transform: translateX(-50%) translateY(-2px); } }
+@keyframes journey-wheel-spin { to { transform: rotate(360deg); } }
 .drawer { justify-items: end; }
 .drawer-panel { width: min(420px, 100%); height: 100%; overflow: auto; padding: 24px; background: var(--panel); box-shadow: var(--shadow); }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
@@ -530,7 +534,8 @@ img { max-width: 100%; }
   .report-title h2 { font-size: 25px; }
   .footer-row { flex-direction: column; }
   .journey-progress { padding: 22px 16px; }
-  .journey-road { margin-inline: 0; }
+  .journey-road { height: 94px; margin-inline: 0; }
+  .journey-car { width: 100px; }
   .journey-percent { font-size: 38px; }
   .lightbox { padding: 18px; }
   .technical-toolbar { top: 58px; }
@@ -555,6 +560,7 @@ img { max-width: 100%; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+  .journey-car { transition: left 180ms ease !important; }
 }
 
 @media print {
