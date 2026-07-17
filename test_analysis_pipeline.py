@@ -12,6 +12,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _apply_research_delivery_gate,
     _build_grounded_source_registry,
     _contains_fixed_service_interval,
+    _complete_supported_research_sections,
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
     _canonical_research_from_v2,
@@ -166,6 +167,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
     def test_research_v2_normalizes_aliases_and_rejects_unknown_enums(self):
         packet = _unavailable_research_model_output("fixture")
         packet["evidence_summary"]["data_completeness_score"] = 50
+        packet["evidence_summary"]["overall_confidence"] = "MODERATE"
         packet["seller_claims"] = [
             {
                 "claim": "Full history", "evidence_category": "UNVERIFIED_CLAIM",
@@ -199,6 +201,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         }]
         normalized = _normalize_research_model_output(packet)
 
+        self.assertEqual(normalized["evidence_summary"]["overall_confidence"], "MEDIUM")
         self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
         self.assertEqual(normalized["seller_claims"][1]["evidence_category"], "NEEDS_VERIFICATION")
         self.assertEqual(normalized["missing_or_uncertain_data"][0]["severity"], "high")
@@ -500,6 +503,98 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             diagnostics["source_rejection_counts"]["cost_without_price_source"],
             2,
         )
+
+    def test_supported_risk_fills_missing_sections_without_inventing_price(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 55
+        packet["technical_risks"] = [{
+            "component": "EA888",
+            "issue": "Nadmerná spotreba oleja",
+            "risk_level": "HIGH",
+            "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "Môže viesť k drahej oprave motora.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Zmerať spotrebu oleja a skontrolovať dymivosť.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "Stredna",
+            "source_ids": ["gsrc_001"],
+        }]
+        packet["sources_used"] = [{
+            "source_id": "gsrc_001",
+            "source_name": "EA888 technical article",
+            "source_type": "TECHNICAL_PUBLICATION",
+            "reliability": "MEDIUM",
+            "source_url": "https://workshop.test/ea888-oil-consumption",
+            "verified_url": True,
+            "used_for": "EA888 piston-ring wear and oil consumption",
+        }]
+        diagnostics = {}
+
+        completed = _complete_supported_research_sections(
+            packet,
+            output_language="sk",
+            diagnostics=diagnostics,
+        )
+
+        self.assertTrue(_valid_research_model_output(completed))
+        self.assertEqual(len(completed["web_research_findings"]), 1)
+        self.assertEqual(len(completed["technical_risks"]), 1)
+        self.assertEqual(len(completed["expected_costs"]), 1)
+        self.assertIsNone(completed["expected_costs"][0]["estimated_cost_eur_low"])
+        self.assertIsNone(completed["expected_costs"][0]["estimated_cost_eur_high"])
+        self.assertEqual(completed["expected_costs"][0]["source_ids"], ["gsrc_001"])
+        self.assertEqual(
+            diagnostics["generated_sections"],
+            ["web_research_findings", "expected_costs"],
+        )
+
+    def test_supported_finding_can_fill_risk_and_non_numeric_diagnostic(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 45
+        packet["web_research_findings"] = [{
+            "claim": "Haldex pump screen can become restricted.",
+            "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "AWD operation can be reduced.",
+            "confidence": "Stredna",
+            "source_ids": ["gsrc_002"],
+        }]
+        packet["sources_used"] = [{
+            "source_id": "gsrc_002",
+            "source_name": "Haldex workshop article",
+            "source_type": "REPAIR_SOURCE",
+            "reliability": "MEDIUM",
+            "source_url": "https://workshop.test/haldex-pump",
+            "verified_url": True,
+            "used_for": "Haldex pump screen restriction and diagnostics",
+        }]
+
+        completed = _complete_supported_research_sections(packet, output_language="en")
+
+        self.assertTrue(_valid_research_model_output(completed))
+        self.assertEqual(completed["technical_risks"][0]["risk_level"], "CHECK")
+        self.assertEqual(completed["expected_costs"][0]["cost_type"], "diagnostic")
+        self.assertIn("workshop must confirm", completed["expected_costs"][0]["basis"])
+
+    def test_section_completion_does_not_mask_invalid_or_unverified_research(self):
+        invalid = _unavailable_research_model_output("fixture")
+        invalid["technical_risks"] = [{"issue": "Malformed"}]
+        invalid_diagnostics = {}
+
+        self.assertIs(
+            _complete_supported_research_sections(
+                invalid,
+                diagnostics=invalid_diagnostics,
+            ),
+            invalid,
+        )
+        self.assertEqual(invalid_diagnostics["reason"], "invalid_contract")
+
+        unsupported = _unavailable_research_model_output("fixture")
+        completed = _complete_supported_research_sections(unsupported)
+        self.assertEqual(completed["web_research_findings"], [])
+        self.assertEqual(completed["technical_risks"], [])
+        self.assertEqual(completed["expected_costs"], [])
 
     def test_report_lock_removes_unofficial_interval_and_invented_cost_range(self):
         report = (

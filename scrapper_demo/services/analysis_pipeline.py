@@ -371,7 +371,11 @@ def _normalize_research_model_output(value: Any) -> Any:
 
     summary = packet.get("evidence_summary")
     if isinstance(summary, dict):
-        summary["overall_confidence"] = str(summary.get("overall_confidence") or "").upper()
+        overall_confidence = str(summary.get("overall_confidence") or "").upper()
+        summary["overall_confidence"] = {
+            "MODERATE": "MEDIUM",
+            "MIDDLE": "MEDIUM",
+        }.get(overall_confidence, overall_confidence)
     safety = packet.get("safety_and_recall")
     if isinstance(safety, dict):
         safety["status"] = alias(safety.get("status"), recall_aliases)
@@ -866,6 +870,152 @@ def _enforce_research_source_policy(
             "rejected_url_samples": rejected_url_samples,
             "filtered_claim_counts": filtered_claim_counts,
             "source_rejection_counts": rejection_counts,
+        })
+    return packet
+
+
+def _complete_supported_research_sections(
+    packet: dict[str, Any],
+    *,
+    output_language: str = "sk",
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fill presentation-critical sections only from already accepted evidence.
+
+    A useful Research V2 packet should not be rejected merely because exact
+    workshop pricing was unavailable.  This helper never creates a technical
+    claim, source, or numeric amount: it only reshapes an accepted finding or
+    risk into the missing buyer-facing view and creates source-backed,
+    non-numeric diagnostic cost scenarios.
+    """
+    before_counts = {
+        field: len(packet.get(field) or [])
+        for field in ("web_research_findings", "technical_risks", "expected_costs")
+    }
+    generated_sections: list[str] = []
+    if not _valid_research_model_output(packet):
+        if diagnostics is not None:
+            diagnostics.update({
+                "applied": False,
+                "reason": "invalid_contract",
+                "before_counts": before_counts,
+                "after_counts": before_counts,
+                "generated_sections": [],
+            })
+        return packet
+
+    source_ids = {
+        str(source.get("source_id") or "")
+        for source in packet.get("sources_used") or []
+        if isinstance(source, dict) and source.get("verified_url") is True
+    }
+
+    def accepted_ids(item: Mapping[str, Any]) -> list[str]:
+        return [
+            str(source_id)
+            for source_id in item.get("source_ids") or []
+            if str(source_id) in source_ids
+        ][:3]
+
+    risks = [
+        item for item in packet.get("technical_risks") or []
+        if isinstance(item, dict) and accepted_ids(item)
+    ]
+    findings = [
+        item for item in packet.get("web_research_findings") or []
+        if isinstance(item, dict) and accepted_ids(item)
+    ]
+    slovak = str(output_language or "sk").strip().lower().startswith(("sk", "slov"))
+
+    if not findings and risks:
+        risk = risks[0]
+        packet["web_research_findings"] = [{
+            "claim": str(risk.get("issue") or ""),
+            "evidence_category": str(
+                risk.get("evidence_category") or "MODEL_LEVEL_RISK"
+            ),
+            "buyer_impact": str(risk.get("buyer_impact") or ""),
+            "confidence": str(risk.get("confidence") or "Nizka"),
+            "source_ids": accepted_ids(risk),
+        }]
+        findings = packet["web_research_findings"]
+        generated_sections.append("web_research_findings")
+
+    if not risks and findings:
+        finding = findings[0]
+        packet["technical_risks"] = [{
+            "component": "Vozidlo" if slovak else "Vehicle",
+            "issue": str(finding.get("claim") or ""),
+            "risk_level": "CHECK",
+            "evidence_category": str(
+                finding.get("evidence_category") or "MODEL_LEVEL_RISK"
+            ),
+            "buyer_impact": str(finding.get("buyer_impact") or ""),
+            "specific_vehicle_evidence": "",
+            "verification_action": (
+                "Overiť tento bod pri nezávislej predkúpnej kontrole."
+                if slovak
+                else "Verify this point during an independent pre-purchase inspection."
+            ),
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": str(finding.get("confidence") or "Nizka"),
+            "source_ids": accepted_ids(finding),
+        }]
+        risks = packet["technical_risks"]
+        generated_sections.append("technical_risks")
+
+    if not packet.get("expected_costs") and risks:
+        generated_costs: list[dict[str, Any]] = []
+        for risk in risks[:2]:
+            linked_ids = accepted_ids(risk)
+            if not linked_ids:
+                continue
+            component = str(risk.get("component") or "").strip()
+            action = str(risk.get("verification_action") or "").strip()
+            issue = str(risk.get("issue") or "").strip()
+            if slovak:
+                item = action or f"Diagnostika: {component or issue}"
+                why = str(risk.get("buyer_impact") or issue)
+                basis = (
+                    "Rozsah kontroly vychádza z podloženého modelového rizika; "
+                    "presnú cenu musí potvrdiť servis."
+                )
+            else:
+                item = action or f"Diagnostic check: {component or issue}"
+                why = str(risk.get("buyer_impact") or issue)
+                basis = (
+                    "The inspection scope follows a supported model-level risk; "
+                    "a workshop must confirm the exact price."
+                )
+            generated_costs.append({
+                "item": item,
+                "why": why,
+                "estimated_cost_eur_low": None,
+                "estimated_cost_eur_high": None,
+                "cost_type": "diagnostic",
+                "urgency": (
+                    "high" if str(risk.get("risk_level") or "").upper() == "HIGH"
+                    else "medium"
+                ),
+                "basis": basis,
+                "source_ids": linked_ids,
+            })
+        if generated_costs:
+            packet["expected_costs"] = generated_costs
+            generated_sections.append("expected_costs")
+
+    after_counts = {
+        field: len(packet.get(field) or [])
+        for field in ("web_research_findings", "technical_risks", "expected_costs")
+    }
+    if diagnostics is not None:
+        diagnostics.update({
+            "applied": bool(generated_sections),
+            "reason": "supported_evidence_projection" if generated_sections else "not_needed",
+            "before_counts": before_counts,
+            "after_counts": after_counts,
+            "generated_sections": generated_sections,
         })
     return packet
 
@@ -3270,10 +3420,17 @@ def _multi_model_analysis_events(
             verified_source_registry=grounded_source_registry,
             diagnostics=source_policy_diagnostics,
         )
+        section_completion_diagnostics: dict[str, Any] = {}
+        research_data = _complete_supported_research_sections(
+            research_data,
+            output_language=dependencies.output_language(output_language),
+            diagnostics=section_completion_diagnostics,
+        )
         contract_diagnostics = _research_contract_diagnostics(
             raw_research_data, research_data, attempt="initial"
         )
         contract_diagnostics["source_policy"] = source_policy_diagnostics
+        contract_diagnostics["section_completion"] = section_completion_diagnostics
         diagnostics["phases"]["text_research"]["contract_enforcement"] = contract_diagnostics
         diagnostics["phases"]["text_research"].setdefault(
             "contract_enforcement_attempts", []
@@ -3362,10 +3519,17 @@ def _multi_model_analysis_events(
                     verified_source_registry=grounded_source_registry,
                     diagnostics=source_policy_diagnostics,
                 )
+                section_completion_diagnostics = {}
+                research_data = _complete_supported_research_sections(
+                    research_data,
+                    output_language=dependencies.output_language(output_language),
+                    diagnostics=section_completion_diagnostics,
+                )
                 contract_diagnostics = _research_contract_diagnostics(
                     raw_research_data, research_data, attempt="recovery"
                 )
                 contract_diagnostics["source_policy"] = source_policy_diagnostics
+                contract_diagnostics["section_completion"] = section_completion_diagnostics
                 diagnostics["phases"]["text_research"]["contract_enforcement"] = contract_diagnostics
                 diagnostics["phases"]["text_research"].setdefault(
                     "contract_enforcement_attempts", []
