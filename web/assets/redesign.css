@@ -360,8 +360,10 @@ img { max-width: 100%; }
 .journey-finish { position: absolute; right: 4px; bottom: 11px; z-index: 3; width: 18px; height: 39px; border-radius: 3px 3px 1px 1px; background: conic-gradient(#f8fafc 25%, #1f2937 0 50%, #f8fafc 0 75%, #1f2937 0) 0 0 / 9px 9px; box-shadow: 0 0 0 1px rgba(15,23,42,.3), 0 5px 12px rgba(0,0,0,.25); }
 .journey-car { position: absolute; bottom: 15px; left: clamp(7%, var(--journey-progress), 82%); z-index: 4; display: block; width: 158px; aspect-ratio: 3 / 1; filter: drop-shadow(0 6px 7px rgba(0,0,0,.32)); transform: translateX(-50%); transition: left 650ms cubic-bezier(.2,.85,.3,1); animation: journey-car-bob 760ms ease-in-out infinite alternate; }
 .journey-car-art { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
-.journey-car-body { z-index: 1; }
-.journey-car-details { z-index: 2; }
+.journey-car-body { z-index: 1; opacity: 1; filter: saturate(1.18) contrast(1.04); }
+.journey-window { position: absolute; top: 22%; z-index: 2; display: block; height: 29%; border: 1px solid #111820; background: linear-gradient(145deg, #34414e 0%, #121920 72%); box-shadow: inset 0 1px 0 rgba(255,255,255,.13); }
+.journey-window-rear { left: 31%; width: 22%; clip-path: polygon(25% 0, 100% 3%, 100% 100%, 0 88%); }
+.journey-window-front { left: 53%; width: 20%; clip-path: polygon(0 3%, 56% 8%, 100% 100%, 0 100%); }
 .journey-wheel { position: absolute; bottom: 3%; z-index: 3; display: block; width: 15%; aspect-ratio: 1; border: 3px solid #121519; border-radius: 50%; background: conic-gradient(from 0deg, #9aa2ac 0 8deg, #30353c 8deg 35deg, #9aa2ac 35deg 43deg, #30353c 43deg 70deg, #9aa2ac 70deg 78deg, #30353c 78deg 105deg, #9aa2ac 105deg 113deg, #30353c 113deg 140deg, #9aa2ac 140deg 148deg, #30353c 148deg 175deg, #9aa2ac 175deg 183deg, #30353c 183deg 210deg, #9aa2ac 210deg 218deg, #30353c 218deg 245deg, #9aa2ac 245deg 253deg, #30353c 253deg 280deg, #9aa2ac 280deg 288deg, #30353c 288deg 315deg, #9aa2ac 315deg 323deg, #30353c 323deg 350deg, #9aa2ac 350deg 360deg); box-shadow: inset 0 0 0 3px #1d2127, 0 2px 3px rgba(0,0,0,.35); animation: journey-wheel-spin 520ms linear infinite; }
 .journey-wheel::after { position: absolute; inset: 34%; border: 2px solid #858e99; border-radius: 50%; background: #20242a; content: ""; }
 .journey-wheel-rear { left: 19%; }

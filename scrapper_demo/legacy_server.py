@@ -1508,11 +1508,20 @@ def api_admin_debugging_bundle(slug):
         return denied
     try:
         job_dir = _job_repository().job_dir(slug, require=True)
-        if not (job_dir / "analysis_result.md").is_file():
+        if not any(
+            (job_dir / filename).is_file()
+            for filename in (
+                "analysis_diagnostics.json",
+                "text_research_provider_attempts.json",
+                "component_identity.json",
+                "car_info.md",
+                "raw_data.json",
+            )
+        ):
             raise FileNotFoundError(slug)
         archive_path = create_debugging_bundle(job_dir, job_dir.name)
     except FileNotFoundError:
-        return jsonify({"error": "Completed analysis not found."}), 404
+        return jsonify({"error": "Analysis attempt not found."}), 404
 
     archive_size = archive_path.stat().st_size
 

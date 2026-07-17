@@ -114,6 +114,7 @@ class CalibrationWorkflowTest(unittest.TestCase):
         dashboard = self.client.get("/token-dashboard.html")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Download debugging bundle", dashboard.data)
+        self.assertIn(b"fetch('/api/listings')", dashboard.data)
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store, max-age=0")
         self.assertEqual(dashboard.headers["Pragma"], "no-cache")
         dashboard.close()
@@ -203,6 +204,39 @@ class CalibrationWorkflowTest(unittest.TestCase):
         response.close()
         with zipfile.ZipFile(archive_path) as archive:
             self.assertIn("risk_score.json", archive.namelist())
+
+    def test_failed_analysis_attempt_can_download_debugging_bundle(self):
+        job = self._job("failed-debug-route")
+        (job / "analysis_result.md").unlink()
+        (job / "analysis_result_raw.md").unlink()
+        (job / "risk_score.json").unlink()
+        (job / "analysis_diagnostics.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "delivery": {
+                    "status": "RETRY_REQUIRED",
+                    "chargeable": False,
+                    "reason": "text_research_unavailable",
+                },
+            }),
+            encoding="utf-8",
+        )
+        self._login()
+
+        response = self.client.get(
+            "/api/admin/debugging-bundles/failed-debug-route"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        archive_path = Path(self.temp.name) / "failed-debug-route.zip"
+        archive_path.write_bytes(response.data)
+        response.close()
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            self.assertIn("analysis_diagnostics.json", names)
+            self.assertNotIn("analysis_result.md", names)
+            diagnostics = json.loads(archive.read("analysis_diagnostics.json"))
+            self.assertEqual(diagnostics["delivery"]["status"], "RETRY_REQUIRED")
 
     def test_manifest_metadata_parses_fenced_research_and_car_info_fallbacks(self):
         job = self._job("metadata-case")

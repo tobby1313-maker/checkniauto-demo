@@ -489,7 +489,9 @@ has two administrator-only exports:
 Diagnostic artifact routes, raw results, telemetry, and both exports share the
 same signed administrator session. The endpoints are
 `/api/admin/calibration-bundles/<slug>` and
-`/api/admin/debugging-bundles/<slug>`.
+`/api/admin/debugging-bundles/<slug>`. Debugging bundles are available for both
+completed and failed analysis attempts as soon as any diagnostic artifact exists;
+failed attempts do not require `analysis_result.md`.
 
 Render does not retain a calibration dataset. Download selected bundles before
 `DEMO_JOB_TTL_MINUTES` cleanup, label them offline, and import them with:

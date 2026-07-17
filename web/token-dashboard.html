@@ -438,18 +438,22 @@
                     : '<span class="muted">No intermediate files yet</span>';
                 const calibrationUrl = '/api/admin/calibration-bundles/' + encodeURIComponent(slug);
                 const debuggingUrl = '/api/admin/debugging-bundles/' + encodeURIComponent(slug);
+                const completed = artifacts.some((artifact) => artifact.filename === 'analysis_result.md');
+                const calibrationLink = completed
+                    ? `<a href="${calibrationUrl}" download>Download calibration bundle</a>`
+                    : '';
                 return `
                     <tr>
                         <td>${escapeHtml(title)}<br><span class="muted">${escapeHtml(slug)}</span></td>
-                        <td><div class="artifact-links">${links}<a href="${calibrationUrl}" download>Download calibration bundle</a><a href="${debuggingUrl}" download>Download debugging bundle</a></div></td>
+                        <td><div class="artifact-links">${links}${calibrationLink}<a href="${debuggingUrl}" download>Download debugging bundle</a></div></td>
                     </tr>
                 `;
             });
-            byId('artifactBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="2" class="muted">No completed demo analyses yet.</td></tr>';
+            byId('artifactBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="2" class="muted">No analysis attempts yet.</td></tr>';
         }
 
         async function loadArtifacts() {
-            const response = await fetch('/api/demo/listings');
+            const response = await fetch('/api/listings');
             if (!response.ok) return;
             const listings = await response.json();
             const selected = (listings || []).slice(0, 8);
@@ -457,7 +461,7 @@
             await Promise.all(selected.map(async (listing) => {
                 if (!listing.slug) return;
                 try {
-                    const artifactResponse = await fetch('/api/demo/listings/' + encodeURIComponent(listing.slug) + '/artifacts');
+                    const artifactResponse = await fetch('/api/listings/' + encodeURIComponent(listing.slug) + '/artifacts');
                     if (!artifactResponse.ok) return;
                     const payload = await artifactResponse.json();
                     artifactsBySlug[listing.slug] = payload.artifacts || [];
