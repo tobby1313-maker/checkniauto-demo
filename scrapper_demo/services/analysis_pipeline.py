@@ -584,6 +584,7 @@ def _enforce_research_source_policy(
         "product_or_catalog_source": 0,
         "fixed_interval_without_official_source": 0,
         "redacted_fixed_interval": 0,
+        "cost_without_price_source": 0,
         "topic_mismatch": 0,
         "source_limit": 0,
     }
@@ -662,6 +663,37 @@ def _enforce_research_source_policy(
             if not item["source_ids"]:
                 filtered_claim_counts[field] = filtered_claim_counts.get(field, 0) + 1
                 continue
+            cost_values = [
+                int(round(float(value)))
+                for value in (
+                    item.get("estimated_cost_eur_low"),
+                    item.get("estimated_cost_eur_high"),
+                )
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            ]
+            if cost_values:
+                price_source_ids = []
+                for source_id in item["source_ids"]:
+                    used_for = _fold_market_text(source_map[source_id].get("used_for"))
+                    compact_used_for = re.sub(r"\s+", "", used_for)
+                    has_price_context = any(term in used_for for term in (
+                        "cost", "price", "pricing", "estimate", "eur",
+                        "cena", "cenik", "naklad", "odhad",
+                    ))
+                    if has_price_context and all(
+                        str(value) in compact_used_for for value in cost_values
+                    ):
+                        price_source_ids.append(source_id)
+                if field == "expected_costs":
+                    if not price_source_ids:
+                        rejection_counts["cost_without_price_source"] += 1
+                        filtered_claim_counts[field] = filtered_claim_counts.get(field, 0) + 1
+                        continue
+                    item["source_ids"] = price_source_ids
+                elif field == "technical_risks" and not price_source_ids:
+                    item["estimated_cost_eur_low"] = None
+                    item["estimated_cost_eur_high"] = None
+                    rejection_counts["cost_without_price_source"] += 1
             supported_types = {
                 str(source_map[source_id].get("source_type") or "").upper()
                 for source_id in item["source_ids"]
@@ -1595,19 +1627,83 @@ def _lock_report_evidence_claims(
         )
         if isinstance(amount, (int, float)) and not isinstance(amount, bool)
     }
+    supported_technical_text = _fold_market_text(" ".join(
+        str(item.get(key) or "")
+        for field in ("web_research_findings", "technical_risks", "expected_costs")
+        for item in research.get(field) or []
+        if isinstance(item, dict)
+        for key in (
+            "claim", "issue", "item", "why", "basis", "buyer_impact",
+            "specific_vehicle_evidence", "verification_action",
+        )
+    ))
+
+    def unsupported_technical_quantity(sentence: str) -> bool:
+        folded_sentence = _fold_market_text(sentence)
+        compact_supported = re.sub(r"\s+", "", supported_technical_text)
+        normalized_numbers = {
+            number.replace(" ", "")
+            for number in re.findall(r"\b\d[\d ]*\b", folded_sentence)
+            if number.replace(" ", "")
+        }
+        if not normalized_numbers:
+            return False
+        quantity_claim = (
+            (("liter" in folded_sentence or "litre" in folded_sentence)
+             and "km" in folded_sentence)
+            or (
+                "km" in folded_sentence
+                and any(term in folded_sentence for term in (
+                    "po prekroceni", "nad ", "okolo ", "od ",
+                    "medzi ", "after ", "above ", "around ", "over ",
+                    "between ",
+                ))
+            )
+        )
+        return quantity_claim and any(
+            number not in compact_supported for number in normalized_numbers
+        )
+
+    def redact_unsupported_technical_sentences(line: str) -> str:
+        sentences = re.split(r"(?<=[.!?])\s+", line)
+        return " ".join(
+            sentence for sentence in sentences
+            if not unsupported_technical_quantity(sentence)
+        ).strip()
+
     cost_label_terms = ("odhadovany naklad", "estimated cost")
     evidence_locked_lines: list[str] = []
+    report_section = ""
     for line in text.splitlines():
         folded = _fold_market_text(line)
+        heading = re.match(r"^\s*##\s+(.+?)\s*$", line)
+        if heading:
+            folded_heading = _fold_market_text(heading.group(1))
+            if any(term in folded_heading for term in ("webove overenie", "web verification")):
+                report_section = "web"
+            elif any(term in folded_heading for term in ("technicke rizika", "technical risks")):
+                report_section = "risks"
+            elif any(term in folded_heading for term in ("ocakavane naklady", "expected costs")):
+                report_section = "costs"
+            else:
+                report_section = "other"
         if not authoritative_interval_available and _contains_fixed_service_interval(line):
             continue
-        if any(term in folded for term in cost_label_terms):
+        if report_section in {"web", "risks"}:
+            line = redact_unsupported_technical_sentences(line)
+            if not line:
+                continue
+            folded = _fold_market_text(line)
+        is_cost_table_row = report_section == "costs" and "|" in line
+        if any(term in folded for term in cost_label_terms) or is_cost_table_row:
             amounts = {
                 int(number.replace(" ", "").replace(",", "."))
                 for number in re.findall(r"\b\d[\d ]*\b", line)
                 if number.replace(" ", "").isdigit()
             }
-            if not amounts or not amounts.issubset(supported_cost_amounts):
+            if amounts and not amounts.issubset(supported_cost_amounts):
+                continue
+            if any(term in folded for term in cost_label_terms) and not amounts:
                 continue
         evidence_locked_lines.append(line)
     text = "\n".join(evidence_locked_lines).rstrip() + "\n"
@@ -3018,6 +3114,9 @@ def _multi_model_analysis_events(
         ).append(contract_diagnostics)
     initial_research_valid = (
         _valid_research_model_output(research_data)
+        and all(research_data.get(field) for field in (
+            "web_research_findings", "technical_risks", "expected_costs"
+        ))
         if research_v2_active
         else not _research_parse_failed(research_data)
     )
@@ -3107,6 +3206,9 @@ def _multi_model_analysis_events(
             research_data = {"_parse_error": True}
         recovery_valid = (
             _valid_research_model_output(research_data)
+            and all(research_data.get(field) for field in (
+                "web_research_findings", "technical_risks", "expected_costs"
+            ))
             if research_v2_active
             else not _research_parse_failed(research_data)
         )

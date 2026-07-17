@@ -129,37 +129,10 @@
         </div>
         <span class="journey-finish"></span>
         <span class="journey-car" data-progress-car>
-          <svg class="journey-car-svg" viewBox="0 0 260 108" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="journeyCarPaint" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#ff9d20"/>
-                <stop offset="0.52" stop-color="#ff6a12"/>
-                <stop offset="1" stop-color="#dc3f08"/>
-              </linearGradient>
-              <linearGradient id="journeyCarGlass" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#2d3946"/>
-                <stop offset="1" stop-color="#0e141b"/>
-              </linearGradient>
-            </defs>
-            <ellipse cx="132" cy="96" rx="112" ry="7" fill="rgba(0,0,0,.28)"/>
-            <path d="M21 71c4-15 19-22 48-26l24-22c8-7 18-11 32-11h42c17 0 29 6 40 18l14 16c19 3 31 10 36 22l-2 14H13v-7c0-3 3-4 8-4Z" fill="url(#journeyCarPaint)" stroke="#1b1e23" stroke-width="4" stroke-linejoin="round"/>
-            <path d="m76 43 23-19c6-5 13-7 23-7h10v27H76Zm63-26h26c13 0 22 5 31 15l10 12h-67V17Z" fill="url(#journeyCarGlass)" stroke="#171a1e" stroke-width="3" stroke-linejoin="round"/>
-            <path d="M16 67h22c7 0 10 3 7 9H16m224-15 13 4 3 9h-19c-5-5-4-10 3-13Z" fill="#ffe7a0"/>
-            <path d="M19 53 8 45h24l16 5" fill="#e84b09" stroke="#1b1e23" stroke-width="3" stroke-linejoin="round"/>
-            <path d="M139 48v25m-38-19h18" fill="none" stroke="#bd3508" stroke-width="3" stroke-linecap="round" opacity=".62"/>
-            <g class="journey-wheel journey-wheel-rear">
-              <circle cx="68" cy="80" r="20" fill="#14171b" stroke="#050607" stroke-width="3"/>
-              <circle cx="68" cy="80" r="11" fill="#aeb5bf"/>
-              <path d="M68 69v22M57 80h22M60 72l16 16M76 72 60 88" stroke="#3c424a" stroke-width="3"/>
-              <circle cx="68" cy="80" r="4" fill="#24282e"/>
-            </g>
-            <g class="journey-wheel journey-wheel-front">
-              <circle cx="202" cy="80" r="20" fill="#14171b" stroke="#050607" stroke-width="3"/>
-              <circle cx="202" cy="80" r="11" fill="#aeb5bf"/>
-              <path d="M202 69v22M191 80h22M194 72l16 16M210 72l-16 16" stroke="#3c424a" stroke-width="3"/>
-              <circle cx="202" cy="80" r="4" fill="#24282e"/>
-            </g>
-          </svg>
+          <img class="journey-car-art journey-car-body" src="/assets/journey-car-body.svg" alt="" draggable="false">
+          <img class="journey-car-art journey-car-details" src="/assets/journey-car-details.svg" alt="" draggable="false">
+          <i class="journey-wheel journey-wheel-rear"></i>
+          <i class="journey-wheel journey-wheel-front"></i>
         </span>
       </div>
       <strong class="journey-percent" data-progress-percent aria-live="polite">5%</strong>

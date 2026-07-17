@@ -375,7 +375,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "source_id": "workshop", "source_name": "DQ500 workshop",
             "source_type": "REPAIR_SOURCE", "reliability": "MEDIUM",
             "source_url": "https://workshop.test/dq500-service", "verified_url": True,
-            "used_for": "DQ500 oil change cost and filter service",
+            "used_for": "DQ500 oil change cost 185-228 EUR and filter service",
         }]
         diagnostics = {}
 
@@ -388,6 +388,58 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(len(filtered["expected_costs"]), 1)
         self.assertFalse(_contains_fixed_service_interval(filtered["expected_costs"][0]["item"]))
         self.assertEqual(diagnostics["source_rejection_counts"]["redacted_fixed_interval"], 1)
+
+    def test_source_policy_requires_exact_price_evidence_for_numeric_costs(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 60
+        packet["technical_risks"] = [{
+            "component": "DQ500",
+            "issue": "Mechatronic failure",
+            "risk_level": "HIGH",
+            "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "Possible shifting failure",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Run diagnostics",
+            "estimated_cost_eur_low": 1000,
+            "estimated_cost_eur_high": 2000,
+            "confidence": "Stredna",
+            "source_ids": ["article"],
+        }]
+        packet["expected_costs"] = [{
+            "item": "DQ500 oil service",
+            "why": "Preventive maintenance",
+            "estimated_cost_eur_low": 250,
+            "estimated_cost_eur_high": 400,
+            "cost_type": "initial_service",
+            "urgency": "high",
+            "basis": "Workshop estimate",
+            "source_ids": ["article"],
+        }]
+        packet["sources_used"] = [{
+            "source_id": "article",
+            "source_name": "DQ500 reliability article",
+            "source_type": "TECHNICAL_PUBLICATION",
+            "reliability": "MEDIUM",
+            "source_url": "https://example.test/dq500",
+            "verified_url": True,
+            "used_for": "DQ500 mechatronic failure and oil service interval",
+        }]
+        diagnostics = {}
+
+        filtered = _enforce_research_source_policy(
+            _normalize_research_model_output(packet),
+            verified_source_urls={"https://example.test/dq500"},
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(len(filtered["technical_risks"]), 1)
+        self.assertIsNone(filtered["technical_risks"][0]["estimated_cost_eur_low"])
+        self.assertIsNone(filtered["technical_risks"][0]["estimated_cost_eur_high"])
+        self.assertEqual(filtered["expected_costs"], [])
+        self.assertEqual(
+            diagnostics["source_rejection_counts"]["cost_without_price_source"],
+            2,
+        )
 
     def test_report_lock_removes_unofficial_interval_and_invented_cost_range(self):
         report = (
@@ -426,6 +478,47 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertNotIn("60 000 km", locked)
         self.assertNotIn("800 – 2 500", locked)
         self.assertIn("185 – 228", locked)
+
+    def test_report_lock_removes_unsupported_table_costs_and_technical_quantities(self):
+        report = (
+            "# Report\n\n## Web verification\n\n"
+            "- Oil consumption is documented. It can exceed 1 litre per 1 000 km.\n"
+            "- The issue often appears above 150 000 km.\n\n"
+            "- The critical period is between 120 000 and 180 000 km.\n\n"
+            "## Technical risks\n\n- **Estimated cost:** 800 - 2 500 EUR.\n\n"
+            "## Expected costs over the next 30 000 km\n\n"
+            "| Item | Estimated EUR |\n|---|---:|\n"
+            "| Supported service | 185 - 228 |\n"
+            "| Invented repair | 1 500 - 2 500 |\n"
+        )
+        research = {
+            "web_research_findings": [{"claim": "Oil consumption is documented"}],
+            "technical_risks": [{
+                "issue": "Mechatronic failure",
+                "estimated_cost_eur_low": None,
+                "estimated_cost_eur_high": None,
+            }],
+            "expected_costs": [{
+                "item": "Supported service",
+                "estimated_cost_eur_low": 185,
+                "estimated_cost_eur_high": 228,
+            }],
+            "sources_used": [],
+            "listing_facts": {},
+            "market_assessment": {"benchmark_available": False},
+            "market_comparables": [],
+        }
+
+        locked = _lock_report_evidence_claims(report, research, {}, output_language="en")
+
+        self.assertIn("Oil consumption is documented.", locked)
+        self.assertNotIn("1 litre per 1 000 km", locked)
+        self.assertNotIn("150 000 km", locked)
+        self.assertNotIn("120 000", locked)
+        self.assertNotIn("180 000 km", locked)
+        self.assertIn("185 - 228", locked)
+        self.assertNotIn("1 500 - 2 500", locked)
+        self.assertNotIn("800 - 2 500", locked)
 
     def test_incomplete_research_delivery_gate_caps_green_verdict(self):
         risk_score = {
@@ -1124,11 +1217,46 @@ Vo\u013En\u00fd text z modelu.
                                 "evidence_category": "NEEDS_VERIFICATION",
                                 "source_ids": [],
                             },
-                            "web_research_findings": [],
-                            "technical_risks": [],
-                            "expected_costs": [],
+                            "web_research_findings": [{
+                                "claim": "Sample issue",
+                                "evidence_category": "MODEL_LEVEL_RISK",
+                                "buyer_impact": "Inspect before purchase",
+                                "confidence": "Stredna",
+                                "source_ids": ["src_sample"],
+                            }],
+                            "technical_risks": [{
+                                "component": "Sample component",
+                                "issue": "Sample issue",
+                                "risk_level": "CHECK",
+                                "evidence_category": "MODEL_LEVEL_RISK",
+                                "buyer_impact": "Possible wear",
+                                "specific_vehicle_evidence": "",
+                                "verification_action": "Inspect before purchase",
+                                "estimated_cost_eur_low": None,
+                                "estimated_cost_eur_high": None,
+                                "confidence": "Stredna",
+                                "source_ids": ["src_sample"],
+                            }],
+                            "expected_costs": [{
+                                "item": "Sample service",
+                                "why": "Baseline maintenance",
+                                "estimated_cost_eur_low": 100,
+                                "estimated_cost_eur_high": 150,
+                                "cost_type": "initial_service",
+                                "urgency": "medium",
+                                "basis": "Published workshop price",
+                                "source_ids": ["src_sample"],
+                            }],
                             "text_research_risk_flags": [],
-                            "sources_used": [],
+                            "sources_used": [{
+                                "source_id": "src_sample",
+                                "source_name": "Sample workshop",
+                                "source_type": "REPAIR_SOURCE",
+                                "reliability": "MEDIUM",
+                                "source_url": "https://workshop.test/sample",
+                                "verified_url": True,
+                                "used_for": "Sample issue and sample service cost 100-150 EUR",
+                            }],
                         }
                     ), entries[0]
                 raise AssertionError(f"Unexpected collected phase: {phase}")
@@ -1301,8 +1429,8 @@ Vo\u013En\u00fd text z modelu.
             self.assertTrue(repository.read_text("sample", "text_research_provider_attempts.json"))
             diagnostics = json.loads(repository.read_text("sample", "analysis_diagnostics.json"))
             text_diagnostics = diagnostics["phases"]["text_research"]
-            self.assertEqual(text_diagnostics["status"], "degraded")
-            self.assertEqual(text_diagnostics["research_status"], "limited")
+            self.assertEqual(text_diagnostics["status"], "completed")
+            self.assertEqual(text_diagnostics["research_status"], "completed")
             self.assertTrue(text_diagnostics["recovery_attempted"])
             self.assertTrue(text_diagnostics["recovered"])
             self.assertIn("policy", text_diagnostics)

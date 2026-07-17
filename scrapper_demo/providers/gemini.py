@@ -385,9 +385,11 @@ Postup researchu:
 7. CarSurvey a specializovane fora pouzi iba na hladanie opakujucich sa
    symptomov presne identifikovanej kombinacie. Jasne ich oznac ako owner report
    alebo anekdoticky zdroj; nikdy nimi nepotvrdzuj vadu konkretneho vozidla.
-8. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Rozlis bezny vstupny servis,
-   diagnostiku, podmienene opravy a drahy downside; podmienene opravy nikdy
-   neprezentuj ako ocakavany sucet.
+8. Zisti orientacne SK/CZ/EU ceny servisu a opravy. Pre kazdu presnu sumu alebo
+   rozsah najdi priamy verejny cennik servisu, dielne alebo opravcu, ktory danu
+   sumu skutocne publikuje. Rozlis bezny vstupny servis, diagnostiku, podmienene
+   opravy a drahy downside; podmienene opravy nikdy neprezentuj ako ocakavany
+   sucet. Ak priamy cenovy zdroj nenajdes, neuvadzaj presnu sumu.
 9. Ak je uvedeny VIN, urob aj lahku samostatnu kontrolu presneho VIN vo vyhladavani
    (hladaj cely retazec v uvodzovkach). Uved iba konkretnu relevantnu verejnu
    zmienku o aukcii, poistnej udalosti, servise alebo inom zazname, ak sa najde.
@@ -415,7 +417,9 @@ Pravidla:
   pohonu ani generacie len kvoli strucnosti.
 - URL citacie: pouzi iba odkazy, ktore vyzeraju ako realne existujuce verejne stranky.
 - Nepouzivaj presmerovacie URL z Google/Vertex AI ako verejne zdroje. Ak mas iba taky odkaz, uveď nazov zdroja a napis: "URL citacia nie je overitelna."
-- Ak nevies dolozit cenu alebo naklad, napis, ze ide iba o orientacny odhad.
+- Presnu cenu alebo naklad uved iba s priamym URL zdrojom, ktory publikuje rovnaku
+  sumu alebo rozsah. Oznacenie "orientacny odhad" nenahradza cenovy zdroj; bez
+  takeho zdroja uved iba potrebu vyziadat cenovu ponuku bez cisla.
 
 Format:
 

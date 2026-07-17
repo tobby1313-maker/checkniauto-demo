@@ -15,7 +15,8 @@ class RedesignProgressTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
     def test_hybrid_progress_uses_svg_car_and_classic_finish(self):
-        self.assertIn('class="journey-car-svg"', self.html)
+        self.assertIn('src="/assets/journey-car-body.svg"', self.html)
+        self.assertIn('src="/assets/journey-car-details.svg"', self.html)
         self.assertIn('class="journey-wheel journey-wheel-rear"', self.html)
         self.assertIn('class="journey-wheel journey-wheel-front"', self.html)
         self.assertIn('class="journey-road-surface"', self.html)
