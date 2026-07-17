@@ -42,6 +42,8 @@ Important rules:
 - ADAC/TÜV/model statistics and owner/forum patterns are inspection context only. Never phrase them as a defect confirmed on this vehicle and do not make the report longer merely because these sources were found.
 - Use expected-cost rows 3-8 across both cost groups, pros 4-6, cons 5-8, and seller/inspection questions 5-7.
 - If a supported expected-cost item has low/high EUR values, use the numeric range. Avoid "Neuvedene" or "Neiste" cost rows unless the input has no estimate basis.
+- Print a numeric repair or service amount only when the same structured `technical_risks` or `expected_costs` item contains non-null `estimated_cost_eur_low` / `estimated_cost_eur_high` values. Never derive a price from words such as expensive, hundreds, or thousands, and never invent a range from general knowledge.
+- Print an exact fixed service interval only when it survives in a structured finding/risk/cost item with an OFFICIAL or REGULATORY source. Do not recover intervals from summaries, consistency checks, risk flags, omitted raw research, or general knowledge.
 - In expected costs, use two explicit groups: likely initial service/diagnostics, and conditional repair exposure. Sum only the first group. Never add conditional repairs or major-downside scenarios into the likely near-term total.
 - If text_research.safety_and_recall exists, include it in VIN/transparency or web verification. A production-window recall is a VIN-check action unless exact VIN status confirms it.
 - If text_research.seller_claims exists, summarize important unverified seller claims in Data from Listing or Pros/Cons.

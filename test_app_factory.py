@@ -39,6 +39,7 @@ class DemoServerConfigTest(unittest.TestCase):
                     "SCRAPPER_DATA_DIR": temp_dir,
                     "FLASK_SECRET_KEY": "configured-secret",
                     "GEMINI_PRIMARY_API_KEY": " primary ",
+                    "GEMINI_SECOND_BACKUP_API_KEY": " second-backup ",
                 },
             )
 
@@ -52,6 +53,7 @@ class DemoServerConfigTest(unittest.TestCase):
         self.assertEqual(config.auta_dir, os.path.join(temp_dir, "Auta"))
         self.assertEqual(config.flask_secret_key, "configured-secret")
         self.assertEqual(config.gemini_primary_api_key, "primary")
+        self.assertEqual(config.gemini_second_backup_api_key, "second-backup")
 
     def test_invalid_numeric_configuration_fails_with_variable_name(self):
         with self.assertRaisesRegex(ValueError, "DEMO_JOB_TTL_MINUTES"):
@@ -193,6 +195,7 @@ class ApplicationFactoryTest(unittest.TestCase):
                 "TESTING": True,
                 "GEMINI_PRIMARY_API_KEY": "factory-primary",
                 "GEMINI_BACKUP_API_KEY": "factory-backup",
+                "GEMINI_SECOND_BACKUP_API_KEY": "factory-second-backup",
                 "GROK_API_KEY": "factory-grok",
                 "OPENROUTER_API_KEY": "factory-openrouter",
             }
@@ -201,7 +204,11 @@ class ApplicationFactoryTest(unittest.TestCase):
         with app.test_request_context("/"):
             self.assertEqual(
                 web_server._demo_api_keys(),
-                ["factory-primary", "factory-backup"],
+                [
+                    "factory-primary",
+                    "factory-backup",
+                    "factory-second-backup",
+                ],
             )
             self.assertEqual(web_server._demo_grok_api_key(), "factory-grok")
             self.assertEqual(web_server._demo_openrouter_api_key(), "factory-openrouter")

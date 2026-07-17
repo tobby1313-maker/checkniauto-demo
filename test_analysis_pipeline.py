@@ -10,6 +10,7 @@ from scrapper_demo.providers.errors import ModelOutputLimitError, RateLimitError
 from scrapper_demo.services.analysis_pipeline import (
     AnalysisPipelineDependencies,
     _apply_research_delivery_gate,
+    _contains_fixed_service_interval,
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
     _canonical_research_from_v2,
@@ -333,6 +334,75 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
 
         self.assertEqual(len(filtered["technical_risks"]), 1)
         self.assertEqual(filtered["technical_risks"][0]["confidence"], "Nizka")
+
+    def test_source_policy_redacts_unofficial_interval_but_keeps_supported_cost(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"]["data_completeness_score"] = 60
+        packet["expected_costs"] = [{
+            "item": "DQ500 oil and filter service every 60000 km",
+            "why": "Preventive service is due every 60000 km when history is unknown.",
+            "estimated_cost_eur_low": 185,
+            "estimated_cost_eur_high": 228,
+            "cost_type": "initial_service",
+            "urgency": "medium",
+            "basis": "Workshop price for DQ500 oil service at 60000 km",
+            "source_ids": ["workshop"],
+        }]
+        packet["sources_used"] = [{
+            "source_id": "workshop", "source_name": "DQ500 workshop",
+            "source_type": "REPAIR_SOURCE", "reliability": "MEDIUM",
+            "source_url": "https://workshop.test/dq500-service", "verified_url": True,
+            "used_for": "DQ500 oil change cost and filter service",
+        }]
+        diagnostics = {}
+
+        filtered = _enforce_research_source_policy(
+            _normalize_research_model_output(packet),
+            verified_source_urls={"https://workshop.test/dq500-service"},
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(len(filtered["expected_costs"]), 1)
+        self.assertFalse(_contains_fixed_service_interval(filtered["expected_costs"][0]["item"]))
+        self.assertEqual(diagnostics["source_rejection_counts"]["redacted_fixed_interval"], 1)
+
+    def test_report_lock_removes_unofficial_interval_and_invented_cost_range(self):
+        report = (
+            "# Report\n\n## 🔧 Technické riziká modelu a komponentov\n\n"
+            "- **Kedy sa prejavuje:** Servis je každých 60 000 km.\n"
+            "- **Odhadovaný náklad:** 800 – 2 500 EUR.\n\n"
+            "## 🛠️ Očakávané náklady na najbližších 30 000 km\n\n"
+            "| Položka | Odhad EUR |\n|---|---:|\n| DSG servis | 185 – 228 |\n"
+        )
+        research = {
+            "web_research_findings": [{"claim": "DQ500 needs regular oil service"}],
+            "technical_risks": [{
+                "issue": "Mechatronic failure",
+                "estimated_cost_eur_low": None,
+                "estimated_cost_eur_high": None,
+                "source_ids": ["workshop"],
+            }],
+            "expected_costs": [{
+                "item": "DQ500 oil service",
+                "estimated_cost_eur_low": 185,
+                "estimated_cost_eur_high": 228,
+                "source_ids": ["workshop"],
+            }],
+            "sources_used": [{
+                "source_id": "workshop", "source_type": "REPAIR_SOURCE",
+                "verified_url": True,
+            }],
+            "listing_facts": {},
+            "vin_check": {},
+            "market_assessment": {"benchmark_available": False},
+            "market_comparables": [],
+        }
+
+        locked = _lock_report_evidence_claims(report, research, {}, output_language="sk")
+
+        self.assertNotIn("60 000 km", locked)
+        self.assertNotIn("800 – 2 500", locked)
+        self.assertIn("185 – 228", locked)
 
     def test_incomplete_research_delivery_gate_caps_green_verdict(self):
         risk_score = {

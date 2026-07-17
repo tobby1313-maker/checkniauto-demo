@@ -509,6 +509,34 @@ def _contains_fixed_service_interval(value: Any) -> bool:
     )
 
 
+def _redact_fixed_service_interval(value: Any) -> str:
+    """Remove exact distance/time values while preserving the service recommendation."""
+    text = str(value or "").strip()
+    if not _contains_fixed_service_interval(text):
+        return text
+    folded = _fold_market_text(text)
+    replacement = (
+        "podľa servisného plánu výrobcu"
+        if any(term in folded for term in ("kazd", "interval", "vymen", "servis"))
+        and any(char in text for char in "áäčďéíľĺňóôŕšťúýž")
+        else "according to the manufacturer service schedule"
+    )
+    text = re.sub(
+        r"\b(?:every|each|after|at|ka[zž]d\w*|po)\s+"
+        r"\d[\d\s.,]*(?:km|kilomet(?:er|re)?s?|miles?|mesiac\w*|months?|rok\w*|years?)\b",
+        replacement,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\b\d[\d\s.,]*(?:km|kilomet(?:er|re)?s?|miles?|mesiac\w*|months?|rok\w*|years?)\b",
+        replacement,
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _enforce_research_source_policy(
     packet: dict[str, Any],
     *,
@@ -539,16 +567,13 @@ def _enforce_research_source_policy(
         "unsupported_source_type": 0,
         "product_or_catalog_source": 0,
         "fixed_interval_without_official_source": 0,
+        "redacted_fixed_interval": 0,
         "topic_mismatch": 0,
         "source_limit": 0,
     }
     filtered_claim_counts: dict[str, int] = {}
 
     def supported_ids(item: Mapping[str, Any], text_key: str) -> list[str]:
-        claim_text = " ".join(
-            str(item.get(key) or "")
-            for key in ("component", text_key, "why", "basis")
-        ).strip()
         policy_text = " ".join(
             str(item.get(key) or "")
             for key in (
@@ -556,6 +581,27 @@ def _enforce_research_source_policy(
             )
         )
         fixed_interval = _contains_fixed_service_interval(policy_text)
+        raw_source_ids = item.get("source_ids") if isinstance(item.get("source_ids"), list) else []
+        referenced_sources = [
+            source_map.get(str(source_id or "").strip())
+            for source_id in raw_source_ids
+        ]
+        has_authoritative_interval_source = any(
+            isinstance(source, dict)
+            and source.get("verified_url") is True
+            and str(source.get("source_type") or "").upper() in {"OFFICIAL", "REGULATORY"}
+            for source in referenced_sources
+        )
+        if fixed_interval and text_key == "item" and not has_authoritative_interval_source:
+            if isinstance(item, dict):
+                for key in ("item", "why", "basis"):
+                    item[key] = _redact_fixed_service_interval(item.get(key))
+            fixed_interval = False
+            rejection_counts["redacted_fixed_interval"] += 1
+        claim_text = " ".join(
+            str(item.get(key) or "")
+            for key in ("component", text_key, "why", "basis")
+        ).strip()
         accepted: list[str] = []
         for raw_id in item.get("source_ids") if isinstance(item.get("source_ids"), list) else []:
             source_id = str(raw_id or "").strip()
@@ -612,6 +658,26 @@ def _enforce_research_source_policy(
                 item["confidence"] = "Stredna"
             filtered.append(item)
         packet[field] = filtered[:RESEARCH_V2_ARRAY_LIMITS[field]]
+
+    summary = packet.get("evidence_summary")
+    if isinstance(summary, dict):
+        for key in ("strongest_evidence", "weakest_evidence"):
+            summary[key] = [
+                text for text in summary.get(key) or []
+                if not _contains_fixed_service_interval(text)
+            ][:3]
+    packet["consistency_checks"] = [
+        item for item in packet.get("consistency_checks") or []
+        if isinstance(item, dict)
+        and not _contains_fixed_service_interval(
+            " ".join(str(item.get(key) or "") for key in ("check", "explanation"))
+        )
+    ]
+    for item in packet.get("text_research_risk_flags") or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ("risk", "why_it_matters_to_buyer", "evidence"):
+            item[key] = _redact_fixed_service_interval(item.get(key))
 
     safety = packet.get("safety_and_recall")
     if isinstance(safety, dict):
@@ -1486,6 +1552,49 @@ def _lock_report_evidence_claims(
             ("ocakavane naklady", "expected costs"),
             [unsupported_section_messages["costs"]],
         )
+    authoritative_interval_ids = {
+        str(source.get("source_id") or "")
+        for source in research.get("sources_used") or []
+        if isinstance(source, dict)
+        and source.get("verified_url") is True
+        and str(source.get("source_type") or "").upper() in {"OFFICIAL", "REGULATORY"}
+    }
+    authoritative_interval_available = any(
+        _contains_fixed_service_interval(
+            " ".join(str(item.get(key) or "") for key in ("claim", "issue", "item", "why", "basis"))
+        )
+        and authoritative_interval_ids.intersection(map(str, item.get("source_ids") or []))
+        for field in ("web_research_findings", "technical_risks", "expected_costs")
+        for item in research.get(field) or []
+        if isinstance(item, dict)
+    )
+    supported_cost_amounts = {
+        int(round(float(amount)))
+        for field in ("technical_risks", "expected_costs")
+        for item in research.get(field) or []
+        if isinstance(item, dict)
+        for amount in (
+            item.get("estimated_cost_eur_low"),
+            item.get("estimated_cost_eur_high"),
+        )
+        if isinstance(amount, (int, float)) and not isinstance(amount, bool)
+    }
+    cost_label_terms = ("odhadovany naklad", "estimated cost")
+    evidence_locked_lines: list[str] = []
+    for line in text.splitlines():
+        folded = _fold_market_text(line)
+        if not authoritative_interval_available and _contains_fixed_service_interval(line):
+            continue
+        if any(term in folded for term in cost_label_terms):
+            amounts = {
+                int(number.replace(" ", "").replace(",", "."))
+                for number in re.findall(r"\b\d[\d ]*\b", line)
+                if number.replace(" ", "").isdigit()
+            }
+            if not amounts or not amounts.issubset(supported_cost_amounts):
+                continue
+        evidence_locked_lines.append(line)
+    text = "\n".join(evidence_locked_lines).rstrip() + "\n"
     if not research.get("technical_risks") and not research.get("web_research_findings"):
         unsupported_risk_terms = (
             "rozvod", "timing chain", "spotreba oleja", "oil consumption",

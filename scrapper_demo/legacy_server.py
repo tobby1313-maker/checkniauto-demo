@@ -797,7 +797,11 @@ def _cleanup_old_demo_jobs():
 
 def _demo_api_keys():
     keys = []
-    for env_name in ("GEMINI_PRIMARY_API_KEY", "GEMINI_BACKUP_API_KEY"):
+    for env_name in (
+        "GEMINI_PRIMARY_API_KEY",
+        "GEMINI_BACKUP_API_KEY",
+        "GEMINI_SECOND_BACKUP_API_KEY",
+    ):
         configured = _runtime_config(env_name, os.environ.get(env_name, ""))
         value = str(configured or "").strip()
         if value and value not in keys:
@@ -2986,7 +2990,10 @@ def _compact_text_research_for_final(text_research_json_text):
         "market_assessment": market_assessment,
         "market_comparables": verified_comparables,
         "expected_costs": _limited_list(data.get("expected_costs"), 10, prefer_concerns=True),
-        "text_research_risk_flags": _limited_list(data.get("text_research_risk_flags"), 8, prefer_concerns=True),
+        # Source-backed technical_risks already carry the actionable evidence.
+        # Free-form risk flags have no source_ids and must not reintroduce
+        # filtered intervals, costs, or mileage-based defect assumptions.
+        "text_research_risk_flags": [],
         # The final report does not print citations or a source registry. Keep
         # the complete registry in grok_research.json for audit/calibration,
         # but do not spend final-synthesis context on it.

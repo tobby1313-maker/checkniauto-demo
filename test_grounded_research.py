@@ -240,7 +240,7 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(len(compact["web_research_findings"]), 8)
         self.assertEqual(len(compact["technical_risks"]), 8)
         self.assertEqual(len(compact["expected_costs"]), 10)
-        self.assertEqual(len(compact["text_research_risk_flags"]), 8)
+        self.assertEqual(compact["text_research_risk_flags"], [])
         self.assertEqual(compact["sources_used"], [])
 
     def test_final_compaction_drops_unlinked_market_estimates(self):

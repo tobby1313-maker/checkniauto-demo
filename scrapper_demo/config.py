@@ -59,6 +59,7 @@ class DemoServerConfig:
     risk_scorer_v2_active: bool
     gemini_primary_api_key: str
     gemini_backup_api_key: str
+    gemini_second_backup_api_key: str
     grok_api_key: str
     openrouter_api_key: str
 
@@ -115,6 +116,9 @@ class DemoServerConfig:
             ),
             gemini_primary_api_key=values.get("GEMINI_PRIMARY_API_KEY", "").strip(),
             gemini_backup_api_key=values.get("GEMINI_BACKUP_API_KEY", "").strip(),
+            gemini_second_backup_api_key=values.get(
+                "GEMINI_SECOND_BACKUP_API_KEY", ""
+            ).strip(),
             grok_api_key=values.get("GROK_API_KEY", "").strip(),
             openrouter_api_key=values.get("OPENROUTER_API_KEY", "").strip(),
         )
@@ -145,6 +149,7 @@ class DemoServerConfig:
             "RISK_SCORER_V2_ACTIVE": self.risk_scorer_v2_active,
             "GEMINI_PRIMARY_API_KEY": self.gemini_primary_api_key,
             "GEMINI_BACKUP_API_KEY": self.gemini_backup_api_key,
+            "GEMINI_SECOND_BACKUP_API_KEY": self.gemini_second_backup_api_key,
             "GROK_API_KEY": self.grok_api_key,
             "OPENROUTER_API_KEY": self.openrouter_api_key,
         }

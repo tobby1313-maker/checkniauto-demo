@@ -183,6 +183,7 @@ $env:ADMIN_DASHBOARD_TOKEN="change-this-admin-token"
 
 $env:GEMINI_PRIMARY_API_KEY="..."
 $env:GEMINI_BACKUP_API_KEY="..."
+$env:GEMINI_SECOND_BACKUP_API_KEY="..."
 # Optional. If omitted, Gemini is used for text and final synthesis.
 $env:GROK_API_KEY="..."
 # Optional. Used for text/final synthesis when Grok is omitted.
@@ -243,6 +244,7 @@ FLASK_SECRET_KEY=<strong-random-secret>
 ADMIN_DASHBOARD_TOKEN=<strong-random-admin-token>
 GEMINI_PRIMARY_API_KEY=<server-side-key>
 GEMINI_BACKUP_API_KEY=<optional-backup-key>
+GEMINI_SECOND_BACKUP_API_KEY=<optional-second-backup-key>
 # Optional model routing overrides. Leave these unset unless you intentionally
 # want to change the default chains:
 # non-final: gemini-2.5-flash -> gemini-3.5-flash -> gemini-3.1-flash-lite
@@ -273,6 +275,7 @@ temp directory in `scrapper-demo/Auta`.
 | `RISK_SCORER_V2_ACTIVE` | `false` | Activates the offline-calibrated gate scorer. Leave disabled until holdout acceptance criteria pass. |
 | `GEMINI_PRIMARY_API_KEY` | empty | Required Gemini key for web research, vision, and Gemini fallback. |
 | `GEMINI_BACKUP_API_KEY` | empty | Optional second Gemini key retried on key/quota failures. |
+| `GEMINI_SECOND_BACKUP_API_KEY` | empty | Optional third Gemini key tried after the first backup on key/quota failures. |
 | `GEMINI_FLASH_MODEL` | `gemini-2.5-flash` | Base Gemini Flash model used by non-final phase defaults. |
 | `GEMINI_ADVANCED_FLASH_MODEL` | `gemini-3.5-flash` | Stronger Gemini Flash model used by final synthesis defaults. |
 | `GEMINI_FLASH_LITE_MODEL` | `gemini-3.1-flash-lite` | Base Gemini Flash Lite model used by low-cost extraction defaults. |
