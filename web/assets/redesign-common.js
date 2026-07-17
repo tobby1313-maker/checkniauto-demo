@@ -239,10 +239,10 @@
     return "en";
   }
 
-  function setLanguage(value) {
+  function setLanguage(value, { persist = true } = {}) {
     const normalized = String(value || "").toLowerCase();
     const next = normalized === "cs" || normalized === "cz" ? "cs" : normalized === "en" ? "en" : "sk";
-    localStorage.setItem(STORAGE.language, next);
+    if (persist) localStorage.setItem(STORAGE.language, next);
     document.documentElement.lang = next;
     document.querySelectorAll("[data-sk][data-en]").forEach((element) => {
       element.textContent = next === "cs"
@@ -313,6 +313,7 @@
   async function fetchPresentation(slug) {
     const response = await fetch(`/api/demo/listings/${encodeURIComponent(slug)}/presentation`, {
       headers: { Accept: "application/json" },
+      cache: "no-store",
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));

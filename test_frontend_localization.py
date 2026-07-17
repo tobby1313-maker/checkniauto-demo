@@ -18,14 +18,22 @@ class FrontendLocalizationTest(unittest.TestCase):
         cls.css = (cls.root / "web" / "assets" / "redesign.css").read_text(
             encoding="utf-8"
         )
+        cls.summary_script = (
+            cls.root / "web" / "assets" / "redesign-analysis.js"
+        ).read_text(encoding="utf-8")
+        cls.technical_script = (
+            cls.root / "web" / "assets" / "redesign-technical.js"
+        ).read_text(encoding="utf-8")
 
     def test_public_pages_offer_all_three_languages(self):
-        for page in self.pages:
-            self.assertIn('data-language-select', page)
-            self.assertIn('<option value="sk">SK</option>', page)
-            self.assertIn('<option value="cs">CZ</option>', page)
-            self.assertIn('<option value="en">EN</option>', page)
-            self.assertNotIn('data-language-toggle', page)
+        landing, summary, technical = self.pages
+        self.assertIn('data-language-select', landing)
+        self.assertIn('<option value="sk">SK</option>', landing)
+        self.assertIn('<option value="cs">CZ</option>', landing)
+        self.assertIn('<option value="en">EN</option>', landing)
+        for report_page in (summary, technical):
+            self.assertNotIn('data-language-select', report_page)
+            self.assertIn('data-analysis-language', report_page)
 
     def test_every_static_customer_string_has_a_czech_translation(self):
         mapped_values = {
@@ -46,6 +54,11 @@ class FrontendLocalizationTest(unittest.TestCase):
         self.assertIn('value.startsWith("cs")', self.common)
         self.assertIn('value.startsWith("sk")', self.common)
         self.assertIn('localStorage.setItem(STORAGE.language, next)', self.common)
+
+    def test_saved_reports_use_their_fixed_language_without_overwriting_preference(self):
+        self.assertIn("{ persist = true }", self.common)
+        self.assertIn("setLanguage(model.language, { persist: false })", self.summary_script)
+        self.assertIn("setLanguage(model.language, { persist: false })", self.technical_script)
 
     def test_long_content_is_contained_or_scrollable(self):
         self.assertIn("overflow-wrap: anywhere", self.css)

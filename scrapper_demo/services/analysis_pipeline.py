@@ -60,6 +60,7 @@ from scrapper_demo.market_comparables import (
     extract_grounded_market_search_pass,
     fetch_ecb_reference_rates,
     is_customer_facing_market_comparable,
+    strict_background_market_precheck,
 )
 from scrapper_demo.validation import (
     _ensure_end_analysis_marker,
@@ -1215,9 +1216,24 @@ def _valid_research_model_output(value: Any) -> bool:
 
 def _unavailable_research_model_output(
     reason: str = "Research model output was unavailable.",
+    *,
+    output_language: str = "sk",
 ) -> dict[str, Any]:
     """Return a schema-valid, claim-free Research V2 fallback."""
-    message = str(reason or "Research model output was unavailable.")[:300]
+    diagnostic_message = str(reason or "Research model output was unavailable.")[:300]
+    language = normalize_language(output_language)
+    item = _localized(
+        language,
+        sk="Technické overenie modelu",
+        cs="Technické ověření modelu",
+        en="Model-specific technical research",
+    )
+    message = _localized(
+        language,
+        sk="Automatické technické overenie nebolo dostupné. Pred rozhodnutím ho doplňte manuálne alebo v nezávislom servise.",
+        cs="Automatické technické ověření nebylo dostupné. Před rozhodnutím ho doplňte ručně nebo v nezávislém servisu.",
+        en="Automatic technical research was unavailable. Complete it manually or through an independent workshop before deciding.",
+    )
     return {
         "schema_version": 2,
         "source_role": "research_model_output",
@@ -1225,12 +1241,12 @@ def _unavailable_research_model_output(
             "data_completeness_score": 0,
             "overall_confidence": "LOW",
             "strongest_evidence": [],
-            "weakest_evidence": [message],
+            "weakest_evidence": [diagnostic_message],
         },
         "seller_claims": [],
         "missing_or_uncertain_data": [
             {
-                "item": "Automatic technical research",
+                "item": item,
                 "why_it_matters": message,
                 "severity": "high",
             }
@@ -1239,8 +1255,18 @@ def _unavailable_research_model_output(
         "consistency_checks": [],
         "safety_and_recall": {
             "status": "INSUFFICIENT_DATA",
-            "summary": "Automatic recall research was unavailable.",
-            "required_action": "Verify campaigns manually with the VIN.",
+            "summary": _localized(
+                language,
+                sk="Automatické overenie zvolávacích akcií nebolo dostupné.",
+                cs="Automatické ověření svolávacích akcí nebylo dostupné.",
+                en="Automatic recall research was unavailable.",
+            ),
+            "required_action": _localized(
+                language,
+                sk="Zvolávacie akcie overte manuálne podľa VIN.",
+                cs="Svolávací akce ověřte ručně podle VIN.",
+                en="Verify campaigns manually with the VIN.",
+            ),
             "evidence_category": "NEEDS_VERIFICATION",
             "source_ids": [],
         },
@@ -1261,7 +1287,8 @@ def _limited_research_model_output(
     packet = _normalize_research_model_output(value)
     if not _valid_research_model_output(packet):
         return _unavailable_research_model_output(
-            "Research output did not satisfy the structured contract."
+            "Research output did not satisfy the structured contract.",
+            output_language=output_language,
         )
     packet = json.loads(json.dumps(packet, ensure_ascii=False))
     slovak = str(output_language or "sk").strip().lower().startswith(("sk", "slov"))
@@ -3056,7 +3083,46 @@ def _multi_model_analysis_events(
         ),
         None,
     )
-    if mobile_pass is not None and int(mobile_pass.get("candidate_count") or 0) < 3:
+    local_pass = next(
+        (
+            item
+            for item in market_pass_results
+            if isinstance(item, dict) and item.get("pass_id") == "sk_cz"
+        ),
+        {},
+    )
+    local_strict_eligible_count = int(
+        local_pass.get("strict_eligible_count")
+        or (
+            mobile_pass.get("strict_local_eligible_count")
+            if mobile_pass is not None
+            else 0
+        )
+    )
+    direct_mobile_strict_eligible_count = int(
+        (
+            mobile_pass.get("strict_eligible_count")
+            if mobile_pass is not None
+            else 0
+        )
+        or 0
+    )
+    diagnostics["market"].update({
+        "strict_local_eligible_count": local_strict_eligible_count,
+        "direct_mobile_strict_eligible_count": direct_mobile_strict_eligible_count,
+        "grounded_mobile_strict_eligible_count": 0,
+        "mobile_grounding_needed": local_strict_eligible_count < 3,
+        "mobile_grounding_reason": (
+            "strict_local_sample_insufficient"
+            if local_strict_eligible_count < 3
+            else "strict_local_sample_sufficient"
+        ),
+    })
+    if (
+        mobile_pass is not None
+        and local_strict_eligible_count < 3
+        and direct_mobile_strict_eligible_count < 3
+    ):
         yield _status_event("Mobile.de direct access limited; trying grounded background search...")
         direct_attempts = list(mobile_pass.get("source_attempts") or [])
         try:
@@ -3085,6 +3151,17 @@ def _multi_model_analysis_events(
             grounded_mobile_pass = extract_grounded_market_search_pass(
                 mobile_grounded_text,
                 "mobile_de",
+            )
+            grounded_background_precheck = strict_background_market_precheck(
+                list(grounded_mobile_pass.get("candidates") or []),
+                listing_context_data,
+            )
+            grounded_mobile_pass["strict_background_precheck"] = grounded_background_precheck
+            grounded_mobile_pass["strict_eligible_count"] = grounded_background_precheck[
+                "eligible_count"
+            ]
+            diagnostics["market"]["grounded_mobile_strict_eligible_count"] = (
+                grounded_background_precheck["eligible_count"]
             )
             fallback_attempt = {
                 "portal": "mobile_de_grounded",
@@ -3134,6 +3211,12 @@ def _multi_model_analysis_events(
                     "parsed_candidate_count": 0,
                 }
             )
+
+    if mobile_pass is not None and local_strict_eligible_count >= 3:
+        diagnostics["market"]["mobile_grounding_skipped"] = True
+        yield _status_event(
+            "Local SK/CZ sample is sufficient; Mobile.de grounding skipped."
+        )
 
     direct_pass = market_pass_results[0] if market_pass_results else {}
     market_lines = [
@@ -3729,7 +3812,10 @@ def _multi_model_analysis_events(
             )
             if not degraded_research_fallback_used:
                 fallback_reason = initial_generation_error or "Research V2 returned invalid JSON twice."
-                research_data = _unavailable_research_model_output(fallback_reason)
+                research_data = _unavailable_research_model_output(
+                    fallback_reason,
+                    output_language=dependencies.output_language(output_language),
+                )
             text_research_json_text = dependencies.compact_json_for_prompt(research_data)
             repository.write_text(slug, "research_model_output.json", text_research_json_text)
             yield _status_event(

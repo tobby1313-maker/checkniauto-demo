@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import requests
 
@@ -275,6 +276,78 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertEqual(passes[1]["status"], "FOUND")
         self.assertEqual(passes[1]["candidate_count"], 1)
         self.assertFalse(passes[1]["candidates"][0]["display_in_report"])
+
+    def test_all_marketplaces_skips_mobile_when_three_strict_local_ads_exist(self):
+        candidates = [
+            {
+                "candidate_id": f"local-{index}",
+                "description": f"Volkswagen T-Roc 1.5 TSI DSG FWD offer {index}",
+                "year": 2022,
+                "mileage_km": 140000 + index * 5000,
+                "price_eur": 18000 + index * 500,
+                "source_country": "SK",
+                "market_scope": "PUBLIC_SK_CZ",
+                "similarity_tier": "A",
+                "price_basis": "gross_asking",
+                "source_url": f"https://auto.bazos.sk/inzerat/20000{index}/car.php",
+                "verified_url": True,
+            }
+            for index in range(3)
+        ]
+        local_pass = {
+            "pass_id": "sk_cz",
+            "candidates": candidates,
+            "candidate_count": len(candidates),
+        }
+
+        with patch(
+            "scrapper_demo.direct_market_search.search_local_marketplaces",
+            return_value=[local_pass],
+        ), patch(
+            "scrapper_demo.direct_market_search.search_mobile_de"
+        ) as mobile_search:
+            passes = search_all_marketplaces(self.listing)
+
+        mobile_search.assert_not_called()
+        self.assertEqual(passes[0]["strict_eligible_count"], 3)
+        self.assertEqual(passes[1]["status"], "SKIPPED")
+        self.assertEqual(
+            passes[1]["skip_reason"],
+            "strict_local_sample_sufficient",
+        )
+
+    def test_all_marketplaces_uses_mobile_when_local_strict_sample_is_thin(self):
+        candidates = [
+            {
+                "candidate_id": f"local-{index}",
+                "description": f"Volkswagen T-Roc 1.5 TSI DSG FWD offer {index}",
+                "year": 2022,
+                "mileage_km": 145000 + index * 5000,
+                "price_eur": 18000 + index * 500,
+                "source_country": "SK",
+                "market_scope": "PUBLIC_SK_CZ",
+                "similarity_tier": "A",
+                "price_basis": "gross_asking",
+                "source_url": f"https://auto.bazos.sk/inzerat/30000{index}/car.php",
+                "verified_url": True,
+            }
+            for index in range(2)
+        ]
+        local_pass = {"pass_id": "sk_cz", "candidates": candidates}
+        mobile_pass = {"pass_id": "mobile_de", "candidates": [], "candidate_count": 0}
+
+        with patch(
+            "scrapper_demo.direct_market_search.search_local_marketplaces",
+            return_value=[local_pass],
+        ), patch(
+            "scrapper_demo.direct_market_search.search_mobile_de",
+            return_value=[mobile_pass],
+        ) as mobile_search:
+            passes = search_all_marketplaces(self.listing)
+
+        mobile_search.assert_called_once()
+        self.assertEqual(passes[0]["strict_eligible_count"], 2)
+        self.assertEqual(passes[1]["strict_local_eligible_count"], 2)
 
     def test_mobile_de_preserves_http_access_diagnostics(self):
         response = requests.Response()

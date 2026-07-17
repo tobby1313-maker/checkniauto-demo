@@ -66,6 +66,9 @@
 
   function render() {
     const listing = model.listing;
+    all("[data-analysis-language]").forEach((element) => {
+      element.textContent = model.language === "cs" ? "CZ" : model.language.toUpperCase();
+    });
     document.title = `${listing.title} — Checkni Auto`;
     text("[data-analysis-title]", listing.title);
     text("[data-price]", CA.formatMoney(listing.price_eur, model.language));
@@ -104,7 +107,7 @@
     const slug = CA.slugFromPath();
     try {
       model = await CA.fetchPresentation(slug);
-      CA.setLanguage(model.language);
+      CA.setLanguage(model.language, { persist: false });
       CA.rememberAnalysis(slug);
       $("[data-loading]").classList.add("hidden");
       $("[data-content]").classList.remove("hidden");

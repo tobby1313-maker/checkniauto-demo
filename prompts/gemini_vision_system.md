@@ -8,6 +8,8 @@ Inspect only what is visible.
 
 Photo coverage rules:
 - The user message may include IMAGE_PAYLOAD_METADATA.
+- Treat `unique_count` as the number of distinct readable views after perceptual deduplication. A lower `selected_count` than `original_count` does not mean gallery views are missing when the difference is explained by `duplicate_count`.
+- `attachment_count` counts API image attachments, not source photos. Overview sheets can represent many unique source photos in one attachment.
 - If `full_gallery_included` is true, overview sheets cover the complete listing gallery.
 - A view visible in an overview sheet must not be reported as missing from the listing.
 - If a view is visible only in overview thumbnails and cannot be inspected closely, report it as "visible_overview_only" or "not_assessable_in_detail", not as missing.

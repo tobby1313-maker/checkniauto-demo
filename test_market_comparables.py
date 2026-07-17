@@ -9,10 +9,71 @@ from scrapper_demo.market_comparables import (
     is_customer_facing_market_comparable,
     reconcile_market_comparable_urls,
     select_market_recommendations,
+    strict_background_market_precheck,
+    strict_local_market_precheck,
 )
 
 
 class MarketComparableDeduplicationTests(unittest.TestCase):
+    def test_strict_background_precheck_does_not_count_irrelevant_cards(self):
+        listing = {"year": 2014, "mileage_km": 200000}
+        base = {
+            "description": "Volkswagen Tiguan 2.0 TSI DSG 4Motion",
+            "year": 2013,
+            "mileage_km": 190000,
+            "price_eur": 12000,
+            "source_country": "DE",
+            "market_scope": "BACKGROUND_EU",
+            "similarity_tier": "A",
+            "price_basis": "gross_asking",
+            "verified_url": True,
+        }
+        candidates = [
+            {**base, "candidate_id": "wrong-tier", "similarity_tier": "B", "source_url": "https://suchen.mobile.de/fahrzeuge/details.html?id=1"},
+            {**base, "candidate_id": "wrong-year", "year": 2021, "source_url": "https://suchen.mobile.de/fahrzeuge/details.html?id=2"},
+            {**base, "candidate_id": "wrong-mileage", "mileage_km": 50000, "source_url": "https://suchen.mobile.de/fahrzeuge/details.html?id=3"},
+        ]
+
+        result = strict_background_market_precheck(candidates, listing)
+
+        self.assertEqual(result["candidate_count"], 3)
+        self.assertEqual(result["eligible_count"], 0)
+        self.assertFalse(result["sufficient"])
+
+    def test_strict_local_precheck_uses_tier_year_mileage_and_dedup(self):
+        listing = {
+            "year": 2014,
+            "mileage_km": 200000,
+            "source_url": "https://auto.bazos.sk/inzerat/100/current.php",
+        }
+        base = {
+            "description": "Volkswagen Tiguan 2.0 TSI DSG 4Motion",
+            "year": 2013,
+            "mileage_km": 190000,
+            "price_eur": 12000,
+            "source_country": "SK",
+            "market_scope": "PUBLIC_SK_CZ",
+            "similarity_tier": "A",
+            "price_basis": "gross_asking",
+            "verified_url": True,
+        }
+        candidates = [
+            {**base, "candidate_id": "a", "source_url": "https://auto.bazos.sk/inzerat/201/a.php"},
+            {**base, "candidate_id": "duplicate", "source_url": "https://auto.bazos.sk/inzerat/202/a.php"},
+            {**base, "candidate_id": "b", "mileage_km": 210000, "source_url": "https://auto.bazos.sk/inzerat/203/b.php"},
+            {**base, "candidate_id": "wrong-tier", "similarity_tier": "B", "mileage_km": 220000, "source_url": "https://auto.bazos.sk/inzerat/204/c.php"},
+        ]
+
+        result = strict_local_market_precheck(candidates, listing)
+
+        self.assertEqual(result["eligible_count"], 2)
+        self.assertFalse(result["sufficient"])
+        self.assertEqual(result["rejection_counts"]["DUPLICATE_VEHICLE"], 1)
+        self.assertEqual(
+            result["rejection_counts"]["SIMILARITY_BELOW_STRICT_TIER"],
+            1,
+        )
+
     def test_grounded_detail_url_is_accepted_only_on_exact_citation_match(self):
         url = "https://auto.bazos.sk/inzerat/123456/toyota-rav4.php"
         grounded = (

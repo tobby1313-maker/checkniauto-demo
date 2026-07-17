@@ -327,9 +327,11 @@ The main UI is `web/index.html`.
 
 It provides:
 
-- Slovak/Czech/English output language selector. On a first visit the UI selects
-  Slovak for Slovak locales, Czech for Czech locales, and English otherwise;
-  the visitor's manual selection is then remembered locally.
+- Slovak/Czech/English output language selector before analysis. On a first
+  visit the UI selects Slovak for Slovak locales, Czech for Czech locales, and
+  English otherwise; the visitor's manual selection is then remembered locally.
+  Saved result pages stay in the language in which their analysis was generated
+  so generated prose is never mixed with another UI language.
 - Light/dark theme toggle.
 - URL mode for supported marketplaces.
 - Manual mode for unsupported marketplaces.

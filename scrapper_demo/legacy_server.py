@@ -98,6 +98,7 @@ WEB_DIR = SERVER_CONFIG.web_dir
 LLM_IMAGE_MAX_SIDE = image_service.LLM_IMAGE_MAX_SIDE
 LLM_IMAGE_QUALITY = image_service.LLM_IMAGE_QUALITY
 MAX_ANALYSIS_COLLAGES = image_service.MAX_ANALYSIS_COLLAGES
+AI_MAX_VISION_ATTACHMENTS = image_service.AI_MAX_VISION_ATTACHMENTS
 LLM_COLLAGE_COLUMNS = image_service.LLM_COLLAGE_COLUMNS
 LLM_COLLAGE_ROWS = image_service.LLM_COLLAGE_ROWS
 MAX_ANALYSIS_IMAGES = image_service.MAX_ANALYSIS_IMAGES
@@ -1796,11 +1797,15 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
         image_meta = {
             "coverage_mode": "none",
             "original_count": 0,
+            "unique_count": 0,
+            "duplicate_count": 0,
             "selected_originals": [],
             "optimized_files": [],
             "collage_groups": [],
             "collage_count": 0,
             "selected_count": 0,
+            "attachment_count": 0,
+            "attachment_limit": AI_MAX_VISION_ATTACHMENTS,
             "overview_count": 0,
             "detail_count": 0,
             "overview_includes_all": False,
@@ -1815,6 +1820,11 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
     )
     image_list += (
         f"- Coverage mode: {image_meta.get('coverage_mode', 'unknown')}\n"
+        f"- Unique photos after perceptual deduplication: "
+        f"{image_meta.get('unique_count', image_meta['original_count'])}; "
+        f"duplicates skipped: {image_meta.get('duplicate_count', 0)}\n"
+        f"- Vision attachments: {image_meta.get('attachment_count', len(image_data_list))}/"
+        f"{image_meta.get('attachment_limit', AI_MAX_VISION_ATTACHMENTS)}\n"
         f"- Full gallery included in image payload: {bool(image_meta.get('full_gallery_included'))}\n"
         f"- Overview sheets include all originals: {bool(image_meta.get('overview_includes_all'))}\n"
         f"- Overview sheets: {image_meta.get('overview_count', 0)}, detail photos: {image_meta.get('detail_count', 0)}\n"
@@ -1829,7 +1839,9 @@ def _build_analysis_payload(slug_dir, slug, prompt_version="v3", output_language
         )
         image_list += f"- {group['collage']} ({group_type}) obsahuje: {item_list}\n"
 
-    if image_meta.get("selected_count", len(image_data_list)) < image_meta["original_count"]:
+    if image_meta.get("selected_count", len(image_data_list)) < image_meta.get(
+        "unique_count", image_meta["original_count"]
+    ):
         image_list += (
             f"\n⚠️ Poznámka: Do LLM bolo odoslaných {image_meta.get('selected_count', len(image_data_list))} "
             f"reprezentatívnych fotografií zlúčených do {image_meta.get('collage_count', len(image_data_list))} "

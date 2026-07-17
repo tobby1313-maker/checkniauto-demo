@@ -129,6 +129,7 @@ img { max-width: 100%; }
 }
 .language-select { width: auto; min-width: 64px; padding-right: 28px; color: var(--text); cursor: pointer; }
 .language-select option { background: var(--panel); color: var(--text); }
+.analysis-language-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; cursor: default; }
 .button-primary { border-color: var(--brand); background: var(--brand); color: #fff; }
 .button-ghost { background: transparent; }
 .button { max-width: 100%; padding: 0 18px; white-space: normal; text-align: center; }
@@ -507,7 +508,7 @@ img { max-width: 100%; }
   .wrap { width: min(100% - 28px, var(--max)); }
   .header-row { min-height: 58px; }
   .brand small, .header-actions .desktop-only { display: none; }
-  .result-page .header-actions [data-language-select], .result-page .header-actions [data-theme-toggle] { display: none; }
+  .result-page .header-actions [data-analysis-language], .result-page .header-actions [data-theme-toggle] { display: none; }
   .brand img { width: 34px; height: 34px; }
   .hero-landing { padding: 58px 0 48px; }
   .hero-copy h1 { font-size: 44px; }
@@ -548,7 +549,7 @@ img { max-width: 100%; }
   .technical-toolbar [data-copy-report] { display: none; }
   .technical-toolbar [data-share] { display: none; }
   .technical-page > .site-header { min-height: 58px; padding-inline: 14px; }
-  .technical-page > .site-header [data-language-select] { display: none; }
+  .technical-page > .site-header [data-analysis-language] { display: none; }
   .technical-shell { width: min(100% - 28px, var(--max)); gap: 22px; padding-top: 18px; }
   .technical-shell > .technical-nav { top: 112px; margin-inline: -14px; padding-inline: 14px; }
   .verdict-banner { grid-template-columns: auto 1fr; }

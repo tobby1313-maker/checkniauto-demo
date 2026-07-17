@@ -110,7 +110,7 @@ class PresentationPayloadTest(unittest.TestCase):
                         "title": "Public comparable",
                         "detail_url": "https://example.com/car",
                         "display_in_report": True,
-                        "price_eur": 18500,
+                        "normalized_price_eur": 18500,
                     },
                     {
                         "title": "Background only",
@@ -151,6 +151,7 @@ class PresentationPayloadTest(unittest.TestCase):
         self.assertEqual(payload["costs"]["initial_service"]["high_eur"], 300)
         self.assertEqual(len(payload["sources"]), 1)
         self.assertEqual(len(payload["market"]["comparables"]), 1)
+        self.assertEqual(payload["market"]["comparables"][0]["price_eur"], 18500)
         self.assertIn("Verify the VIN", payload["seller_message"])
         self.assertNotIn("87/100", payload["report_markdown"])
         self.assertIn("Buyer notes", payload["report_markdown"])
@@ -169,6 +170,98 @@ class PresentationPayloadTest(unittest.TestCase):
         self.assertFalse(payload["market"]["available"])
         self.assertFalse(payload["costs"]["initial_service"]["available"])
         self.assertEqual(payload["sources"], [])
+
+    def test_sanitizes_internal_failures_and_legacy_customer_values(self):
+        self.repository.write_json(
+            self.slug,
+            "analysis_metadata.json",
+            {"schema_version": 1, "output_language": "sk"},
+        )
+        self.repository.write_json(
+            self.slug,
+            "listing_facts.json",
+            {
+                "title": "Volkswagen Tiguan 2.0 TSI",
+                "engine": "a:",
+            },
+        )
+        self.repository.write_json(
+            self.slug,
+            "component_identity.json",
+            {
+                "engine": {"marketing_name": "2.0 TSI", "confidence": "HIGH"},
+                "drivetrain": {"type": "All-Wheel Drive", "confidence": "PROBABLE"},
+            },
+        )
+        self.repository.write_json(
+            self.slug,
+            "risk_score.json",
+            {
+                "buyer_actions": [
+                    "Poziadat predajcu o VIN pred obhliadkou a overit ho mimo inzeratu.",
+                    "Research V2 returned invalid JSON twice.",
+                ],
+            },
+        )
+        self.repository.write_json(
+            self.slug,
+            "grok_research.json",
+            {
+                "missing_or_uncertain_data": [{
+                    "item": "Automatic technical research",
+                    "why_it_matters": "Research V2 returned invalid JSON twice.",
+                    "severity": "high",
+                }],
+                "vin_check": {
+                    "format_check": "skipped",
+                    "online_history": "requires_manual_verification",
+                    "decoded_information": "VIN was not supplied in the listing.",
+                },
+                "safety_and_recall": {
+                    "status": "INSUFFICIENT_DATA",
+                    "summary": "No specific VIN-based recall data provided.",
+                    "required_action": "Verify recall status via an official portal using the VIN.",
+                },
+            },
+        )
+        self.repository.write_json(
+            self.slug,
+            "market_benchmark.json",
+            {
+                "price_view": "requires_manual_verification",
+                "limitations": ["Asking prices are not completed transaction prices."],
+            },
+        )
+        self.repository.write_json(
+            self.slug,
+            "gemini_vision.json",
+            {"visual_verdict": "Vyzerá vizuálne dobre"},
+        )
+
+        payload = build_presentation_payload(
+            self.repository,
+            self.slug,
+            parsed={"specs": {}, "source_url": "", "scraped_at": ""},
+            images=[],
+            report_markdown="Research V2 returned invalid JSON twice.",
+        )
+
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("Research V2 returned invalid JSON", serialized)
+        self.assertNotIn("Automatic technical research", serialized)
+        self.assertEqual(payload["listing"]["engine"], "2.0 TSI")
+        self.assertEqual(payload["listing"]["drivetrain"], "Pohon všetkých kolies")
+        self.assertEqual(payload["identity"]["make"], "Volkswagen")
+        self.assertEqual(payload["identity"]["model"], "Tiguan")
+        self.assertEqual(payload["priority_findings"][0]["title"], "Technické overenie modelu")
+        self.assertEqual(payload["priority_findings"][1]["title"], "Vizuálna kontrola")
+        self.assertIn("Požiadať", payload["buyer_actions"][0])
+        self.assertNotIn("Research V2", payload["seller_message"])
+        self.assertEqual(payload["market"]["price_view"], "Vyžaduje manuálne overenie")
+        self.assertEqual(payload["vin"]["format_check"], "Nevykonané")
+        self.assertEqual(payload["safety_and_recall"]["status"], "Nedostatok údajov")
+        self.assertIn("Bez VIN", payload["safety_and_recall"]["summary"])
+        self.assertIn("oficiálnom zdroji", payload["safety_and_recall"]["required_action"])
 
     def test_czech_metadata_localizes_customer_owned_presentation_text(self):
         self.repository.write_json(

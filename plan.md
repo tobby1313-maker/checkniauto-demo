@@ -217,6 +217,13 @@ identity/risk/report testov.
 
 ## 8. Fáza 3 — Grounding, final a vision
 
+**Stav 17. 7. 2026: implementované.** Direct SK/CZ precheck používa rovnaký
+strict Tier A/rok/nájazd gate ako benchmark, Mobile.de sa spúšťa iba pri tenkej
+vzorke a jeho direct aj grounded výsledky majú vlastný strict count. Final
+system prompt je pod 9 000 znakov bez tvrdého skrátenia výstupného reportu.
+Vision deduplikuje pred gallery-size vetvením a rešpektuje
+`AI_MAX_VISION_ATTACHMENTS` (default 5) s auditovateľnými coverage metadátami.
+
 ### Conditional Mobile.de grounding
 
 V `market_comparables.py` vytvoriť strict eligibility helper spoločný pre

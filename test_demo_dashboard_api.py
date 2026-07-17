@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import tempfile
@@ -222,11 +223,13 @@ class DemoDashboardApiTest(unittest.TestCase):
         images_dir = listing_dir / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
         for index in range(104):
-            image = Image.new(
-                "RGB",
-                (80, 60),
-                ((index * 3) % 255, (index * 7) % 255, (index * 11) % 255),
-            )
+            digest = hashlib.sha256(str(index).encode("ascii")).digest()
+            pixels = []
+            for value in digest[:8]:
+                pixels.extend(255 if value & (1 << bit) else 0 for bit in range(8))
+            image = Image.new("L", (8, 8))
+            image.putdata(pixels)
+            image = image.resize((80, 80), Image.Resampling.NEAREST).convert("RGB")
             image.save(images_dir / f"{index + 1:03d}_photo.jpg", format="JPEG")
 
         image_data, image_meta = web_server.prepare_llm_images(str(listing_dir))
@@ -234,7 +237,10 @@ class DemoDashboardApiTest(unittest.TestCase):
         self.assertEqual(len(image_data), web_server.MAX_ANALYSIS_COLLAGES)
         self.assertEqual(image_meta["coverage_mode"], "full_gallery_overview")
         self.assertEqual(image_meta["original_count"], 104)
+        self.assertEqual(image_meta["unique_count"], 104)
+        self.assertEqual(image_meta["duplicate_count"], 0)
         self.assertEqual(image_meta["selected_count"], 104)
+        self.assertEqual(image_meta["attachment_count"], web_server.MAX_ANALYSIS_COLLAGES)
         self.assertEqual(image_meta["overview_count"], web_server.LLM_OVERVIEW_ATTACHMENTS)
         self.assertEqual(image_meta["detail_count"], web_server.LLM_COLLAGE_COLUMNS * web_server.LLM_COLLAGE_ROWS)
         self.assertTrue(image_meta["overview_includes_all"])

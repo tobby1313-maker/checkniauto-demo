@@ -149,7 +149,23 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(fallback["research_status"], "unavailable")
         self.assertEqual(fallback["technical_risks"], [])
-        self.assertIn("Both attempts failed", fallback["missing_or_uncertain_data"][0]["why_it_matters"])
+        self.assertIn("Both attempts failed", fallback["evidence_summary"]["weakest_evidence"][0])
+        self.assertNotIn("Both attempts failed", fallback["missing_or_uncertain_data"][0]["why_it_matters"])
+
+    def test_unavailable_research_fallback_is_customer_safe_in_all_languages(self):
+        for language, expected in (
+            ("sk", "Technické overenie modelu"),
+            ("cs", "Technické ověření modelu"),
+            ("en", "Model-specific technical research"),
+        ):
+            packet = _unavailable_research_model_output(
+                "Research V2 returned invalid JSON twice.",
+                output_language=language,
+            )
+            customer_item = packet["missing_or_uncertain_data"][0]
+            self.assertEqual(customer_item["item"], expected)
+            self.assertNotIn("invalid JSON", customer_item["why_it_matters"])
+            self.assertIn("invalid JSON", packet["evidence_summary"]["weakest_evidence"][0])
 
     def test_limited_research_fallback_keeps_content_but_removes_links_and_prices(self):
         packet = _unavailable_research_model_output("fixture")

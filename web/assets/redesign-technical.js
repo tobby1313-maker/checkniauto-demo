@@ -9,12 +9,44 @@
 
   const l = (lang, sk, cs, en) => C.localize({ sk, cs, en }, lang);
   const na = (lang) => l(lang, "Nie je k dispozícii", "Není k dispozici", "Not available");
+  const enumLabel = (value, lang) => {
+    const text = String(value ?? "").trim();
+    const labels = {
+      HIGH: l(lang, "Vysoká", "Vysoká", "High"),
+      MEDIUM: l(lang, "Stredná", "Střední", "Medium"),
+      LOW: l(lang, "Nízka", "Nízká", "Low"),
+      PROBABLE: l(lang, "Pravdepodobné", "Pravděpodobné", "Probable"),
+      AMBIGUOUS: l(lang, "Nejednoznačné", "Nejednoznačné", "Ambiguous"),
+      VERIFIED: l(lang, "Overené", "Ověřené", "Verified"),
+      NEEDS_VERIFICATION: l(lang, "Vyžaduje overenie", "Vyžaduje ověření", "Needs verification"),
+      INSUFFICIENT_DATA: l(lang, "Nedostatok údajov", "Nedostatek údajů", "Insufficient data"),
+      POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK: l(lang, "Overiť zvolávacie akcie podľa VIN", "Ověřit svolávací akce podle VIN", "Check recall campaigns by VIN"),
+      requires_manual_verification: l(lang, "Vyžaduje manuálne overenie", "Vyžaduje ruční ověření", "Requires manual verification"),
+      skipped: l(lang, "Nevykonané", "Neprovedeno", "Not performed"),
+      ok: l(lang, "V poriadku", "V pořádku", "Valid"),
+      FWD: l(lang, "Pohon predných kolies", "Pohon předních kol", "Front-wheel drive"),
+      RWD: l(lang, "Pohon zadných kolies", "Pohon zadních kol", "Rear-wheel drive"),
+      AWD: l(lang, "Pohon všetkých kolies", "Pohon všech kol", "All-wheel drive"),
+      "All-Wheel Drive": l(lang, "Pohon všetkých kolies", "Pohon všech kol", "All-wheel drive"),
+    };
+    if (labels[text]) return labels[text];
+    const generations = {
+      "First generation": l(lang, "Prvá generácia", "První generace", "First generation"),
+      "Second generation": l(lang, "Druhá generácia", "Druhá generace", "Second generation"),
+      "Third generation": l(lang, "Tretia generácia", "Třetí generace", "Third generation"),
+      "Fourth generation": l(lang, "Štvrtá generácia", "Čtvrtá generace", "Fourth generation"),
+    };
+    for (const [prefix, translated] of Object.entries(generations)) {
+      if (text.startsWith(prefix)) return translated + text.slice(prefix.length);
+    }
+    return text;
+  };
   const scalar = (value, lang) => {
     if (value === null || value === undefined || value === "") return na(lang);
-    if (typeof value !== "object") return String(value);
+    if (typeof value !== "object") return enumLabel(value, lang);
     const label = value.value || value.label || value.marketing_name || value.name || value.type || value.family || value.status || "";
-    const details = [value.code && value.code !== label ? value.code : "", value.resolution, value.confidence].filter(Boolean);
-    return [label, details.length ? `(${details.join(" · ")})` : ""].filter(Boolean).join(" ") || na(lang);
+    const details = [value.code && value.code !== label ? value.code : "", value.resolution, value.confidence].filter(Boolean).map((item) => enumLabel(item, lang));
+    return [enumLabel(label, lang), details.length ? `(${details.join(" · ")})` : ""].filter(Boolean).join(" ") || na(lang);
   };
   const grid = (rows, lang) => rows.map(([label, value]) => `<div><dt>${C.escapeHtml(label)}</dt><dd>${C.escapeHtml(scalar(value, lang))}</dd></div>`).join("");
   const list = (items, empty) => {
@@ -39,6 +71,9 @@
     const photos = Array.isArray(listing.images) ? listing.images : [];
     const mileage = listing.mileage_km !== null && listing.mileage_km !== undefined ? `${C.formatNumber(listing.mileage_km, lang)} km` : empty;
 
+    all("[data-analysis-language]").forEach((element) => {
+      element.textContent = lang === "cs" ? "CZ" : lang.toUpperCase();
+    });
     document.title = `${listing.title || "Technická analýza"} | Checkni Auto`;
     $("[data-report-title]").textContent = listing.title || empty;
     $("[data-report-meta]").textContent = [listing.year, mileage, listing.location].filter(Boolean).join(" · ");
@@ -95,14 +130,20 @@
       { title: l(lang, "Dekódované údaje", "Rozpoznané údaje", "Decoded information"), detail: vin.decoded_information || vin.notes || empty }
     ], empty);
     const safety = model.safety_and_recall || {};
-    $("[data-safety]").innerHTML = list(Object.entries(safety).filter(([, value]) => typeof value === "string" && value).map(([key, value]) => ({ title: key.replaceAll("_", " "), detail: value })), empty);
+    const safetyLabels = {
+      evidence_category: l(lang, "Kategória dôkazu", "Kategorie důkazu", "Evidence category"),
+      required_action: l(lang, "Potrebný krok", "Potřebný krok", "Required action"),
+      status: l(lang, "Stav", "Stav", "Status"),
+      summary: l(lang, "Zhrnutie", "Shrnutí", "Summary"),
+    };
+    $("[data-safety]").innerHTML = list(Object.entries(safety).filter(([, value]) => typeof value === "string" && value).map(([key, value]) => ({ title: safetyLabels[key] || key.replaceAll("_", " "), detail: enumLabel(value, lang) })), empty);
 
     $("[data-research-findings]").innerHTML = list(model.research_findings, empty);
     const sources = Array.isArray(model.sources) ? model.sources : [];
     $("[data-sources]").innerHTML = sources.length ? sources.map((source) => `<a class="source-card" href="${C.escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer"><span>${C.escapeHtml(source.name || source.url)}<small>${C.escapeHtml([source.type, source.reliability, source.used_for].filter(Boolean).join(" · "))}</small></span><b>↗</b></a>`).join("") : `<p class="empty-state">${C.escapeHtml(empty)}</p>`;
 
     const risks = Array.isArray(model.technical_risks) ? model.technical_risks : [];
-    $("[data-risks]").innerHTML = risks.length ? risks.map((risk, index) => `<article class="risk-card ${String(risk.risk_level || "").toLowerCase()}"><span class="risk-index">${String(index + 1).padStart(2, "0")}</span><div><div class="risk-head"><span>${C.escapeHtml([risk.risk_level, risk.evidence_category, risk.confidence].filter(Boolean).join(" · "))}</span></div><h3>${C.escapeHtml([risk.component, risk.issue].filter(Boolean).join(" — ") || empty)}</h3><div class="risk-fields"><div><span>${l(lang, "Dopad na kupujúceho", "Dopad na kupujícího", "Buyer impact")}</span><p>${C.escapeHtml(risk.buyer_impact || empty)}</p></div><div><span>${l(lang, "Dôkaz pre toto vozidlo", "Důkaz pro toto vozidlo", "Vehicle-specific evidence")}</span><p>${C.escapeHtml(risk.specific_vehicle_evidence || empty)}</p></div><div><span>${l(lang, "Ako overiť", "Jak ověřit", "How to verify")}</span><p>${C.escapeHtml(risk.verification_action || empty)}</p></div></div>${risk.low_eur !== null || risk.high_eur !== null ? `<small class="risk-estimate">${C.escapeHtml(C.formatRange(risk.low_eur, risk.high_eur, lang))}</small>` : ""}</div></article>`).join("") : `<p class="empty-state">${C.escapeHtml(empty)}</p>`;
+    $("[data-risks]").innerHTML = risks.length ? risks.map((risk, index) => `<article class="risk-card ${String(risk.risk_level || "").toLowerCase()}"><span class="risk-index">${String(index + 1).padStart(2, "0")}</span><div><div class="risk-head"><span>${C.escapeHtml([risk.risk_level, risk.evidence_category, risk.confidence].filter(Boolean).map((item) => enumLabel(item, lang)).join(" · "))}</span></div><h3>${C.escapeHtml([risk.component, risk.issue].filter(Boolean).join(" — ") || empty)}</h3><div class="risk-fields"><div><span>${l(lang, "Dopad na kupujúceho", "Dopad na kupujícího", "Buyer impact")}</span><p>${C.escapeHtml(risk.buyer_impact || empty)}</p></div><div><span>${l(lang, "Dôkaz pre toto vozidlo", "Důkaz pro toto vozidlo", "Vehicle-specific evidence")}</span><p>${C.escapeHtml(risk.specific_vehicle_evidence || empty)}</p></div><div><span>${l(lang, "Ako overiť", "Jak ověřit", "How to verify")}</span><p>${C.escapeHtml(risk.verification_action || empty)}</p></div></div>${risk.low_eur !== null || risk.high_eur !== null ? `<small class="risk-estimate">${C.escapeHtml(C.formatRange(risk.low_eur, risk.high_eur, lang))}</small>` : ""}</div></article>`).join("") : `<p class="empty-state">${C.escapeHtml(empty)}</p>`;
 
     const marketFacts = [
       [l(lang, "Cena inzerátu", "Cena inzerátu", "Asking price"), C.formatMoney(market.advertised_price_eur ?? listing.price_eur, lang)],
@@ -157,7 +198,7 @@
     wireActions();
     try {
       const model = await C.fetchPresentation(slug);
-      C.setLanguage(model.language);
+      C.setLanguage(model.language, { persist: false });
       render(model);
       $("[data-loading]").hidden = true;
       $("[data-content]").hidden = false;

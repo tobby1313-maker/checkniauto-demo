@@ -19,6 +19,11 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from scrapper_demo.market_comparables import (
+    strict_background_market_precheck,
+    strict_local_market_precheck,
+)
+
 
 _MAKE_ALIASES: tuple[tuple[str, str], ...] = (
     ("alfa romeo", "Alfa Romeo"),
@@ -1081,13 +1086,50 @@ def search_all_marketplaces(
     timeout: float = 8.0,
     fetch_html: Callable[[str, float], str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Search customer-facing SK/CZ portals plus hidden Mobile.de background."""
-    return search_local_marketplaces(
-        listing,
-        timeout=timeout,
-        fetch_html=fetch_html,
-    ) + search_mobile_de(
+    """Search local portals first and use Mobile.de only for a thin sample."""
+    local_passes = search_local_marketplaces(
         listing,
         timeout=timeout,
         fetch_html=fetch_html,
     )
+    local_pass = local_passes[0] if local_passes else {}
+    precheck = strict_local_market_precheck(
+        list(local_pass.get("candidates") or []),
+        listing,
+    )
+    local_pass["strict_local_precheck"] = precheck
+    local_pass["strict_eligible_count"] = precheck["eligible_count"]
+    if precheck["sufficient"]:
+        return local_passes + [{
+            "pass_id": "mobile_de",
+            "portal": "Mobile.de",
+            "language": "de",
+            "market_scope": "BACKGROUND_EU",
+            "search_method": "SKIPPED_LOCAL_SAMPLE_SUFFICIENT",
+            "search_query": "",
+            "status": "SKIPPED",
+            "skip_reason": "strict_local_sample_sufficient",
+            "strict_local_eligible_count": precheck["eligible_count"],
+            "citation_count": 0,
+            "candidate_count": 0,
+            "verified_detail_count": 0,
+            "verified_background_count": 0,
+            "url_unverified_count": 0,
+            "candidates": [],
+            "source_attempts": [],
+        }]
+    mobile_passes = search_mobile_de(
+        listing,
+        timeout=timeout,
+        fetch_html=fetch_html,
+    )
+    for mobile_pass in mobile_passes:
+        background_precheck = strict_background_market_precheck(
+            list(mobile_pass.get("candidates") or []),
+            listing,
+        )
+        mobile_pass["strict_background_precheck"] = background_precheck
+        mobile_pass["strict_eligible_count"] = background_precheck["eligible_count"]
+        mobile_pass["skip_reason"] = ""
+        mobile_pass["strict_local_eligible_count"] = precheck["eligible_count"]
+    return local_passes + mobile_passes

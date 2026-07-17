@@ -9,6 +9,13 @@ import os
 LLM_IMAGE_MAX_SIDE = 1280
 LLM_IMAGE_QUALITY = 80
 MAX_ANALYSIS_COLLAGES = 5
+try:
+    AI_MAX_VISION_ATTACHMENTS = max(
+        1,
+        min(20, int(os.getenv("AI_MAX_VISION_ATTACHMENTS", "5"))),
+    )
+except (TypeError, ValueError):
+    AI_MAX_VISION_ATTACHMENTS = 5
 LLM_COLLAGE_COLUMNS = 2
 LLM_COLLAGE_ROWS = 2
 MAX_ANALYSIS_IMAGES = MAX_ANALYSIS_COLLAGES * LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS
@@ -23,6 +30,7 @@ LLM_OVERVIEW_CELL_MAX_SIZE = 280
 LLM_OVERVIEW_LABEL_HEIGHT = 26
 LLM_OVERVIEW_MARGIN = 6
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".avif"}
+PERCEPTUAL_DUPLICATE_DISTANCE = 4
 
 
 def _is_supported_image(filename):
@@ -83,6 +91,51 @@ def _average_hash(image):
 
 def _hash_distance(left, right):
     return (left ^ right).bit_count()
+
+
+def _vision_attachment_limit():
+    return max(1, min(MAX_ANALYSIS_COLLAGES, AI_MAX_VISION_ATTACHMENTS))
+
+
+def _deduplicate_originals(images_dir, originals, *, log=None):
+    """Return readable perceptually unique gallery items and duplicate metadata."""
+    from PIL import Image, ImageOps
+
+    safe_log = log or (lambda _message: None)
+    unique_items = []
+    seen_hashes = []
+    duplicates = []
+    unreadable = []
+
+    for index, original_name in enumerate(originals):
+        source_path = os.path.join(images_dir, original_name)
+        try:
+            with Image.open(source_path) as img:
+                img = ImageOps.exif_transpose(img)
+                hash_value = _average_hash(img)
+        except Exception as exc:
+            unreadable.append(original_name)
+            safe_log(f"Warning: Could not read image {original_name}: {exc}")
+            continue
+
+        duplicate_of = None
+        for previous_hash, previous_name in seen_hashes:
+            if _hash_distance(hash_value, previous_hash) <= PERCEPTUAL_DUPLICATE_DISTANCE:
+                duplicate_of = previous_name
+                break
+        if duplicate_of:
+            duplicates.append({"original_name": original_name, "duplicate_of": duplicate_of})
+            continue
+
+        seen_hashes.append((hash_value, original_name))
+        unique_items.append({
+            "gallery_number": index + 1,
+            "number": index + 1,
+            "original_name": original_name,
+            "source_path": source_path,
+        })
+
+    return unique_items, duplicates, unreadable
 
 
 def _optimize_image_for_llm(source_path, output_path):
@@ -263,17 +316,25 @@ def prepare_llm_images(slug_dir, *, log=None):
     Originals in images/ are never modified.
     """
     safe_log = log or (lambda _message: None)
+    attachment_limit = _vision_attachment_limit()
     images_dir = os.path.join(slug_dir, "images")
     if not os.path.isdir(images_dir):
         return [], {
             "coverage_mode": "none",
             "original_count": 0,
+            "unique_count": 0,
+            "duplicate_count": 0,
+            "unreadable_count": 0,
             "selected_originals": [],
             "selected_count": 0,
             "overview_count": 0,
             "detail_count": 0,
+            "attachment_count": 0,
+            "attachment_limit": attachment_limit,
             "overview_includes_all": False,
             "full_gallery_included": False,
+            "deduplication_applied": False,
+            "selection_reason": "no_supported_images_found",
             "optimized_files": [],
             "collage_groups": [],
         }
@@ -282,6 +343,26 @@ def prepare_llm_images(slug_dir, *, log=None):
         f for f in sorted(os.listdir(images_dir))
         if _is_supported_image(f) and os.path.isfile(os.path.join(images_dir, f))
     ]
+    if not originals:
+        return [], {
+            "coverage_mode": "none",
+            "original_count": 0,
+            "unique_count": 0,
+            "duplicate_count": 0,
+            "unreadable_count": 0,
+            "selected_originals": [],
+            "selected_count": 0,
+            "overview_count": 0,
+            "detail_count": 0,
+            "attachment_count": 0,
+            "attachment_limit": attachment_limit,
+            "overview_includes_all": False,
+            "full_gallery_included": False,
+            "deduplication_applied": False,
+            "selection_reason": "no_supported_images_found",
+            "optimized_files": [],
+            "collage_groups": [],
+        }
 
     try:
         from PIL import Image  # noqa
@@ -294,8 +375,9 @@ def prepare_llm_images(slug_dir, *, log=None):
         _mimes = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".bmp": "image/bmp", ".avif": "image/avif"}
         _out = []
         _sent = 0
+        _failed = []
         for _f in originals:
-            if _sent >= MAX_ANALYSIS_IMAGES:
+            if _sent >= attachment_limit:
                 break
             _fp = os.path.join(images_dir, _f)
             _mt = _mimes.get(os.path.splitext(_f)[1].lower(), "image/jpeg")
@@ -304,17 +386,26 @@ def prepare_llm_images(slug_dir, *, log=None):
                     _out.append((_f, base64.b64encode(_fb.read()).decode("utf-8"), _mt))
                 _sent += 1
             except Exception as _e:
+                _failed.append(_f)
                 safe_log(f"Warning: could not read {_f}: {_e}")
         return _out, {
             "coverage_mode": "raw_limited",
             "original_count": len(originals),
+            "unique_count": len(originals),
+            "duplicate_count": 0,
+            "unreadable_count": len(_failed),
+            "unreadable_files": _failed,
             "selected_originals": [_n for _n, _, _ in _out],
             "selected_count": _sent,
             "overview_count": 0,
             "detail_count": _sent,
+            "attachment_count": len(_out),
+            "attachment_limit": attachment_limit,
             "overview_includes_all": False,
             "full_gallery_included": _sent == len(originals),
-            "collage_count": 0,
+            "deduplication_applied": False,
+            "selection_reason": "pillow_unavailable_raw_attachment_fallback",
+            "collage_count": len(_out),
             "optimized_files": [_n for _n, _, _ in _out],
             "collage_groups": [],
             "error": "Pillow missing; sent original photos.",
@@ -323,37 +414,45 @@ def prepare_llm_images(slug_dir, *, log=None):
     analysis_dir = os.path.join(slug_dir, ".analysis_images")
     os.makedirs(analysis_dir, exist_ok=True)
 
-    if len(originals) > MAX_ANALYSIS_IMAGES:
-        overview_items = [
-            {
-                "gallery_number": idx + 1,
-                "number": idx + 1,
-                "original_name": original_name,
-                "source_path": os.path.join(images_dir, original_name),
-            }
-            for idx, original_name in enumerate(originals)
-        ]
+    unique_items, duplicates, unreadable = _deduplicate_originals(
+        images_dir,
+        originals,
+        log=safe_log,
+    )
+    common_metadata = {
+        "original_count": len(originals),
+        "unique_count": len(unique_items),
+        "duplicate_count": len(duplicates),
+        "duplicate_files": duplicates,
+        "unreadable_count": len(unreadable),
+        "unreadable_files": unreadable,
+        "deduplication_applied": True,
+        "attachment_limit": attachment_limit,
+    }
+
+    if len(unique_items) > MAX_ANALYSIS_IMAGES:
+        overview_items = unique_items
         detail_indices = _select_representative_indices(
-            len(originals),
+            len(unique_items),
             limit=LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS,
         )
-        detail_items = [
-            {
-                "gallery_number": idx + 1,
-                "number": idx + 1,
-                "original_name": originals[idx],
-                "source_path": os.path.join(images_dir, originals[idx]),
-            }
-            for idx in detail_indices
-        ]
+        detail_items = [unique_items[idx] for idx in detail_indices]
 
         image_data_list = []
         optimized_files = []
         collage_groups = []
         overview_groups = []
-        chunk_size = (len(overview_items) + LLM_OVERVIEW_ATTACHMENTS - 1) // LLM_OVERVIEW_ATTACHMENTS
+        overview_attachment_count = min(
+            LLM_OVERVIEW_ATTACHMENTS,
+            attachment_limit if attachment_limit == 1 else attachment_limit - 1,
+        )
+        chunk_size = (
+            len(overview_items) + overview_attachment_count - 1
+        ) // overview_attachment_count
 
         for overview_number, overview_group in enumerate(_chunk_items(overview_items, chunk_size), start=1):
+            if len(image_data_list) >= overview_attachment_count:
+                break
             output_name = f"overview_{overview_number:02d}_full_gallery.jpg"
             output_path = os.path.join(analysis_dir, output_name)
             try:
@@ -382,7 +481,7 @@ def prepare_llm_images(slug_dir, *, log=None):
                 item_names = ", ".join(item["original_name"] for item in overview_group)
                 safe_log(f"Warning: Could not create overview sheet from {item_names}: {e}")
 
-        if detail_items and len(image_data_list) < MAX_ANALYSIS_COLLAGES:
+        if detail_items and len(image_data_list) < attachment_limit:
             output_name = "detail_01_representative_llm.jpg"
             output_path = os.path.join(analysis_dir, output_name)
             try:
@@ -415,62 +514,53 @@ def prepare_llm_images(slug_dir, *, log=None):
             for item in group["items"]
         ]
         overview_covered_count = len(overview_originals)
-        full_gallery_included = overview_covered_count == len(originals)
+        full_gallery_included = (
+            overview_covered_count == len(unique_items)
+            and not unreadable
+        )
 
+        attached_detail_originals = [
+            item["original_name"]
+            for group in collage_groups
+            if group.get("type") == "detail"
+            for item in group.get("items", [])
+        ]
         return image_data_list, {
+            **common_metadata,
             "coverage_mode": "full_gallery_overview",
-            "original_count": len(originals),
             "selected_originals": overview_originals,
-            "detail_originals": [item["original_name"] for item in detail_items],
+            "detail_originals": attached_detail_originals,
             "selected_count": overview_covered_count,
             "overview_count": len(overview_groups),
-            "detail_count": len(detail_items),
+            "detail_count": len(attached_detail_originals),
             "overview_includes_all": full_gallery_included,
             "full_gallery_included": full_gallery_included,
             "collage_count": len(image_data_list),
+            "attachment_count": len(image_data_list),
+            "selection_reason": (
+                "all_unique_photos_covered_by_overview_with_representative_details"
+                if attached_detail_originals
+                else "all_unique_photos_covered_by_overview_within_attachment_limit"
+            ),
             "collage_capacity": LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS,
             "optimized_files": optimized_files,
             "collage_groups": collage_groups,
             "overview_groups": overview_groups,
         }
 
-    selected_indices = _select_representative_indices(len(originals))
-    selected_items = []
-    selected_originals = []
+    selected_indices = _select_representative_indices(
+        len(unique_items),
+        limit=min(MAX_ANALYSIS_IMAGES, attachment_limit * LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS),
+    )
+    selected_items = [unique_items[idx] for idx in selected_indices]
+    selected_originals = [item["original_name"] for item in selected_items]
     optimized_files = []
     collage_groups = []
-    seen_hashes = []
-    deferred_indices = [i for i in range(len(originals)) if i not in selected_indices]
-
-    for idx in selected_indices + deferred_indices:
-        if len(selected_items) >= MAX_ANALYSIS_IMAGES:
-            break
-
-        original_name = originals[idx]
-        source_path = os.path.join(images_dir, original_name)
-
-        try:
-            from PIL import Image, ImageOps
-            with Image.open(source_path) as img:
-                img = ImageOps.exif_transpose(img)
-                hash_value = _average_hash(img)
-            if any(_hash_distance(hash_value, previous) <= 4 for previous in seen_hashes):
-                continue
-
-            seen_hashes.append(hash_value)
-            selected_items.append({
-                "number": idx + 1,
-                "original_name": original_name,
-                "source_path": source_path,
-            })
-            selected_originals.append(original_name)
-        except Exception as e:
-            safe_log(f"Warning: Could not read image {original_name}: {e}")
 
     image_data_list = []
     chunk_size = LLM_COLLAGE_COLUMNS * LLM_COLLAGE_ROWS
     for collage_number, collage_items in enumerate(_chunk_items(selected_items, chunk_size), start=1):
-        if collage_number > MAX_ANALYSIS_COLLAGES:
+        if collage_number > attachment_limit:
             break
 
         output_name = f"collage_{collage_number:02d}_llm.jpg"
@@ -484,7 +574,7 @@ def prepare_llm_images(slug_dir, *, log=None):
             collage_groups.append({
                 "collage": collage_name,
                 "type": "detail",
-                "covers_full_gallery": len(selected_originals) == len(originals),
+                "covers_full_gallery": len(selected_originals) == len(unique_items) and not unreadable,
                 "items": [
                     {
                         "number": item["number"],
@@ -501,17 +591,23 @@ def prepare_llm_images(slug_dir, *, log=None):
             safe_log(f"Warning: Could not create image collage from {item_names}: {e}")
 
     return image_data_list, {
-        "coverage_mode": "detail_all" if len(selected_originals) == len(originals) else "detail_limited",
-        "original_count": len(originals),
+        **common_metadata,
+        "coverage_mode": "detail_all" if len(selected_originals) == len(unique_items) and not unreadable else "detail_limited",
         "selected_originals": selected_originals,
         "detail_originals": selected_originals,
         "optimized_files": optimized_files,
         "collage_count": len(image_data_list),
+        "attachment_count": len(image_data_list),
         "selected_count": len(selected_originals),
         "overview_count": 0,
         "detail_count": len(selected_originals),
         "overview_includes_all": False,
-        "full_gallery_included": len(selected_originals) == len(originals),
+        "full_gallery_included": len(selected_originals) == len(unique_items) and not unreadable,
+        "selection_reason": (
+            "all_unique_photos_in_detail_collages_after_perceptual_deduplication"
+            if len(selected_originals) == len(unique_items) and not unreadable
+            else "representative_unique_photos_selected_within_attachment_limit"
+        ),
         "collage_capacity": chunk_size,
         "collage_groups": collage_groups,
     }

@@ -1248,6 +1248,7 @@ def build_market_benchmark(
         "mileage_rejected": 0,
         "europe_background_only": 0,
         "full_comparable_accepted": 0,
+        "strict_local_eligible": 0,
         "insufficient_sample": 0,
     }
     eligible: list[dict[str, Any]] = []
@@ -1296,6 +1297,15 @@ def build_market_benchmark(
             if normalized is not None
             else "UNAVAILABLE"
         )
+        strict_local, strict_local_reason = strict_local_candidate_eligibility(
+            item,
+            listing_year=listing_year,
+            listing_mileage=listing_mileage,
+        )
+        item["strict_local_eligible"] = strict_local
+        item["strict_local_eligibility_reason"] = strict_local_reason
+        if strict_local:
+            diagnostic_counts["strict_local_eligible"] += 1
 
         audit_row: dict[str, Any] = {
             "candidate_id": str(item.get("candidate_id") or ""),
@@ -1308,6 +1318,8 @@ def build_market_benchmark(
             "original_price": original_amount,
             "original_currency": currency,
             "normalized_price_eur": normalized,
+            "strict_local_eligible": strict_local,
+            "strict_local_eligibility_reason": strict_local_reason,
             "url_verification_status": str(
                 item.get("url_verification_status") or ""
             ),
@@ -1632,6 +1644,148 @@ def _same_vehicle(left: dict[str, Any], right: dict[str, Any]) -> bool:
         and similarity >= 0.75
         and _prices_close(left, right, exact=True)
     )
+
+
+def strict_market_candidate_eligibility(
+    item: dict[str, Any],
+    *,
+    listing_year: int | None,
+    listing_mileage: int | None,
+) -> tuple[bool, str]:
+    """Apply the benchmark's strict Tier-A year/mileage gate."""
+    if _similarity_tier(item) != "A":
+        return False, "SIMILARITY_BELOW_STRICT_TIER"
+    exclusion = _excluded_price_basis(item)
+    if exclusion:
+        return False, exclusion
+    if _price(item) is None:
+        return False, "PRICE_UNAVAILABLE"
+    item_year = _year(item)
+    item_mileage = _number(item.get("mileage_km"))
+    if None in (listing_year, listing_mileage, item_year, item_mileage):
+        return False, "MISSING_YEAR_OR_MILEAGE"
+    assert listing_year is not None
+    assert listing_mileage is not None
+    assert item_year is not None
+    assert item_mileage is not None
+    strict_stage = _TOLERANCE_STAGES[0]
+    mileage_limit = max(
+        int(strict_stage["mileage_floor"]),
+        int(listing_mileage * float(strict_stage["mileage_ratio"])),
+    )
+    if abs(item_year - listing_year) > int(strict_stage["year_delta"]):
+        return False, "YEAR_OUTSIDE_STRICT_BAND"
+    if abs(item_mileage - listing_mileage) > mileage_limit:
+        return False, "MILEAGE_OUTSIDE_STRICT_BAND"
+    return True, "STRICT_MARKET_ELIGIBLE"
+
+
+def strict_local_candidate_eligibility(
+    item: dict[str, Any],
+    *,
+    listing_year: int | None,
+    listing_mileage: int | None,
+) -> tuple[bool, str]:
+    """Apply the benchmark's strict local customer-facing gate."""
+    scope = str(item.get("market_scope") or "").upper()
+    if scope != "PUBLIC_SK_CZ" or not is_customer_facing_market_comparable(item):
+        return False, "NOT_VERIFIED_LOCAL_DETAIL"
+    accepted, reason = strict_market_candidate_eligibility(
+        item,
+        listing_year=listing_year,
+        listing_mileage=listing_mileage,
+    )
+    return (True, "STRICT_LOCAL_ELIGIBLE") if accepted else (False, reason)
+
+
+def strict_local_market_precheck(
+    items: list[dict[str, Any]],
+    listing: dict[str, Any],
+) -> dict[str, Any]:
+    """Count unique strict local comparables without fetching exchange rates."""
+    listing_year = _number(listing.get("year") or listing.get("advertised_year"))
+    listing_mileage = _number(
+        listing.get("mileage_km")
+        or listing.get("advertised_mileage_km")
+        or listing.get("mileage")
+    )
+    original_url = _canonical_url(listing.get("source_url"))
+    eligible: list[dict[str, Any]] = []
+    rejection_counts: dict[str, int] = {}
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        item_url = _canonical_url(item.get("source_url"))
+        if original_url and item_url == original_url:
+            reason = "ANALYZED_LISTING"
+        else:
+            accepted, reason = strict_local_candidate_eligibility(
+                item,
+                listing_year=listing_year,
+                listing_mileage=listing_mileage,
+            )
+            if accepted and any(_same_vehicle(item, existing) for existing in eligible):
+                accepted, reason = False, "DUPLICATE_VEHICLE"
+            if accepted:
+                eligible.append(item)
+                continue
+        rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+    return {
+        "eligible_count": len(eligible),
+        "candidate_count": len([item for item in items if isinstance(item, dict)]),
+        "threshold": 3,
+        "sufficient": len(eligible) >= 3,
+        "rejection_counts": rejection_counts,
+        "eligible_candidate_ids": [
+            str(item.get("candidate_id") or "") for item in eligible
+        ],
+    }
+
+
+def strict_background_market_precheck(
+    items: list[dict[str, Any]],
+    listing: dict[str, Any],
+) -> dict[str, Any]:
+    """Count unique, auditable foreign Tier-A ads inside strict tolerances."""
+    listing_year = _number(listing.get("year") or listing.get("advertised_year"))
+    listing_mileage = _number(
+        listing.get("mileage_km")
+        or listing.get("advertised_mileage_km")
+        or listing.get("mileage")
+    )
+    eligible: list[dict[str, Any]] = []
+    rejection_counts: dict[str, int] = {}
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        if str(item.get("market_scope") or "").upper() != "BACKGROUND_EU":
+            accepted, reason = False, "NOT_BACKGROUND_EU"
+        elif not _auditable_market_candidate(item):
+            accepted, reason = False, "URL_UNVERIFIED"
+        else:
+            accepted, reason = strict_market_candidate_eligibility(
+                item,
+                listing_year=listing_year,
+                listing_mileage=listing_mileage,
+            )
+        if accepted and any(_same_vehicle(item, existing) for existing in eligible):
+            accepted, reason = False, "DUPLICATE_VEHICLE"
+        if accepted:
+            eligible.append(item)
+        else:
+            rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+    return {
+        "eligible_count": len(eligible),
+        "candidate_count": len([item for item in items if isinstance(item, dict)]),
+        "threshold": 3,
+        "sufficient": len(eligible) >= 3,
+        "rejection_counts": rejection_counts,
+        "eligible_candidate_ids": [
+            str(item.get("candidate_id") or "") for item in eligible
+        ],
+    }
 
 
 def _listing_identity(listing_text: str) -> dict[str, Any]:

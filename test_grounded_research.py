@@ -448,6 +448,7 @@ class GroundedResearchTest(unittest.TestCase):
         vision_prompt = (root / "prompts" / "gemini_vision_system.md").read_text(encoding="utf-8")
         final_prompt = (root / "prompts" / "grok_final_synthesis_system.md").read_text(encoding="utf-8")
 
+        self.assertLess(len(final_prompt), 9_000)
         self.assertIn("target 4-8 exterior observations and 3-6 interior observations", vision_prompt)
         self.assertIn("visible seller documents or service-book/facture photos", vision_prompt)
         self.assertIn("pros 4-6, cons 5-8", final_prompt)
