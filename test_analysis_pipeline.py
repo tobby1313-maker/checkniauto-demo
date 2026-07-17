@@ -15,6 +15,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _complete_supported_research_sections,
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
+    _limited_research_model_output,
     _canonical_research_from_v2,
     _enforce_research_source_policy,
     _ensure_final_recommendation_body,
@@ -150,6 +151,45 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(fallback["technical_risks"], [])
         self.assertIn("Both attempts failed", fallback["missing_or_uncertain_data"][0]["why_it_matters"])
 
+    def test_limited_research_fallback_keeps_content_but_removes_links_and_prices(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["evidence_summary"].update({
+            "data_completeness_score": 70,
+            "overall_confidence": "MEDIUM",
+        })
+        packet["technical_risks"] = [{
+            "component": "EA888",
+            "issue": "Timing-chain wear can require a 1 200–2 000 EUR repair.",
+            "risk_level": "HIGH",
+            "evidence_category": "MODEL_LEVEL_RISK",
+            "buyer_impact": "Possible engine damage.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Check every 60 000 km.",
+            "estimated_cost_eur_low": 1200,
+            "estimated_cost_eur_high": 2000,
+            "confidence": "Stredna",
+            "source_ids": ["made-up"],
+        }]
+        packet["sources_used"] = [{
+            "source_id": "made-up",
+            "source_name": "Rewritten source",
+            "source_type": "TECHNICAL_PUBLICATION",
+            "reliability": "MEDIUM",
+            "source_url": "https://rewritten.invalid/article",
+            "verified_url": False,
+            "used_for": "timing chain",
+        }]
+
+        limited = _limited_research_model_output(packet, output_language="sk")
+
+        self.assertTrue(_valid_research_model_output(limited))
+        self.assertEqual(limited["sources_used"], [])
+        self.assertEqual(limited["technical_risks"][0]["source_ids"], [])
+        self.assertIsNone(limited["technical_risks"][0]["estimated_cost_eur_low"])
+        self.assertNotIn("1 200", limited["technical_risks"][0]["issue"])
+        self.assertNotIn("60 000", limited["technical_risks"][0]["verification_action"])
+        self.assertEqual(limited["evidence_summary"]["overall_confidence"], "LOW")
+
     def test_research_v2_rejects_malformed_nested_items_after_serving_validation(self):
         packet = _unavailable_research_model_output("fixture")
         packet["technical_risks"] = [{"issue": "Incomplete object"}]
@@ -222,6 +262,45 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertTrue(_valid_research_model_output(normalized))
         normalized["seller_claims"][0]["evidence_category"] = "MADE_UP"
         self.assertFalse(_valid_research_model_output(normalized))
+
+    def test_research_v2_normalizes_aliases_seen_in_tiguan_recovery(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["consistency_checks"] = [
+            {"check": "Identity", "result": "passed", "explanation": "Matches"},
+            {
+                "check": "Service history",
+                "result": "needs_inspection",
+                "explanation": "Check invoices",
+            },
+        ]
+        packet["web_research_findings"] = [{
+            "claim": "Published component specification",
+            "evidence_category": "TECHNICAL_SPECIFICATION",
+            "buyer_impact": "Verify the exact component",
+            "confidence": "LOW",
+            "source_ids": [],
+        }]
+        packet["expected_costs"] = [{
+            "item": "Diagnostic scan",
+            "why": "Check stored faults",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "cost_type": "DIAGNOSTIC",
+            "urgency": "medium",
+            "basis": "Inspection scope",
+            "source_ids": [],
+        }]
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(normalized["consistency_checks"][0]["result"], "ok")
+        self.assertEqual(normalized["consistency_checks"][1]["result"], "concern")
+        self.assertEqual(
+            normalized["web_research_findings"][0]["evidence_category"],
+            "NEEDS_VERIFICATION",
+        )
+        self.assertEqual(normalized["expected_costs"][0]["cost_type"], "diagnostic")
+        self.assertTrue(_valid_research_model_output(normalized))
 
     def test_research_v2_source_policy_requires_topic_match_and_official_intervals(self):
         packet = _unavailable_research_model_output("fixture")

@@ -24,6 +24,13 @@ VERDICT_LABELS: Final[dict[str, dict[str, str]]] = {
         "HIGH_RISK": "🔴 SKÔR NERIEŠIŤ",
         "DO_NOT_PROCEED": "⛔ RUKY PREČ",
     },
+    "cs": {
+        "WORTH_INSPECTING": "🟢 STOJÍ ZA PROHLÍDKU",
+        "INSPECT_WITH_RESERVATIONS": "🟡 NEJPRVE PROVĚŘIT",
+        "RESOLVE_BEFORE_PROCEEDING": "🟠 ŘEŠIT JEN S VÝHRADAMI",
+        "HIGH_RISK": "🔴 SPÍŠE NEŘEŠIT",
+        "DO_NOT_PROCEED": "⛔ RUCE PRYČ",
+    },
     "en": {
         "WORTH_INSPECTING": "🟢 WORTH CHECKING OUT",
         "INSPECT_WITH_RESERVATIONS": "🟡 VERIFY FIRST",
@@ -43,7 +50,12 @@ LEGACY_LABEL_TO_STATUS: Final[dict[str, str]] = {
 
 
 def normalize_language(value: str | None) -> str:
-    return "en" if str(value or "").strip().lower().startswith("en") else "sk"
+    normalized = str(value or "").strip().lower()
+    if normalized.startswith("en"):
+        return "en"
+    if normalized.startswith(("cs", "cz", "czech", "če", "ce")):
+        return "cs"
+    return "sk"
 
 
 def label_for_status(status: str, language: str | None = "sk") -> str:

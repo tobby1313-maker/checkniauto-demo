@@ -818,7 +818,14 @@ def _demo_openrouter_api_key():
 
 
 def _demo_output_language(value):
-    return "en" if (value or "").lower() == "en" else "sk"
+    normalized = str(value or "").strip().lower()
+    if normalized in {"cs", "cz"}:
+        return "cs"
+    return "en" if normalized == "en" else "sk"
+
+
+def _localized(language, *, sk, cs, en):
+    return {"sk": sk, "cs": cs, "en": en}.get(_demo_output_language(language), sk)
 
 
 def _slugify(value, fallback="manual-listing"):
@@ -1813,7 +1820,7 @@ Analyzuj tento inzerát podľa systémového promptu vyššie. Použi všetky f�
         "## OUTPUT_LANGUAGE:\n"
         f"{_demo_output_language(output_language)}\n\n"
         "## DEMO INSTRUCTION:\n"
-        "Use the localized report schema for OUTPUT_LANGUAGE (`sk` or `en`) exactly as defined in the system prompt. "
+        "Use the localized report schema for OUTPUT_LANGUAGE (`sk`, `cs`, or `en`) exactly as defined in the system prompt. "
         "Preserve the required Markdown structure: emoji headings, valid Markdown tables, valid lists, and localized rating names. "
         "Do not use raw color labels like YELLOW/GREEN/RED as ratings. Do not include knowledge_base save blocks, "
         "internal API details, access-code state, or debugging metadata.\n"
@@ -2689,15 +2696,19 @@ def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
     language = _demo_output_language(output_language)
     if str(data.get("analysis_status") or "").strip().lower() == "unavailable":
         return [
-            "- Fotografie boli v inzeráte poskytnuté, ale automatická vizuálna analýza nebola spoľahlivo dokončená. Nejde o chýbajúce fotografie ani o negatívne zistenie o stave auta; zábery treba vyhodnotiť manuálne alebo analýzu zopakovať."
-            if language == "sk"
-            else "- Listing photos were provided, but automatic visual analysis did not complete reliably. This is neither missing-photo evidence nor a negative finding about the car; review the images manually or retry the analysis."
+            _localized(language,
+                sk="- Fotografie boli v inzeráte poskytnuté, ale automatická vizuálna analýza nebola spoľahlivo dokončená. Nejde o chýbajúce fotografie ani o negatívne zistenie o stave auta; zábery treba vyhodnotiť manuálne alebo analýzu zopakovať.",
+                cs="- Fotografie byly v inzerátu poskytnuty, ale automatická vizuální analýza nebyla spolehlivě dokončena. Nejde o chybějící fotografie ani o negativní zjištění o stavu auta; snímky je třeba vyhodnotit ručně nebo analýzu zopakovat.",
+                en="- Listing photos were provided, but automatic visual analysis did not complete reliably. This is neither missing-photo evidence nor a negative finding about the car; review the images manually or retry the analysis.",
+            )
         ]
     if not data.get("photos_provided"):
         return [
-            "- Fotografie neboli poskytnuté alebo neboli spoľahlivo analyzovateľné."
-            if language == "sk"
-            else "- Photos were not provided or could not be analyzed reliably."
+            _localized(language,
+                sk="- Fotografie neboli poskytnuté alebo neboli spoľahlivo analyzovateľné.",
+                cs="- Fotografie nebyly poskytnuty nebo je nebylo možné spolehlivě analyzovat.",
+                en="- Photos were not provided or could not be analyzed reliably.",
+            )
         ]
 
     seen = set()
@@ -2739,41 +2750,45 @@ def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
     interior = unique_bullets(interior_items)
     red_flags = unique_bullets(data.get("visible_red_flags") or [])
 
-    lines = ["### Exteriér" if language == "sk" else "### Exterior"]
+    lines = [_localized(language, sk="### Exteriér", cs="### Exteriér", en="### Exterior")]
     if exterior:
         lines.extend(exterior)
     else:
         lines.append(
-            "- Exteriér nie je na poskytnutých fotografiách dostatočne detailný na spoľahlivé hodnotenie."
-            if language == "sk"
-            else "- The exterior is not shown in enough detail for a reliable assessment."
+            _localized(language,
+                sk="- Exteriér nie je na poskytnutých fotografiách dostatočne detailný na spoľahlivé hodnotenie.",
+                cs="- Exteriér není na poskytnutých fotografiích dostatečně detailní pro spolehlivé hodnocení.",
+                en="- The exterior is not shown in enough detail for a reliable assessment.",
+            )
         )
 
-    lines.extend(["", "### Interiér" if language == "sk" else "### Interior"])
+    lines.extend(["", _localized(language, sk="### Interiér", cs="### Interiér", en="### Interior")])
     if interior:
         lines.extend(interior)
     else:
         lines.append(
-            "- Interiér nie je na poskytnutých fotografiách dostatočne detailný na spoľahlivé hodnotenie."
-            if language == "sk"
-            else "- The interior is not shown in enough detail for a reliable assessment."
+            _localized(language,
+                sk="- Interiér nie je na poskytnutých fotografiách dostatočne detailný na spoľahlivé hodnotenie.",
+                cs="- Interiér není na poskytnutých fotografiích dostatečně detailní pro spolehlivé hodnocení.",
+                en="- The interior is not shown in enough detail for a reliable assessment.",
+            )
         )
 
     lines.extend(
         [
             "",
-            "### Červené vlajky a limity fotografií"
-            if language == "sk"
-            else "### Red Flags and Photo Limitations",
+            _localized(language, sk="### Červené vlajky a limity fotografií", cs="### Varovné signály a omezení fotografií", en="### Red Flags and Photo Limitations"),
         ]
     )
     if red_flags:
         lines.extend(red_flags)
     else:
         lines.append(
-            "- Na analyzovaných fotografiách neboli označené zjavné vážne vizuálne poškodenia. Fotografie však nevylučujú skryté chyby, staršie opravy ani koróziu mimo záberu."
-            if language == "sk"
-            else "- No obvious serious visual damage was flagged in the analyzed photos. Photos cannot exclude hidden defects, earlier repairs, or corrosion outside the frame."
+            _localized(language,
+                sk="- Na analyzovaných fotografiách neboli označené zjavné vážne vizuálne poškodenia. Fotografie však nevylučujú skryté chyby, staršie opravy ani koróziu mimo záberu.",
+                cs="- Na analyzovaných fotografiích nebyla označena zjevná vážná vizuální poškození. Fotografie však nevylučují skryté vady, starší opravy ani korozi mimo záběr.",
+                en="- No obvious serious visual damage was flagged in the analyzed photos. Photos cannot exclude hidden defects, earlier repairs, or corrosion outside the frame.",
+            )
         )
 
     view_coverage = data.get("view_coverage") if isinstance(data.get("view_coverage"), dict) else {}
@@ -2783,13 +2798,19 @@ def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
         ("underbody", "podvozok", "underbody"),
     ):
         if str(view_coverage.get(key) or "").strip().lower() == "missing":
-            missing_views.append(label_sk if language == "sk" else label_en)
+            missing_views.append(_localized(language, sk=label_sk, cs={"motorový priestor": "motorový prostor", "podvozok": "podvozek"}.get(label_sk, label_sk), en=label_en))
     if missing_views:
         if language == "sk":
             lines.append(
                 "- **Chýbajúce pohľady:** "
                 + ", ".join(missing_views)
                 + " nie sú na fotkách viditeľné, preto ich stav nemožno spoľahlivo posúdiť."
+            )
+        elif language == "cs":
+            lines.append(
+                "- **Chybějící pohledy:** "
+                + ", ".join(missing_views)
+                + " nejsou na fotografiích viditelné, proto jejich stav nelze spolehlivě posoudit."
             )
         else:
             lines.append(
@@ -2804,7 +2825,7 @@ def _photo_analysis_lines_from_vision(vision_result_json, output_language="sk"):
             continue
         if any(_normalize_claim_text(text) in _normalize_claim_text(line) for line in lines):
             continue
-        label = "Obmedzenie" if language == "sk" else "Limitation"
+        label = _localized(language, sk="Obmedzenie", cs="Omezení", en="Limitation")
         lines.append(f"- **{label}:** {text}")
 
     return lines
@@ -2814,7 +2835,7 @@ def _replace_photo_analysis_section(report_text, vision_result_json, output_lang
     body_lines = _photo_analysis_lines_from_vision(vision_result_json, output_language)
     if not body_lines:
         return report_text
-    heading = "## 📸 Analýza fotografií" if _demo_output_language(output_language) == "sk" else "## 📸 Photo Analysis"
+    heading = _localized(output_language, sk="## 📸 Analýza fotografií", cs="## 📸 Analýza fotografií", en="## 📸 Photo Analysis")
     new_section = heading + "\n\n" + "\n".join(body_lines) + "\n\n"
     next_section = (
         r"^\s*(?:##\s+|✅\s+|❌\s+|❓\s+|🏁\s+|💰\s+|🛠️\s+|🌐\s+|🔧\s+|📋\s+|🧾\s+|🔍\s+)"
@@ -2863,6 +2884,20 @@ def _quick_summary_scorecard_markdown(risk_score_json, output_language="sk"):
         title, area, score_label = "### Analysis score", "Area", "Score"
         overall_label, confidence_label = "Overall score", "Analysis reliability"
         note = "100 means a more favorable profile. Areas without sufficient evidence are not scored or included in the weighted average. This is a screening aid, not a technical inspection."
+    elif language == "cs":
+        labels = (
+            ("Transparentnost inzerátu", "listing_transparency"),
+            ("Cena vůči trhu", "market_position"),
+            ("Profil motoru", "engine_profile"),
+            ("Převodovka a pohon", "transmission_profile"),
+            ("Vizuální stav", "visual_condition"),
+            ("Servisní připravenost", "service_readiness"),
+        )
+        confidence_labels = {"HIGH": "Vysoká", "MEDIUM": "Střední", "LOW": "Nízká"}
+        unavailable_label = "Nedostatek údajů"
+        title, area, score_label = "### Skóre analýzy", "Oblast", "Skóre"
+        overall_label, confidence_label = "Celkové skóre", "Spolehlivost analýzy"
+        note = "100 znamená příznivější profil. Oblasti bez dostatečných podkladů se nebodují ani nezapočítávají do váženého průměru. Jde o screening, ne technickou prohlídku."
     else:
         labels = (
             ("Transparentnosť inzerátu", "listing_transparency"),

@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="sk" data-theme="dark">
+<html lang="sk" data-theme="dark" data-title-sk="Checkni Auto — prever auto pred obhliadkou" data-title-cs="Checkni Auto — prověř auto před prohlídkou" data-title-en="Checkni Auto — screen a car before viewing">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Checkni Auto preverí inzerát jazdeného auta a pripraví praktický screening pred obhliadkou.">
+  <meta name="description" data-content-sk="Checkni Auto preverí inzerát jazdeného auta a pripraví praktický screening pred obhliadkou." data-content-cs="Checkni Auto prověří inzerát ojetého auta a připraví praktický screening před prohlídkou." data-content-en="Checkni Auto screens a used-car listing before you arrange a viewing." content="Checkni Auto preverí inzerát jazdeného auta a pripraví praktický screening pred obhliadkou.">
+  <link rel="icon" href="/assets/checkni-auto-logo.png" type="image/png">
   <title>Checkni Auto — prever auto pred obhliadkou</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,18 +14,18 @@
 <body>
   <header class="site-header">
     <div class="wrap header-row">
-      <a class="brand" href="/" aria-label="Checkni Auto domov">
+      <a class="brand" href="/" data-aria-sk="Checkni Auto domov" data-aria-cs="Checkni Auto domů" data-aria-en="Checkni Auto home" aria-label="Checkni Auto domov">
         <img src="/assets/checkni-auto-logo.png" alt="">
         <span><strong>Checkni Auto</strong><small data-sk="AI screening auta pred kúpou" data-en="AI car screening before purchase">AI screening auta pred kúpou</small></span>
       </a>
-      <nav class="main-nav" aria-label="Hlavná navigácia">
+      <nav class="main-nav" data-aria-sk="Hlavná navigácia" data-aria-cs="Hlavní navigace" data-aria-en="Main navigation" aria-label="Hlavná navigácia">
         <a href="#ako-funguje" data-sk="Ako to funguje" data-en="How it works">Ako to funguje</a>
         <a href="#ukazka" data-sk="Ukážka výsledku" data-en="Result preview">Ukážka výsledku</a>
         <a href="#uprimne" data-sk="Čo vieme a čo nie" data-en="What we can and cannot know">Čo vieme a čo nie</a>
       </nav>
       <div class="header-actions">
         <button class="pill-button desktop-only" type="button" data-open-recent data-sk="Nedávne analýzy" data-en="Recent analyses">Nedávne analýzy</button>
-        <button class="pill-button" type="button" data-language-toggle>SK / EN</button>
+        <select class="pill-button language-select" data-language-select aria-label="Jazyk stránky"><option value="sk">SK</option><option value="cs">CZ</option><option value="en">EN</option></select>
         <button class="icon-button" type="button" data-theme-toggle aria-label="Prepnúť tému">☾</button>
         <a class="button primary small desktop-only" href="#analyza" data-sk="Analyzovať inzerát" data-en="Analyze listing">Analyzovať inzerát</a>
       </div>
@@ -35,7 +36,7 @@
     <section class="hero-landing" id="top">
       <div class="wrap">
         <div class="hero-copy">
-          <span class="eyebrow">AI screening · Bazoš · Autobazar</span>
+          <span class="eyebrow" data-sk="AI screening · Bazoš · Autobazar" data-cs="AI screening · Bazoš · Autobazar" data-en="AI screening · Bazoš · Autobazar">AI screening · Bazoš · Autobazar</span>
           <h1 data-sk="Najprv over. Potom choď na obhliadku." data-en="Verify first. Then go see the car.">Najprv over. Potom choď na obhliadku.</h1>
           <p class="lede" data-sk="Vlož odkaz na inzerát alebo vlastný text s fotkami. Dostaneš zrozumiteľný verdikt, riziká a otázky pre predajcu ešte pred cestou." data-en="Paste a listing link or your own text and photos. Get a clear verdict, risks and seller questions before you travel.">Vlož odkaz na inzerát alebo vlastný text s fotkami. Dostaneš zrozumiteľný verdikt, riziká a otázky pre predajcu ešte pred cestou.</p>
 
@@ -48,7 +49,7 @@
             <form class="form-panel" id="urlForm">
               <div class="input-row">
                 <div class="field">
-                  <label for="listingUrl" class="hidden">Odkaz na inzerát</label>
+                  <label for="listingUrl" class="hidden" data-sk="Odkaz na inzerát" data-cs="Odkaz na inzerát" data-en="Listing link">Odkaz na inzerát</label>
                   <input id="listingUrl" type="url" required autocomplete="url" placeholder="https://auto.bazos.sk/inzerat/…">
                 </div>
                 <button class="button primary" type="submit" data-sk="Analyzovať →" data-en="Analyze →">Analyzovať →</button>
@@ -63,7 +64,7 @@
                 <div class="field"><label for="manualPrice" data-sk="Cena EUR" data-en="Price EUR">Cena EUR</label><input id="manualPrice" name="price" type="number" min="1" step="1" required inputmode="numeric"></div>
               </div>
               <div class="field"><label for="sourceUrl" data-sk="Pôvodný odkaz (voliteľné)" data-en="Original link (optional)">Pôvodný odkaz (voliteľné)</label><input id="sourceUrl" name="source_url" type="url" autocomplete="url"></div>
-              <div class="field"><label for="manualText" data-sk="Text inzerátu" data-en="Listing text">Text inzerátu</label><textarea id="manualText" name="manual_text" required placeholder="Popis, parametre, VIN, výbava a servisná história…"></textarea></div>
+              <div class="field"><label for="manualText" data-sk="Text inzerátu" data-en="Listing text">Text inzerátu</label><textarea id="manualText" name="manual_text" required data-placeholder-sk="Popis, parametre, VIN, výbava a servisná história…" data-placeholder-cs="Popis, parametry, VIN, výbava a servisní historie…" data-placeholder-en="Description, specifications, VIN, equipment and service history…" placeholder="Popis, parametre, VIN, výbava a servisná história…"></textarea></div>
               <label class="file-picker" for="manualImages"><strong data-sk="Pridať fotografie" data-en="Add photos">Pridať fotografie</strong><br><span data-file-label data-sk="JPG, PNG, WebP, BMP alebo AVIF · max. 12 súborov" data-en="JPG, PNG, WebP, BMP or AVIF · max. 12 files">JPG, PNG, WebP, BMP alebo AVIF · max. 12 súborov</span></label>
               <input class="hidden" id="manualImages" name="images" type="file" accept=".jpg,.jpeg,.png,.webp,.bmp,.avif,image/jpeg,image/png,image/webp,image/bmp,image/avif" multiple>
               <div class="upload-previews" data-file-previews aria-live="polite"></div>
@@ -72,15 +73,15 @@
             </form>
           </div>
 
-          <div class="source-chips" aria-label="Podporované portály">
+          <div class="source-chips" data-aria-sk="Podporované portály" data-aria-cs="Podporované portály" data-aria-en="Supported marketplaces" aria-label="Podporované portály">
             <span class="chip">bazos.sk</span><span class="chip">bazos.cz</span><span class="chip">autobazar.sk</span><span class="chip">autobazar.eu</span>
           </div>
         </div>
 
         <div class="scan-demo" aria-hidden="true">
-          <div class="demo-card"><div class="demo-label">Inzerát</div><div class="demo-skeleton"><span></span><span></span><span></span></div></div>
+          <div class="demo-card"><div class="demo-label" data-sk="Inzerát" data-cs="Inzerát" data-en="Listing">Inzerát</div><div class="demo-skeleton"><span></span><span></span><span></span></div></div>
           <div class="demo-arrow">→</div>
-          <div class="demo-card demo-verdict"><div class="demo-label">Screening</div><span class="verdict-badge warn">● Najprv preveriť</span><div class="flag-list"><span class="flag">Chýba VIN</span><span class="flag">Servis overiť</span><span class="flag">Cena bez záveru</span></div></div>
+          <div class="demo-card demo-verdict"><div class="demo-label">Screening</div><span class="verdict-badge warn" data-sk="● Najprv preveriť" data-cs="● Nejprve prověřit" data-en="● Verify first">● Najprv preveriť</span><div class="flag-list"><span class="flag" data-sk="Chýba VIN" data-cs="Chybí VIN" data-en="VIN missing">Chýba VIN</span><span class="flag" data-sk="Servis overiť" data-cs="Servis ověřit" data-en="Verify service">Servis overiť</span><span class="flag" data-sk="Cena bez záveru" data-cs="Cena bez závěru" data-en="No price conclusion">Cena bez záveru</span></div></div>
         </div>
       </div>
     </section>
@@ -100,7 +101,7 @@
       <div class="wrap">
         <div class="section-head"><span class="eyebrow" data-sk="Výsledok" data-en="Result">Výsledok</span><h2 data-sk="Najprv podstata, potom dôkazy" data-en="The decision first, then the evidence">Najprv podstata, potom dôkazy</h2><p data-sk="Prehľad ti povie čo spraviť teraz. Technický report ukáže prečo." data-en="The summary tells you what to do now. The technical report explains why.">Prehľad ti povie čo spraviť teraz. Technický report ukáže prečo.</p></div>
         <div class="sample-grid">
-          <article class="card sample-card"><span class="verdict-badge warn">● Najprv preveriť</span><h3 style="margin-top:18px" data-sk="Zákaznícky prehľad" data-en="Customer summary">Zákaznícky prehľad</h3><div class="sample-list"><div class="sample-item">✓ <span data-sk="Najväčšie plus a riziko" data-en="Main strength and risk">Najväčšie plus a riziko</span></div><div class="sample-item">✓ <span data-sk="Kroky pred obhliadkou" data-en="Steps before viewing">Kroky pred obhliadkou</span></div><div class="sample-item">✓ <span data-sk="Správa pre predajcu" data-en="Seller message">Správa pre predajcu</span></div></div></article>
+          <article class="card sample-card"><span class="verdict-badge warn" data-sk="● Najprv preveriť" data-cs="● Nejprve prověřit" data-en="● Verify first">● Najprv preveriť</span><h3 style="margin-top:18px" data-sk="Zákaznícky prehľad" data-en="Customer summary">Zákaznícky prehľad</h3><div class="sample-list"><div class="sample-item">✓ <span data-sk="Najväčšie plus a riziko" data-en="Main strength and risk">Najväčšie plus a riziko</span></div><div class="sample-item">✓ <span data-sk="Kroky pred obhliadkou" data-en="Steps before viewing">Kroky pred obhliadkou</span></div><div class="sample-item">✓ <span data-sk="Správa pre predajcu" data-en="Seller message">Správa pre predajcu</span></div></div></article>
           <article class="card sample-card"><span class="eyebrow" data-sk="Technický detail" data-en="Technical detail">Technický detail</span><h3 style="margin-top:12px" data-sk="Riziká, náklady, trh a zdroje" data-en="Risks, costs, market and sources">Riziká, náklady, trh a zdroje</h3><p class="muted" data-sk="Každé tvrdenie sa zobrazuje s kategóriou dôkazu, spôsobom overenia a limitmi. Ak dáta chýbajú, report to povie priamo." data-en="Each claim is shown with its evidence category, verification action and limitations. Missing data is stated plainly.">Každé tvrdenie sa zobrazuje s kategóriou dôkazu, spôsobom overenia a limitmi. Ak dáta chýbajú, report to povie priamo.</p><a class="button ghost small" href="#analyza" data-sk="Vyskúšať analýzu →" data-en="Try an analysis →">Vyskúšať analýzu →</a></article>
         </div>
       </div>
@@ -133,17 +134,17 @@
         </span>
       </div>
       <strong class="journey-percent" data-progress-percent aria-live="polite">5%</strong>
-      <p class="journey-description" id="progressStatus" data-progress-status aria-live="polite">Chystáme všetko, aby sme mohli začať.</p>
+      <p class="journey-description" id="progressStatus" data-progress-status aria-live="polite" data-sk="Chystáme všetko, aby sme mohli začať." data-cs="Připravujeme vše potřebné, abychom mohli začít." data-en="We are getting everything ready to begin.">Chystáme všetko, aby sme mohli začať.</p>
       <button class="button ghost" type="button" data-cancel-analysis data-sk="Zrušiť" data-en="Cancel">Zrušiť</button>
     </section>
   </div>
 
   <div class="drawer" data-recent-drawer aria-hidden="true">
-    <aside class="drawer-panel"><div class="drawer-head"><div><span class="eyebrow" data-sk="Tento prehliadač" data-en="This browser">Tento prehliadač</span><h2 data-sk="Nedávne analýzy" data-en="Recent analyses">Nedávne analýzy</h2></div><button class="icon-button" type="button" data-close-recent aria-label="Zavrieť">×</button></div><div class="recent-list" data-recent-list></div><p class="muted" style="font-size:12px" data-sk="Demo analýzy sú dočasné a po uplynutí úložnej lehoty prestanú byť dostupné." data-en="Demo analyses are temporary and expire after the configured retention period.">Demo analýzy sú dočasné a po uplynutí úložnej lehoty prestanú byť dostupné.</p></aside>
+    <aside class="drawer-panel"><div class="drawer-head"><div><span class="eyebrow" data-sk="Tento prehliadač" data-en="This browser">Tento prehliadač</span><h2 data-sk="Nedávne analýzy" data-en="Recent analyses">Nedávne analýzy</h2></div><button class="icon-button" type="button" data-close-recent data-aria-sk="Zavrieť" data-aria-cs="Zavřít" data-aria-en="Close" aria-label="Zavrieť">×</button></div><div class="recent-list" data-recent-list></div><p class="muted" style="font-size:12px" data-sk="Demo analýzy sú dočasné a po uplynutí úložnej lehoty prestanú byť dostupné." data-en="Demo analyses are temporary and expire after the configured retention period.">Demo analýzy sú dočasné a po uplynutí úložnej lehoty prestanú byť dostupné.</p></aside>
   </div>
   <div class="toast" data-toast></div>
 
   <script src="/assets/redesign-common.js" defer></script>
-  <script src="/assets/redesign-landing.js" defer></script>
+  <script src="/assets/redesign-landing.js?v=20260717-debug2" defer></script>
 </body>
 </html>

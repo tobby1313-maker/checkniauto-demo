@@ -4,6 +4,7 @@
   const $ = (selector) => document.querySelector(selector);
   const all = (selector) => Array.from(document.querySelectorAll(selector));
   let model = null;
+  const l = (sk, cs, en) => CA.localize({ sk, cs, en }, model?.language);
 
   function text(selector, value) { all(selector).forEach((element) => { element.textContent = value || CA.t("unavailable", model?.language); }); }
   function setImage(selector, image) { const target = $(selector); if (!target || !image) return; target.src = image.url; target.alt = image.filename || model.listing.title; target.classList.remove("hidden"); }
@@ -11,7 +12,7 @@
 
   function renderFindings() {
     const findings = model.priority_findings.slice(0, 3);
-    $("[data-findings-count]").textContent = `${findings.length} ${model.language === "en" ? "priority items" : "prioritné body"}`;
+    $("[data-findings-count]").textContent = `${findings.length} ${l("prioritné body", "prioritní body", "priority items")}`;
     $("[data-findings]").innerHTML = findings.length ? findings.map((item) => `<article class="finding ${itemTone(item)}"><div class="finding-dot"></div><h4>${CA.escapeHtml(item.title)}</h4><p>${CA.escapeHtml(item.detail || CA.t("noData", model.language))}</p>${item.action ? `<small>${CA.escapeHtml(item.action)}</small>` : ""}</article>`).join("") : `<div class="empty-state">${CA.escapeHtml(CA.t("noData", model.language))}</div>`;
   }
 
@@ -23,7 +24,7 @@
       return;
     }
     const delta = market.price_delta_percent === null ? CA.t("unavailable", model.language) : `${market.price_delta_percent > 0 ? "+" : ""}${market.price_delta_percent}%`;
-    $("[data-market]").innerHTML = `<div class="market-layout"><div class="metric-box"><span>${model.language === "en" ? "Advertised price" : "Cena inzerátu"}</span><strong>${CA.formatMoney(market.advertised_price_eur, model.language)}</strong><p>${model.language === "en" ? "Difference from verified median" : "Rozdiel oproti overenému mediánu"}: ${CA.escapeHtml(delta)}</p></div><div class="metric-box"><span>${model.language === "en" ? "Verified median" : "Overený medián"}</span><strong>${CA.formatMoney(market.median_eur, model.language)}</strong><p>${market.comparables.length} ${model.language === "en" ? "customer-visible comparables" : "zobrazené porovnateľné ponuky"}</p></div></div>`;
+    $("[data-market]").innerHTML = `<div class="market-layout"><div class="metric-box"><span>${l("Cena inzerátu", "Cena inzerátu", "Advertised price")}</span><strong>${CA.formatMoney(market.advertised_price_eur, model.language)}</strong><p>${l("Rozdiel oproti overenému mediánu", "Rozdíl oproti ověřenému mediánu", "Difference from verified median")}: ${CA.escapeHtml(delta)}</p></div><div class="metric-box"><span>${l("Overený medián", "Ověřený medián", "Verified median")}</span><strong>${CA.formatMoney(market.median_eur, model.language)}</strong><p>${market.comparables.length} ${l("zobrazené porovnateľné ponuky", "zobrazené srovnatelné nabídky", "customer-visible comparables")}</p></div></div>`;
   }
 
   function costBox(label, group, description) {
@@ -31,7 +32,7 @@
   }
 
   function renderCosts() {
-    $("[data-costs]").innerHTML = costBox(CA.t("initialService", model.language), model.costs.initial_service, model.language === "en" ? "Likely service and diagnostics after purchase." : "Pravdepodobný servis a diagnostika po kúpe.") + costBox(CA.t("conditionalRepairs", model.language), model.costs.conditional_repairs, model.language === "en" ? "Only if an inspection confirms the fault." : "Iba ak kontrola potvrdí konkrétnu chybu.");
+    $("[data-costs]").innerHTML = costBox(CA.t("initialService", model.language), model.costs.initial_service, l("Pravdepodobný servis a diagnostika po kúpe.", "Pravděpodobný servis a diagnostika po koupi.", "Likely service and diagnostics after purchase.")) + costBox(CA.t("conditionalRepairs", model.language), model.costs.conditional_repairs, l("Iba ak kontrola potvrdí konkrétnu chybu.", "Pouze pokud kontrola potvrdí konkrétní závadu.", "Only if an inspection confirms the fault."));
   }
 
   function renderGallery() {
@@ -43,7 +44,7 @@
 
   function renderRisks() {
     const target = $("[data-risk-accordion]");
-    target.innerHTML = model.technical_risks.length ? model.technical_risks.slice(0, 5).map((risk, index) => `<div class="accordion-item ${index === 0 ? "open" : ""}"><button class="accordion-button" type="button">${CA.escapeHtml([risk.component, risk.issue].filter(Boolean).join(" — "))} ⌄</button><div class="accordion-body"><strong>${model.language === "en" ? "Buyer impact" : "Dopad"}:</strong> ${CA.escapeHtml(risk.buyer_impact || CA.t("noData", model.language))}<br><strong>${model.language === "en" ? "How to verify" : "Ako overiť"}:</strong> ${CA.escapeHtml(risk.verification_action || CA.t("noData", model.language))}${risk.low_eur !== null || risk.high_eur !== null ? `<br><strong>${model.language === "en" ? "Conditional estimate" : "Podmienený odhad"}:</strong> ${CA.formatRange(risk.low_eur, risk.high_eur, model.language)}` : ""}</div></div>`).join("") : `<div class="empty-state">${CA.escapeHtml(CA.t("noRisks", model.language))}</div>`;
+    target.innerHTML = model.technical_risks.length ? model.technical_risks.slice(0, 5).map((risk, index) => `<div class="accordion-item ${index === 0 ? "open" : ""}"><button class="accordion-button" type="button">${CA.escapeHtml([risk.component, risk.issue].filter(Boolean).join(" — "))} ⌄</button><div class="accordion-body"><strong>${l("Dopad", "Dopad", "Buyer impact")}:</strong> ${CA.escapeHtml(risk.buyer_impact || CA.t("noData", model.language))}<br><strong>${l("Ako overiť", "Jak ověřit", "How to verify")}:</strong> ${CA.escapeHtml(risk.verification_action || CA.t("noData", model.language))}${risk.low_eur !== null || risk.high_eur !== null ? `<br><strong>${l("Podmienený odhad", "Podmíněný odhad", "Conditional estimate")}:</strong> ${CA.formatRange(risk.low_eur, risk.high_eur, model.language)}` : ""}</div></div>`).join("") : `<div class="empty-state">${CA.escapeHtml(CA.t("noRisks", model.language))}</div>`;
     target.querySelectorAll(".accordion-button").forEach((button) => button.addEventListener("click", () => button.parentElement.classList.toggle("open")));
   }
 
@@ -54,11 +55,11 @@
 
   function renderConfidence() {
     const rows = [
-      [model.language === "en" ? "Evidence quality" : "Kvalita dôkazov", CA.confidenceLabel(model.verdict.evidence_quality, model.language)],
-      [model.language === "en" ? "VIN" : "VIN", model.listing.vin || CA.t("missing", model.language)],
-      [model.language === "en" ? "Market benchmark" : "Trhové porovnanie", model.market.available ? CA.confidenceLabel(model.market.confidence, model.language) : CA.t("unavailable", model.language)],
-      [model.language === "en" ? "Photo analysis" : "Analýza fotografií", model.vision.photos_provided ? `${model.listing.images.length} ${CA.t("photos", model.language)}` : CA.t("unavailable", model.language)],
-      [model.language === "en" ? "Verified sources" : "Overené zdroje", String(model.sources.length)],
+      [l("Kvalita dôkazov", "Kvalita důkazů", "Evidence quality"), CA.confidenceLabel(model.verdict.evidence_quality, model.language)],
+      ["VIN", model.listing.vin || CA.t("missing", model.language)],
+      [l("Trhové porovnanie", "Tržní srovnání", "Market benchmark"), model.market.available ? CA.confidenceLabel(model.market.confidence, model.language) : CA.t("unavailable", model.language)],
+      [l("Analýza fotografií", "Analýza fotografií", "Photo analysis"), model.vision.photos_provided ? `${model.listing.images.length} ${CA.t("photos", model.language)}` : CA.t("unavailable", model.language)],
+      [l("Overené zdroje", "Ověřené zdroje", "Verified sources"), String(model.sources.length)],
     ];
     $("[data-confidence-rows]").innerHTML = rows.map(([label, value]) => `<div class="source-row"><span>${CA.escapeHtml(label)}</span><strong>${CA.escapeHtml(value)}</strong></div>`).join("");
   }
@@ -103,6 +104,7 @@
     const slug = CA.slugFromPath();
     try {
       model = await CA.fetchPresentation(slug);
+      CA.setLanguage(model.language);
       CA.rememberAnalysis(slug);
       $("[data-loading]").classList.add("hidden");
       $("[data-content]").classList.remove("hidden");

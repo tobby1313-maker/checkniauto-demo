@@ -327,7 +327,9 @@ The main UI is `web/index.html`.
 
 It provides:
 
-- Slovak/English output language selector.
+- Slovak/Czech/English output language selector. On a first visit the UI selects
+  Slovak for Slovak locales, Czech for Czech locales, and English otherwise;
+  the visitor's manual selection is then remembered locally.
 - Light/dark theme toggle.
 - URL mode for supported marketplaces.
 - Manual mode for unsupported marketplaces.
@@ -372,7 +374,7 @@ Request:
 }
 ```
 
-`output_language` accepts `sk` or `en`; any other value falls back to `sk`.
+`output_language` accepts `sk`, `cs`, or `en`; any other value falls back to `sk`.
 
 Response is a Server-Sent Events stream. Event payloads may contain:
 
@@ -397,7 +399,7 @@ Multipart form fields:
 | `source_url` | no | Original listing URL for reference. |
 | `manual_text` | yes | Listing description, specs, VIN, equipment, seller notes. |
 | `images` | no | Up to `DEMO_MAX_MANUAL_IMAGES`; supported image extensions only. |
-| `output_language` | no | `sk` or `en`; defaults to `sk`. |
+| `output_language` | no | `sk`, `cs`, or `en`; defaults to `sk`. |
 
 Response is the same SSE format as `/api/demo/analyze`.
 
@@ -513,15 +515,15 @@ versioned `risk_policy_v2.json` and must be based on repeated tuning-set errors,
 not individual makes, models, or listing slugs.
 
 Calibration labels use the language-independent `expected_status`, not the
-rendered Slovak or English verdict text. The customer-facing labels are:
+rendered Slovak, Czech, or English verdict text. The customer-facing labels are:
 
-| Status | Slovak | English |
-| --- | --- | --- |
-| `WORTH_INSPECTING` | 🟢 STOJÍ ZA OBHLIADKU | 🟢 WORTH CHECKING OUT |
-| `INSPECT_WITH_RESERVATIONS` | 🟡 NAJPRV PREVERIŤ | 🟡 VERIFY FIRST |
-| `RESOLVE_BEFORE_PROCEEDING` | 🟠 RIEŠIŤ LEN S VÝHRADAMI | 🟠 PROCEED WITH RESERVATIONS |
-| `HIGH_RISK` | 🔴 SKÔR NERIEŠIŤ | 🔴 PROBABLY SKIP |
-| `DO_NOT_PROCEED` | ⛔ RUKY PREČ | ⛔ WALK AWAY |
+| Status | Slovak | Czech | English |
+| --- | --- | --- | --- |
+| `WORTH_INSPECTING` | 🟢 STOJÍ ZA OBHLIADKU | 🟢 STOJÍ ZA PROHLÍDKU | 🟢 WORTH CHECKING OUT |
+| `INSPECT_WITH_RESERVATIONS` | 🟡 NAJPRV PREVERIŤ | 🟡 NEJDŘÍV PROVĚŘIT | 🟡 VERIFY FIRST |
+| `RESOLVE_BEFORE_PROCEEDING` | 🟠 RIEŠIŤ LEN S VÝHRADAMI | 🟠 ŘEŠIT JEN S VÝHRADAMI | 🟠 PROCEED WITH RESERVATIONS |
+| `HIGH_RISK` | 🔴 SKÔR NERIEŠIŤ | 🔴 SPÍŠ NEŘEŠIT | 🔴 PROBABLY SKIP |
+| `DO_NOT_PROCEED` | ⛔ RUKY PREČ | ⛔ RUCE PRYČ | ⛔ WALK AWAY |
 
 These labels describe whether the listing is worth pursuing toward verification
 and inspection. They are not a guarantee of the vehicle's hidden condition or

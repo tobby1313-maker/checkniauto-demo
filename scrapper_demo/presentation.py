@@ -18,6 +18,13 @@ VERDICT_LABELS = {
         "HIGH_RISK": "Skôr neriešiť",
         "DO_NOT_PROCEED": "Ruky preč",
     },
+    "cs": {
+        "WORTH_INSPECTING": "Stojí za prohlídku",
+        "INSPECT_WITH_RESERVATIONS": "Nejprve prověřit",
+        "RESOLVE_BEFORE_PROCEEDING": "Řešit jen s výhradami",
+        "HIGH_RISK": "Spíše neřešit",
+        "DO_NOT_PROCEED": "Ruce pryč",
+    },
     "en": {
         "WORTH_INSPECTING": "Worth checking out",
         "INSPECT_WITH_RESERVATIONS": "Verify first",
@@ -34,6 +41,13 @@ VERDICT_SUMMARIES = {
         "RESOLVE_BEFORE_PROCEEDING": "Pokračovať má zmysel až po vyriešení významných neistôt a cielenej kontrole.",
         "HIGH_RISK": "Zistené riziká výrazne znižujú zmysel pokračovať bez silných dôkazov a odbornej kontroly.",
         "DO_NOT_PROCEED": "Dostupné dôkazy nepodporujú ďalší záväzok voči tomuto vozidlu.",
+    },
+    "cs": {
+        "WORTH_INSPECTING": "Inzerát má dobrý základ. Před koupí stále doporučujeme nezávislou kontrolu.",
+        "INSPECT_WITH_RESERVATIONS": "Auto může být zajímavé, ale před cestou je třeba doplnit nebo ověřit důležité údaje.",
+        "RESOLVE_BEFORE_PROCEEDING": "Pokračovat má smysl až po vyřešení významných nejistot a cílené kontrole.",
+        "HIGH_RISK": "Zjištěná rizika výrazně snižují smysl pokračovat bez silných důkazů a odborné kontroly.",
+        "DO_NOT_PROCEED": "Dostupné důkazy nepodporují další závazek vůči tomuto vozidlu.",
     },
     "en": {
         "WORTH_INSPECTING": "The listing has a good foundation. An independent inspection is still recommended.",
@@ -140,7 +154,12 @@ def _clean_string_list(values: Any, *, limit: int = 12) -> list[str]:
 
 
 def _language(metadata: dict[str, Any]) -> str:
-    return "en" if _text(metadata.get("output_language")).lower().startswith("en") else "sk"
+    value = _text(metadata.get("output_language")).lower()
+    if value.startswith("en"):
+        return "en"
+    if value.startswith(("cs", "cz")):
+        return "cs"
+    return "sk"
 
 
 def _status(risk: dict[str, Any]) -> str:
@@ -298,6 +317,10 @@ def _seller_message(actions: list[str], language: str) -> str:
         if not selected:
             return "Hello, please send the VIN and available service documentation before the viewing. Thank you."
         return "Hello, before the viewing please help me verify: " + "; ".join(selected) + ". Thank you."
+    if language == "cs":
+        if not selected:
+            return "Dobrý den, před prohlídkou prosím o VIN a dostupnou servisní dokumentaci. Děkuji."
+        return "Dobrý den, před prohlídkou si prosím potřebuji ověřit: " + "; ".join(selected) + ". Děkuji."
     if not selected:
         return "Dobrý deň, pred obhliadkou prosím o VIN a dostupnú servisnú dokumentáciu. Ďakujem."
     return "Dobrý deň, pred obhliadkou si prosím potrebujem overiť: " + "; ".join(selected) + ". Ďakujem."

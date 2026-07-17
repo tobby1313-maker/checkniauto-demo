@@ -519,8 +519,11 @@ class RiskScorerTest(unittest.TestCase):
         vision = _json({"photos_provided": True, "photo_limitations": []})
         slovak = calculate_risk_score_v2(research, vision, output_language="sk")
         english = calculate_risk_score_v2(research, vision, output_language="en")
+        czech = calculate_risk_score_v2(research, vision, output_language="cs")
         self.assertEqual(slovak["decision_status"], english["decision_status"])
+        self.assertEqual(slovak["decision_status"], czech["decision_status"])
         self.assertEqual(slovak["allowed_final_verdict"], "🟢 STOJÍ ZA OBHLIADKU")
+        self.assertEqual(czech["allowed_final_verdict"], "🟢 STOJÍ ZA PROHLÍDKU")
         self.assertEqual(english["allowed_final_verdict"], "🟢 WORTH CHECKING OUT")
 
 

@@ -82,8 +82,9 @@ Your goal is to help the buyer quickly understand:
 
 Language rules:
 - If `output_language` is `sk`, return Slovak headings and Slovak prose.
+- If `output_language` is `cs`, return Czech headings and Czech prose.
 - If `output_language` is `en`, translate the same report structure to English.
-- Keep the same section order and table shapes in both languages.
+- Keep the same section order and table shapes in all three languages.
 
 Writing style:
 - Make the quick summary decisive and concrete.

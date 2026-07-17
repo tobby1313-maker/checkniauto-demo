@@ -170,6 +170,34 @@ class PresentationPayloadTest(unittest.TestCase):
         self.assertFalse(payload["costs"]["initial_service"]["available"])
         self.assertEqual(payload["sources"], [])
 
+    def test_czech_metadata_localizes_customer_owned_presentation_text(self):
+        self.repository.write_json(
+            self.slug,
+            "analysis_metadata.json",
+            {"schema_version": 1, "output_language": "cs"},
+        )
+        self.repository.write_json(
+            self.slug,
+            "risk_score.json",
+            {
+                "decision_status": "INSPECT_WITH_RESERVATIONS",
+                "buyer_actions": ["Ověřte VIN", "Vyžádejte si servisní dokumentaci"],
+            },
+        )
+
+        payload = build_presentation_payload(
+            self.repository,
+            self.slug,
+            parsed={"title": "Testovací vůz", "specs": {}, "source_url": "", "scraped_at": ""},
+            images=[],
+            report_markdown="# Český report",
+        )
+
+        self.assertEqual(payload["language"], "cs")
+        self.assertEqual(payload["verdict"]["label"], "Nejprve prověřit")
+        self.assertIn("Dobrý den", payload["seller_message"])
+        self.assertIn("Ověřte VIN", payload["seller_message"])
+
     def test_supports_legacy_artifacts_and_current_vision_fields(self):
         self.repository.write_json(
             self.slug,

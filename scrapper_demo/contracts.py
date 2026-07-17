@@ -107,7 +107,7 @@ class AnalysisPipelineInput:
     slug: str
     grok_key: str
     gemini_keys: Sequence[str]
-    output_language: Literal["sk", "en"] = "sk"
+    output_language: Literal["sk", "cs", "en"] = "sk"
     openrouter_key: str = ""
 
 

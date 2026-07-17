@@ -67,7 +67,7 @@ from scrapper_demo.validation import (
     _soft_validate_json_contract,
     _write_validation_warnings,
 )
-from scrapper_demo.verdicts import STATUS_RANK, label_for_status
+from scrapper_demo.verdicts import STATUS_RANK, label_for_status, normalize_language
 from token_tracker import (
     analysis_run_context,
     current_tracking_value,
@@ -119,6 +119,10 @@ class AnalysisPipelineDependencies:
     write_validation_warnings: Callable[..., str | None] = _write_validation_warnings
     extract_kb_blocks: Callable[[str], list[dict[str, Any]]] = extract_kb_save_blocks
     count_input_tokens: Callable[..., tuple[int, str]] | None = None
+
+
+def _localized(language: str, *, sk: str, cs: str, en: str) -> str:
+    return {"sk": sk, "cs": cs, "en": en}[normalize_language(language)]
 
 
 def _sse_event(**payload: Unpack[SSEPayload]) -> str:
@@ -323,6 +327,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "OWNER_REPORT": "MODEL_LEVEL_RISK",
         "OFFICIAL": "NEEDS_VERIFICATION",
         "REGULATORY": "NEEDS_VERIFICATION",
+        "TECHNICAL_SPECIFICATION": "NEEDS_VERIFICATION",
         "MODEL_LEVEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_LEVEL_MAINTENANCE": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
@@ -341,6 +346,10 @@ def _normalize_research_model_output(value: Any) -> Any:
         "LOW": "Nizka", "NIZKA": "Nizka",
     }
     cost_aliases = {
+        "INITIAL_SERVICE": "initial_service",
+        "DIAGNOSTIC": "diagnostic",
+        "CONDITIONAL_REPAIR": "conditional_repair",
+        "MAJOR_DOWNSIDE": "major_downside",
         "MANDATORY_INSPECTION_AND_SERVICE": "initial_service",
         "INITIAL_MAINTENANCE": "initial_service",
         "MAINTENANCE": "initial_service",
@@ -360,6 +369,7 @@ def _normalize_research_model_output(value: Any) -> Any:
     urgency_aliases = {"IMMEDIATE": "high", "URGENT": "critical"}
     check_aliases = {
         "CONSISTENT": "ok",
+        "PASSED": "ok",
         "MATCH": "ok",
         "POTENTIALLY_INCONSISTENT": "concern",
         "INCONSISTENT": "concern",
@@ -367,6 +377,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "NOT_CHECKED": "unknown",
         "NEEDS_VERIFICATION": "unknown",
         "REQUIRES_VERIFICATION": "unknown",
+        "NEEDS_INSPECTION": "concern",
     }
 
     summary = packet.get("evidence_summary")
@@ -925,7 +936,7 @@ def _complete_supported_research_sections(
         item for item in packet.get("web_research_findings") or []
         if isinstance(item, dict) and accepted_ids(item)
     ]
-    slovak = str(output_language or "sk").strip().lower().startswith(("sk", "slov"))
+    language = normalize_language(output_language)
 
     if not findings and risks:
         risk = risks[0]
@@ -944,7 +955,7 @@ def _complete_supported_research_sections(
     if not risks and findings:
         finding = findings[0]
         packet["technical_risks"] = [{
-            "component": "Vozidlo" if slovak else "Vehicle",
+            "component": _localized(language, sk="Vozidlo", cs="Vozidlo", en="Vehicle"),
             "issue": str(finding.get("claim") or ""),
             "risk_level": "CHECK",
             "evidence_category": str(
@@ -952,10 +963,11 @@ def _complete_supported_research_sections(
             ),
             "buyer_impact": str(finding.get("buyer_impact") or ""),
             "specific_vehicle_evidence": "",
-            "verification_action": (
-                "Overiť tento bod pri nezávislej predkúpnej kontrole."
-                if slovak
-                else "Verify this point during an independent pre-purchase inspection."
+            "verification_action": _localized(
+                language,
+                sk="Overiť tento bod pri nezávislej predkúpnej kontrole.",
+                cs="Ověřit tento bod při nezávislé předkupní kontrole.",
+                en="Verify this point during an independent pre-purchase inspection.",
             ),
             "estimated_cost_eur_low": None,
             "estimated_cost_eur_high": None,
@@ -974,12 +986,19 @@ def _complete_supported_research_sections(
             component = str(risk.get("component") or "").strip()
             action = str(risk.get("verification_action") or "").strip()
             issue = str(risk.get("issue") or "").strip()
-            if slovak:
+            if language == "sk":
                 item = action or f"Diagnostika: {component or issue}"
                 why = str(risk.get("buyer_impact") or issue)
                 basis = (
                     "Rozsah kontroly vychádza z podloženého modelového rizika; "
                     "presnú cenu musí potvrdiť servis."
+                )
+            elif language == "cs":
+                item = action or f"Diagnostika: {component or issue}"
+                why = str(risk.get("buyer_impact") or issue)
+                basis = (
+                    "Rozsah kontroly vychází z podloženého modelového rizika; "
+                    "přesnou cenu musí potvrdit servis."
                 )
             else:
                 item = action or f"Diagnostic check: {component or issue}"
@@ -1233,6 +1252,85 @@ def _unavailable_research_model_output(
     }
 
 
+def _limited_research_model_output(
+    value: Any,
+    *,
+    output_language: str = "sk",
+) -> dict[str, Any]:
+    """Keep useful low-confidence content when exact source linking fails."""
+    packet = _normalize_research_model_output(value)
+    if not _valid_research_model_output(packet):
+        return _unavailable_research_model_output(
+            "Research output did not satisfy the structured contract."
+        )
+    packet = json.loads(json.dumps(packet, ensure_ascii=False))
+    slovak = str(output_language or "sk").strip().lower().startswith(("sk", "slov"))
+    price_placeholder = (
+        "cena na overenie v servise"
+        if slovak else "price to be confirmed by a workshop"
+    )
+
+    def redact_money(text: Any) -> str:
+        cleaned = re.sub(
+            r"\b\d[\d\s.,]*(?:\s*[-–—]\s*\d[\d\s.,]*)?\s*(?:EUR|CZK|USD|GBP)\b|€\s*\d[\d\s.,]*",
+            price_placeholder,
+            str(text or ""),
+            flags=re.IGNORECASE,
+        )
+        return _redact_fixed_service_interval(cleaned)
+
+    packet["evidence_summary"] = {
+        "data_completeness_score": min(
+            35,
+            int(packet.get("evidence_summary", {}).get("data_completeness_score") or 0),
+        ),
+        "overall_confidence": "LOW",
+        "strongest_evidence": [],
+        "weakest_evidence": [
+            "Presné prepojenie technických tvrdení na webové URL sa nepodarilo overiť."
+            if slovak
+            else "Exact linking between technical claims and web URLs could not be verified."
+        ],
+    }
+    packet["safety_and_recall"] = {
+        "status": "INSUFFICIENT_DATA",
+        "summary": (
+            "Stav zvolávacích akcií nebol automaticky potvrdený."
+            if slovak else "Recall status was not confirmed automatically."
+        ),
+        "required_action": (
+            "Overte otvorené kampane podľa VIN v autorizovanom servise."
+            if slovak else "Verify open campaigns by VIN with an authorized workshop."
+        ),
+        "evidence_category": "NEEDS_VERIFICATION",
+        "source_ids": [],
+    }
+    packet["sources_used"] = []
+    for field in ("web_research_findings", "technical_risks", "expected_costs"):
+        for item in packet.get(field) or []:
+            if not isinstance(item, dict):
+                continue
+            item["source_ids"] = []
+            for key, raw in list(item.items()):
+                if isinstance(raw, str):
+                    item[key] = redact_money(raw)
+            if field in {"web_research_findings", "technical_risks"}:
+                item["confidence"] = "Nizka"
+            if field == "technical_risks":
+                item["estimated_cost_eur_low"] = None
+                item["estimated_cost_eur_high"] = None
+                item["evidence_category"] = "MODEL_LEVEL_RISK"
+            elif field == "expected_costs":
+                item["estimated_cost_eur_low"] = None
+                item["estimated_cost_eur_high"] = None
+                item["basis"] = (
+                    "Orientačný kontrolný bod bez overenej ceny; vyžiadajte si ponuku servisu."
+                    if slovak
+                    else "Indicative inspection item without a verified price; request a workshop quote."
+                )
+    return packet
+
+
 def _canonical_research_from_v2(
     packet: dict[str, Any],
     listing_context: dict[str, Any],
@@ -1336,10 +1434,11 @@ def _apply_research_delivery_gate(
             "missing_sections": missing_sections,
         })
     checks = risk_score.setdefault("buyer_priority_checks", [])
-    gate_action = (
-        "Pred rozhodnutím doplniť technické overenie modelu a orientačné náklady."
-        if not str(output_language).lower().startswith("en")
-        else "Complete the model-specific technical and cost research before deciding."
+    gate_action = _localized(
+        output_language,
+        sk="Pred rozhodnutím doplniť technické overenie modelu a orientačné náklady.",
+        cs="Před rozhodnutím doplnit technické ověření modelu a orientační náklady.",
+        en="Complete the model-specific technical and cost research before deciding.",
     )
     if isinstance(checks, list) and gate_action not in checks:
         checks.insert(0, gate_action)
@@ -1401,10 +1500,11 @@ def _unavailable_vision_payload(
     meta = image_meta if isinstance(image_meta, dict) else {}
     original_count = int(meta.get("original_count") or 0)
     analyzed_count = int(meta.get("selected_count") or original_count)
-    message = (
-        "Fotografie boli poskytnuté, ale automatická vizuálna analýza nevrátila platné štruktúrované dáta."
-        if output_language == "sk"
-        else "Photos were provided, but automatic visual analysis did not return valid structured data."
+    message = _localized(
+        output_language,
+        sk="Fotografie boli poskytnuté, ale automatická vizuálna analýza nevrátila platné štruktúrované dáta.",
+        cs="Fotografie byly poskytnuty, ale automatická vizuální analýza nevrátila platná strukturovaná data.",
+        en="Photos were provided, but automatic visual analysis did not return valid structured data.",
     )
     return {
         "source_role": "vision",
@@ -1740,7 +1840,7 @@ def _comparable_price_label(item: Mapping[str, Any], *, language: str) -> str:
     label = f"{amount:,} EUR".replace(",", " ")
     if currency == "EUR":
         return label
-    prefix = "pribli\u017ene " if language == "sk" else "approximately "
+    prefix = _localized(language, sk="približne ", cs="přibližně ", en="approximately ")
     return prefix + label
 
 
@@ -1778,11 +1878,11 @@ def _render_locked_research_sections(
         for source in research.get("sources_used") or []
         if isinstance(source, Mapping) and str(source.get("source_id") or "")
     }
-    source_label = "Sources" if language == "en" else "Zdroje"
-    impact_label = "Buyer impact" if language == "en" else "Dopad pre kupujúceho"
-    verify_label = "How to verify" if language == "en" else "Ako overiť"
-    evidence_label = "Vehicle evidence" if language == "en" else "Dôkaz na vozidle"
-    estimate_label = "Estimated cost" if language == "en" else "Odhadovaný náklad"
+    source_label = _localized(language, sk="Zdroje", cs="Zdroje", en="Sources")
+    impact_label = _localized(language, sk="Dopad pre kupujúceho", cs="Dopad pro kupujícího", en="Buyer impact")
+    verify_label = _localized(language, sk="Ako overiť", cs="Jak ověřit", en="How to verify")
+    evidence_label = _localized(language, sk="Dôkaz na vozidle", cs="Důkaz na vozidle", en="Vehicle evidence")
+    estimate_label = _localized(language, sk="Odhadovaný náklad", cs="Odhadovaný náklad", en="Estimated cost")
 
     web_lines: list[str] = []
     for item in research.get("web_research_findings") or []:
@@ -1831,11 +1931,11 @@ def _render_locked_research_sections(
 
     costs = [item for item in research.get("expected_costs") or [] if isinstance(item, Mapping)]
     if costs:
-        headers = (
-            ("Item", "Why", "Estimated EUR", "Urgency")
-            if language == "en"
-            else ("Položka", "Prečo", "Odhad EUR", "Urgentnosť")
-        )
+        headers = {
+            "sk": ("Položka", "Prečo", "Odhad EUR", "Urgentnosť"),
+            "cs": ("Položka", "Proč", "Odhad EUR", "Naléhavost"),
+            "en": ("Item", "Why", "Estimated EUR", "Urgency"),
+        }[normalize_language(language)]
         cost_lines = ["| " + " | ".join(headers) + " |", "|---|---|---:|---|"]
         cost_source_lines: list[str] = []
         for item in costs:
@@ -1877,24 +1977,24 @@ def _lock_report_evidence_claims(
     research = text_research if isinstance(text_research, dict) else {}
     risk = risk_score if isinstance(risk_score, dict) else {}
     text = _remove_public_scorecard(report_text)
-    language = "en" if str(output_language).lower().startswith("en") else "sk"
+    language = normalize_language(output_language)
     text = _lock_report_verdict(text, risk, language=language)
 
     unsupported_section_messages = {
-        "web": (
-            "No source-supported technical web finding passed backend validation."
-            if language == "en"
-            else "Backendová validácia nepotvrdila žiadne dostatočne podložené technické webové zistenie."
+        "web": _localized(language,
+            sk="Backendová validácia nepotvrdila žiadne dostatočne podložené technické webové zistenie.",
+            cs="Backendová validace nepotvrdila žádné dostatečně podložené technické webové zjištění.",
+            en="No source-supported technical web finding passed backend validation.",
         ),
-        "risks": (
-            "No model-specific technical risk has sufficiently relevant source support; verify the vehicle in an independent workshop."
-            if language == "en"
-            else "Žiadne modelové technické riziko nemá dostatočne relevantný zdrojový podklad; vozidlo overte v nezávislom servise."
+        "risks": _localized(language,
+            sk="Žiadne modelové technické riziko nemá dostatočne relevantný zdrojový podklad; vozidlo overte v nezávislom servise.",
+            cs="Žádné modelové technické riziko nemá dostatečně relevantní zdrojový podklad; vozidlo ověřte v nezávislém servisu.",
+            en="No model-specific technical risk has sufficiently relevant source support; verify the vehicle in an independent workshop.",
         ),
-        "costs": (
-            "No source-supported repair-cost estimate is available; request a vehicle-specific workshop quotation."
-            if language == "en"
-            else "Nie je dostupný dostatočne podložený odhad nákladov na opravy; vyžiadajte si cenovú ponuku pre konkrétne vozidlo."
+        "costs": _localized(language,
+            sk="Nie je dostupný dostatočne podložený odhad nákladov na opravy; vyžiadajte si cenovú ponuku pre konkrétne vozidlo.",
+            cs="Není dostupný dostatečně podložený odhad nákladů na opravy; vyžádejte si cenovou nabídku pro konkrétní vozidlo.",
+            en="No source-supported repair-cost estimate is available; request a vehicle-specific workshop quotation.",
         ),
     }
     locked_sections = _render_locked_research_sections(
@@ -2042,7 +2142,7 @@ def _lock_report_evidence_claims(
         try:
             price_label = f"{int(float(str(price))):,} EUR".replace(",", " ")
         except (TypeError, ValueError):
-            price_label = "the advertised price" if language == "en" else "inzerovaná cena"
+            price_label = _localized(language, sk="inzerovaná cena", cs="inzerovaná cena", en="the advertised price")
         backend_market_message = str(market.get("summary") or "").strip()
         allowed_market_messages = {
             "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku.",
@@ -2063,6 +2163,14 @@ def _lock_report_evidence_claims(
                 "Nájdené ponuky nezostavili overenú vzorku presnej konfigurácie vozidla.": "The offers found did not produce a verified sample of the vehicle's exact visible configuration.",
                 "Automatické vyhľadávanie nenašlo použiteľné porovnateľné ponuky.": "Automatic search found no usable comparable offers.",
             }[backend_market_message]
+        elif language == "cs":
+            backend_market_message = {
+                "Automatickému vyhľadávaniu sa nepodarilo zostaviť overenú vzorku.": "Automatickému vyhledávání se nepodařilo sestavit ověřený vzorek.",
+                "Boli nájdené ponuky, ale nepodarilo sa overiť ich detailné URL.": "Byly nalezeny nabídky, ale nepodařilo se ověřit jejich detailní URL.",
+                "Nájdené ponuky boli mimo nastavených tolerancií.": "Nalezené nabídky byly mimo nastavené tolerance.",
+                "Nájdené ponuky nezostavili overenú vzorku presnej konfigurácie vozidla.": "Nalezené nabídky nevytvořily ověřený vzorek přesné konfigurace vozidla.",
+                "Automatické vyhľadávanie nenašlo použiteľné porovnateľné ponuky.": "Automatické vyhledávání nenašlo použitelné srovnatelné nabídky.",
+            }[backend_market_message]
 
         comparable_lines: list[str] = []
         for item in research.get("market_comparables", []) if isinstance(research.get("market_comparables"), list) else []:
@@ -2074,7 +2182,7 @@ def _lock_report_evidence_claims(
                 continue
             url = str(item.get("source_url") or "").strip()
             label = str(
-                item.get("description") or item.get("title") or "Porovnateľný inzerát"
+                item.get("description") or item.get("title") or _localized(language, sk="Porovnateľný inzerát", cs="Srovnatelný inzerát", en="Comparable listing")
             ).strip()
             price_display = _comparable_price_label(item, language=language)
             suffix = price_display
@@ -2090,6 +2198,14 @@ def _lock_report_evidence_claims(
             ]
             quick_price = "- **Price:** unclear — there are not enough verified comparable listings for a market classification."
             neutral_line = "Price position is unverified; insufficient comparable data cannot support a positive or negative claim about the car."
+        elif language == "cs":
+            neutral = [
+                f"Inzerovaná cena je **{price_label}**.",
+                backend_market_message
+                + " Proto cenu nelze označit za levnou, drahou, férovou ani podezřelou; pozici ceny je třeba ověřit ručně.",
+            ]
+            quick_price = "- **Cena:** nejasná — není dostatek ověřených srovnatelných inzerátů pro tržní zařazení."
+            neutral_line = "Pozice ceny není ověřena; nedostatek srovnatelných dat nepodporuje pozitivní ani negativní závěr o autě."
         else:
             neutral = [
                 f"Inzerovaná cena je **{price_label}**.",
@@ -2099,16 +2215,15 @@ def _lock_report_evidence_claims(
             quick_price = "- **Cena:** nejasná — nie je dostatok overených porovnateľných inzerátov na trhové zaradenie."
             neutral_line = "Pozícia ceny nie je overená; nedostatok porovnateľných dát nepodporuje pozitívny ani negatívny záver o aute."
         if comparable_lines:
-            neutral.extend(("", "Overené blízke ponuky:" if language == "sk" else "Verified nearby offers:", *comparable_lines))
+            neutral.extend(("", _localized(language, sk="Overené blízke ponuky:", cs="Ověřené blízké nabídky:", en="Verified nearby offers:"), *comparable_lines))
         else:
             neutral.extend(
                 (
                     "",
-                    (
-                        "Žiadna overená SK/CZ ponuka nesplnila prísny filter ±20 % ceny "
-                        "a rovnakej viditeľnej konfigurácie."
-                        if language == "sk"
-                        else "No verified SK/CZ offer met the strict ±20% price and exact visible-configuration filters."
+                    _localized(language,
+                        sk="Žiadna overená SK/CZ ponuka nesplnila prísny filter ±20 % ceny a rovnakej viditeľnej konfigurácie.",
+                        cs="Žádná ověřená SK/CZ nabídka nesplnila přísný filtr ±20 % ceny a stejné viditelné konfigurace.",
+                        en="No verified SK/CZ offer met the strict ±20% price and exact visible-configuration filters.",
                     ),
                 )
             )
@@ -2131,14 +2246,14 @@ def _lock_report_evidence_claims(
             if re.match(r"^\s*\|\s*(?:cena|price)\s*\|", folded):
                 cells = line.split("|")
                 if len(cells) >= 4:
-                    cells[3] = " Cena bez overeného benchmarku " if language == "sk" else " No verified benchmark "
+                    cells[3] = " " + _localized(language, sk="Cena bez overeného benchmarku", cs="Cena bez ověřeného benchmarku", en="No verified benchmark") + " "
                     line = "|".join(cells)
                 rewritten.append(line)
                 continue
             price_context = "cena" in folded or "price" in folded
             if price_context and any(term in folded for term in evaluative_terms):
                 if line.lstrip().startswith(("-", "*")):
-                    rewritten.append(f"- **{'Cena bez benchmarku' if language == 'sk' else 'Price without a benchmark'}:** {neutral_line}")
+                    rewritten.append(f"- **{_localized(language, sk='Cena bez benchmarku', cs='Cena bez benchmarku', en='Price without a benchmark')}:** {neutral_line}")
                 else:
                     rewritten.append(neutral_line)
                 continue
@@ -2153,7 +2268,7 @@ def _lock_report_evidence_claims(
             try:
                 return f"{int(round(float(value))):,} EUR".replace(",", " ")
             except (TypeError, ValueError):
-                return "neuvedené" if language == "sk" else "unavailable"
+                return _localized(language, sk="neuvedené", cs="neuvedeno", en="unavailable")
 
         advertised_label = eur_label(market.get("advertised_price_eur"))
         median_label = eur_label(
@@ -2168,14 +2283,15 @@ def _lock_report_evidence_claims(
             delta_label = "—"
         price_view = str(market.get("price_view") or "").strip().lower()
         view_labels = {
-            "rather_cheap": ("skôr pod trhom", "rather below market"),
-            "fair": ("v rámci trhu", "within the market range"),
-            "rather_expensive": ("skôr nad trhom", "rather above market"),
+            "rather_cheap": {"sk": "skôr pod trhom", "cs": "spíše pod trhem", "en": "rather below market"},
+            "fair": {"sk": "v rámci trhu", "cs": "v rámci trhu", "en": "within the market range"},
+            "rather_expensive": {"sk": "skôr nad trhom", "cs": "spíše nad trhem", "en": "rather above market"},
         }
-        sk_view, en_view = view_labels.get(
-            price_view, ("bez jasného zaradenia", "without a clear classification")
-        )
-        view_label = en_view if language == "en" else sk_view
+        view_label = view_labels.get(price_view, {
+            "sk": "bez jasného zaradenia",
+            "cs": "bez jasného zařazení",
+            "en": "without a clear classification",
+        })[language]
 
         public_links: list[str] = []
         for item in research.get("market_comparables", []) if isinstance(research.get("market_comparables"), list) else []:
@@ -2186,7 +2302,7 @@ def _lock_report_evidence_claims(
             ):
                 continue
             url = str(item.get("source_url") or "").strip()
-            label = str(item.get("description") or item.get("title") or "Porovnateľný inzerát").strip()
+            label = str(item.get("description") or item.get("title") or _localized(language, sk="Porovnateľný inzerát", cs="Srovnatelný inzerát", en="Comparable listing")).strip()
             price_display = _comparable_price_label(item, language=language)
             public_links.append(
                 f"- [{label}]({url})" + (f" — {price_display}" if price_display else "")
@@ -2215,6 +2331,25 @@ def _lock_report_evidence_claims(
                     )
                 )
             quick_price = f"- **Price:** {view_label} — {advertised_label} versus a market median of {median_label}."
+        elif language == "cs":
+            market_lines = [
+                f"Backendový benchmark zařazuje inzerovanou cenu jako **{view_label}**.",
+                "",
+                "| Srovnání | Hodnota |",
+                "| --- | ---: |",
+                f"| Cena inzerátu | {advertised_label} |",
+                f"| Vážený medián trhu | {median_label} |",
+                f"| Rozdíl oproti mediánu | {delta_label} |",
+                f"| Vzorek benchmarku | {sample_count} nabídek |",
+            ]
+            if public_links:
+                market_lines.extend(("", "Ověřené SK/CZ nabídky:", *public_links))
+            else:
+                market_lines.extend((
+                    "",
+                    "Žádná ověřená SK/CZ nabídka nesplnila přísný filtr ±20 % ceny a stejné viditelné konfigurace.",
+                ))
+            quick_price = f"- **Cena:** {view_label} — {advertised_label} oproti tržnímu mediánu {median_label}."
         else:
             market_lines = [
                 f"Backendový benchmark zaraďuje inzerovanú cenu ako **{view_label}**.",
@@ -2260,18 +2395,22 @@ def _lock_report_evidence_claims(
         rewritten = []
         for line in text.splitlines():
             folded = _fold_market_text(line)
-            if ("najvacsie riziko" in folded or "biggest risk" in folded) and "vin" in folded:
+            if any(term in folded for term in ("najvacsie riziko", "nejvetsi riziko", "biggest risk")) and "vin" in folded:
                 rewritten.append(
-                    "- **Najväčšie riziko:** Z dostupných údajov nie je potvrdená konkrétna zásadná vada; VIN treba vyžiadať a históriu následne štandardne preveriť."
-                    if language == "sk"
-                    else "- **Biggest risk:** The available evidence does not confirm a material vehicle defect; request the VIN and perform the standard history check."
+                    _localized(language,
+                        sk="- **Najväčšie riziko:** Z dostupných údajov nie je potvrdená konkrétna zásadná vada; VIN treba vyžiadať a históriu následne štandardne preveriť.",
+                        cs="- **Největší riziko:** Z dostupných údajů není potvrzena konkrétní zásadní vada; VIN je třeba vyžádat a historii následně standardně prověřit.",
+                        en="- **Biggest risk:** The available evidence does not confirm a material vehicle defect; request the VIN and perform the standard history check.",
+                    )
                 )
                 continue
             if line.lstrip().startswith(("-", "*")) and "vin" in folded and any(term in folded for term in ("zavaz", "major risk", "serious defect", "negative history")):
                 rewritten.append(
-                    "- **VIN na vyžiadanie:** VIN nie je v texte inzerátu; požiadajte oň pred obhliadkou a následne preverte históriu. Samotné chýbanie VIN v inzeráte nie je dôkazom negatívnej histórie."
-                    if language == "sk"
-                    else "- **Request the VIN:** It is absent from the listing text; ask for it before viewing and then check history. Its absence from the ad is not evidence of negative history."
+                    _localized(language,
+                        sk="- **VIN na vyžiadanie:** VIN nie je v texte inzerátu; požiadajte oň pred obhliadkou a následne preverte históriu. Samotné chýbanie VIN v inzeráte nie je dôkazom negatívnej histórie.",
+                        cs="- **Vyžádejte si VIN:** VIN není v textu inzerátu; požádejte o něj před prohlídkou a následně prověřte historii. Samotná absence VIN v inzerátu není důkazem negativní historie.",
+                        en="- **Request the VIN:** It is absent from the listing text; ask for it before viewing and then check history. Its absence from the ad is not evidence of negative history.",
+                    )
                 )
                 continue
             rewritten.append(line)
@@ -2287,7 +2426,7 @@ def _ensure_final_recommendation_body(
 ) -> str:
     """Keep a useful, evidence-safe explanation below the final verdict."""
     risk = risk_score if isinstance(risk_score, dict) else {}
-    language = "en" if str(output_language).lower().startswith("en") else "sk"
+    language = normalize_language(output_language)
     lines = str(report_text or "").splitlines()
     section_start = next(
         (
@@ -2295,7 +2434,7 @@ def _ensure_final_recommendation_body(
             if re.match(r"^\s*##\s+", line)
             and any(
                 term in _fold_market_text(line)
-                for term in ("zaverecne odporucanie", "final recommendation")
+                for term in ("zaverecne odporucanie", "zaverecne doporuceni", "final recommendation")
             )
         ),
         None,
@@ -2335,6 +2474,14 @@ def _ensure_final_recommendation_body(
             if incomplete
             else "The available evidence supports the verdict above. Verify the VIN, service records, and vehicle condition before making a financial commitment."
         )
+    elif language == "cs":
+        explanation = (
+            "Technické webové ověření nebylo dokončeno s dostatečným zdrojovým podkladem. "
+            "Podle tohoto výsledku nedělejte rozhodnutí o koupi; analýzu zopakujte a mezitím si "
+            "vyžádejte VIN, servisní záznamy a nezávislou předkupní kontrolu."
+            if incomplete
+            else "Dostupné podklady podporují uvedený verdikt. Před finančním závazkem ověřte VIN, servisní záznamy a technický stav vozidla."
+        )
     else:
         explanation = (
             "Technické webové overenie nebolo dokončené s dostatočným zdrojovým podkladom. "
@@ -2359,10 +2506,10 @@ def _lock_report_verdict(
     verdict = str(risk_score.get("allowed_final_verdict") or "").strip()
     if not verdict:
         return report_text
-    label = "Assessment" if language == "en" else "Hodnotenie"
+    label = _localized(language, sk="Hodnotenie", cs="Hodnocení", en="Assessment")
     replacement = f"- **{label}:** {verdict}"
     pattern = re.compile(
-        r"^\s*[-*]\s*\*\*(?:Hodnotenie|Assessment):\*\*.*$",
+        r"^\s*[-*]\s*\*\*(?:Hodnotenie|Hodnocení|Assessment):\*\*.*$",
         re.IGNORECASE | re.MULTILINE,
     )
     if pattern.search(report_text):
@@ -2403,6 +2550,21 @@ def _lock_registration_age_claims(
             r"(?:\s+of (?:use|operation))?"
         )
         return re.sub(pattern, f"over approximately {age}", report_text)
+
+    if language == "cs":
+        def cs_unit(value: int, one: str, few: str, many: str) -> str:
+            return f"{value} {one if value == 1 else few if 2 <= value <= 4 else many}"
+
+        parts = [cs_unit(years, "rok", "roky", "let")] if years else []
+        if months:
+            parts.append(cs_unit(months, "měsíc", "měsíce", "měsíců"))
+        age = "přibližně " + " a ".join(parts or ["0 měsíců"])
+        pattern = (
+            r"(?i)\bza\s+(?:(?:necel[eé]|m[eé]n[eě] ne[zž]|t[eé]m[eě][rř]|p[rř]ibli[zž]n[eě])\s+)?"
+            r"(?:\d+(?:[.,]\d+)?|jeden|dva|t[rř]i|[cč]ty[rř]i|p[eě]t)\s+"
+            r"(?:rok(?:y|ů)?|let)(?:\s+provozu)?"
+        )
+        return re.sub(pattern, f"za {age} provozu", report_text)
 
     def sk_unit(value: int, one: str, few: str, many: str) -> str:
         return f"{value} {one if value == 1 else few if 2 <= value <= 4 else many}"
@@ -3324,6 +3486,7 @@ def _multi_model_analysis_events(
     input_tokens = research_budget.post_tokens
     yield _token_event(input_tokens, 0)
     initial_generation_error = ""
+    degraded_research_fallback_used = False
     if text_provider == "gemini":
         try:
             with tracking_context(
@@ -3556,12 +3719,23 @@ def _multi_model_analysis_events(
                     "Text/research analysis returned incomplete JSON twice. Analysis stopped before creating an unreliable report."
                 )
                 return
-            fallback_reason = initial_generation_error or "Research V2 returned invalid JSON twice."
-            research_data = _unavailable_research_model_output(fallback_reason)
+            research_data = _limited_research_model_output(
+                raw_research_data,
+                output_language=dependencies.output_language(output_language),
+            )
+            degraded_research_fallback_used = bool(
+                research_data.get("web_research_findings")
+                or research_data.get("technical_risks")
+            )
+            if not degraded_research_fallback_used:
+                fallback_reason = initial_generation_error or "Research V2 returned invalid JSON twice."
+                research_data = _unavailable_research_model_output(fallback_reason)
             text_research_json_text = dependencies.compact_json_for_prompt(research_data)
             repository.write_text(slug, "research_model_output.json", text_research_json_text)
             yield _status_event(
-                "Text/research unavailable after one recovery; continuing with a safe limitation fallback."
+                "Text/research source linking remained incomplete; continuing in safe limited-evidence mode."
+                if degraded_research_fallback_used
+                else "Text/research unavailable after one recovery; continuing with a safe limitation fallback."
             )
         save_text_research_attempts(
             initial_valid=initial_research_valid,
@@ -3587,6 +3761,8 @@ def _multi_model_analysis_events(
             component_identity,
             vin_light_decode,
         )
+        if degraded_research_fallback_used:
+            research_data["research_status"] = "limited"
     else:
         research_data = _merge_backend_evidence(
             research_data,
@@ -3602,33 +3778,21 @@ def _multi_model_analysis_events(
             "provider_schema_valid": bool(initial_research_valid or recovery_valid),
             "recovery_attempted": not initial_research_valid,
             "recovered": recovery_valid is True,
+            "degraded_fallback_used": degraded_research_fallback_used,
             "selected_key_label": _selected_key_label(_text_key),
         }
     )
     save_diagnostics()
     if research_v2_active and research_status == "unavailable":
-        # A schema-valid limitation report is useful internally, but it is not
-        # a complete paid analysis. Stop before vision/scoring/final synthesis
-        # instead of charging more to produce a knowingly incomplete report.
-        text_research_json_text = dependencies.compact_json_for_prompt(research_data)
-        repository.write_text(slug, "grok_research.json", text_research_json_text)
-        for phase in ("vision", "risk_scoring", "final_synthesis"):
-            diagnostics["phases"][phase] = {
-                "status": "skipped",
-                "reason": "text_research_unavailable",
-            }
-        diagnostics["delivery"] = {
-            "status": "RETRY_REQUIRED",
-            "chargeable": False,
-            "reason": "text_research_unavailable",
-        }
-        diagnostics["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        # Grounding already ran and later phases still provide independent
+        # visual, listing, and market value. Keep the explicit limitation, but
+        # do not discard the complete analysis because Research V2 formatting
+        # or source linking failed.
+        diagnostics["phases"]["text_research"]["hard_stop_bypassed"] = True
         save_diagnostics()
-        yield _error_event(
-            "Technical research remained incomplete after recovery. "
-            "Analysis stopped before vision and final synthesis; please retry later."
+        yield _status_event(
+            "Technical research is limited; continuing with photos, market checks, and final synthesis."
         )
-        return
     # Replace, rather than merge, model-produced market candidates. Only the
     # separately grounded and backend-reconciled portal passes may feed price
     # benchmarking or customer links.
@@ -3774,7 +3938,11 @@ def _multi_model_analysis_events(
     image_data_list, _image_meta = dependencies.prepare_images(slug_dir)
     if image_data_list:
         image_payload_context = dependencies.compact_json_for_prompt(_image_meta)
-        vision_language = "Slovak" if dependencies.output_language(output_language) == "sk" else "English"
+        vision_language = {
+            "sk": "Slovak",
+            "cs": "Czech",
+            "en": "English",
+        }[normalize_language(dependencies.output_language(output_language))]
         vision_content = (
             "Analyze only the attached vehicle photos/collages. "
             f"Write all human-readable JSON string values in {vision_language}. "
@@ -4173,10 +4341,11 @@ def _multi_model_analysis_events(
                 yield _status_event(
                     "Final report reached the shared thinking/output limit; retrying once with a compact complete report..."
                 )
-                recovery_system_prompt = final_system_prompt + (
-                    "\n\nFINAL RECOVERY: Return one complete Slovak report, not a continuation. "
-                    "Use the required headings, keep all backend verdict and market facts unchanged, "
-                    "omit repetition, and stay below 2,000 visible tokens."
+                recovery_system_prompt = final_system_prompt + _localized(
+                    output_language,
+                    sk="\n\nFINAL RECOVERY: Return one complete Slovak report, not a continuation. Use the required headings, keep all backend verdict and market facts unchanged, omit repetition, and stay below 2,000 visible tokens.",
+                    cs="\n\nFINAL RECOVERY: Return one complete Czech report, not a continuation. Use the required headings, keep all backend verdict and market facts unchanged, omit repetition, and stay below 2,000 visible tokens.",
+                    en="\n\nFINAL RECOVERY: Return one complete English report, not a continuation. Use the required headings, keep all backend verdict and market facts unchanged, omit repetition, and stay below 2,000 visible tokens.",
                 )
                 attempt_text = ""
                 attempt_output_tokens = 0
