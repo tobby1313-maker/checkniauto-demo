@@ -15,12 +15,9 @@ class RedesignProgressTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
     def test_hybrid_progress_uses_svg_car_and_classic_finish(self):
-        self.assertIn('src="/assets/journey-car-body.svg"', self.html)
-        self.assertNotIn("journey-car-details.svg", self.html)
-        self.assertIn('class="journey-window journey-window-rear"', self.html)
-        self.assertIn('class="journey-window journey-window-front"', self.html)
-        self.assertIn('class="journey-wheel journey-wheel-rear"', self.html)
-        self.assertIn('class="journey-wheel journey-wheel-front"', self.html)
+        self.assertIn('src="/assets/journey-car.png"', self.html)
+        self.assertNotIn("journey-window", self.html)
+        self.assertNotIn("journey-wheel", self.html)
         self.assertIn('class="journey-road-surface"', self.html)
         self.assertIn('class="journey-finish"', self.html)
         self.assertNotIn("🚗", self.html)
@@ -38,7 +35,7 @@ class RedesignProgressTest(unittest.TestCase):
         self.assertEqual(self.html.count("data-progress-status"), 1)
         self.assertNotIn("journey-note", self.html)
         self.assertIn("@media (prefers-reduced-motion: reduce)", self.css)
-        self.assertIn(".journey-wheel", self.css)
+        self.assertNotIn("journey-wheel-spin", self.css)
         self.assertIn("--journey-progress", self.css)
 
 

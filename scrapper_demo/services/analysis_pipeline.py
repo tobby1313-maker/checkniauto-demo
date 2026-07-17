@@ -1551,6 +1551,128 @@ def _comparable_price_label(item: Mapping[str, Any], *, language: str) -> str:
     return prefix + label
 
 
+def _evidence_source_links(
+    item: Mapping[str, Any],
+    source_map: Mapping[str, Mapping[str, Any]],
+) -> str:
+    links: list[str] = []
+    for raw_source_id in item.get("source_ids") or []:
+        source = source_map.get(str(raw_source_id or ""))
+        if not isinstance(source, Mapping):
+            continue
+        name = str(source.get("source_name") or raw_source_id).strip()
+        url = str(source.get("source_url") or "").strip()
+        if not name or not url.startswith(("http://", "https://")):
+            continue
+        safe_name = name.replace("[", "").replace("]", "")
+        links.append(f"[{safe_name}]({url})")
+    return ", ".join(links)
+
+
+def _markdown_table_cell(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().replace("|", "\\|")
+
+
+def _render_locked_research_sections(
+    research: Mapping[str, Any],
+    *,
+    language: str,
+    unsupported_messages: Mapping[str, str],
+) -> dict[str, list[str]]:
+    """Render critical report sections only from provenance-locked structures."""
+    source_map = {
+        str(source.get("source_id") or ""): source
+        for source in research.get("sources_used") or []
+        if isinstance(source, Mapping) and str(source.get("source_id") or "")
+    }
+    source_label = "Sources" if language == "en" else "Zdroje"
+    impact_label = "Buyer impact" if language == "en" else "Dopad pre kupujúceho"
+    verify_label = "How to verify" if language == "en" else "Ako overiť"
+    evidence_label = "Vehicle evidence" if language == "en" else "Dôkaz na vozidle"
+    estimate_label = "Estimated cost" if language == "en" else "Odhadovaný náklad"
+
+    web_lines: list[str] = []
+    for item in research.get("web_research_findings") or []:
+        if not isinstance(item, Mapping) or not str(item.get("claim") or "").strip():
+            continue
+        web_lines.append(f"- **{str(item.get('claim')).strip()}**")
+        impact = str(item.get("buyer_impact") or "").strip()
+        if impact:
+            web_lines.append(f"  - **{impact_label}:** {impact}")
+        links = _evidence_source_links(item, source_map)
+        if links:
+            web_lines.append(f"  - **{source_label}:** {links}")
+    if not web_lines:
+        web_lines = [unsupported_messages["web"]]
+
+    risk_lines: list[str] = []
+    severity_icons = {"HIGH": "🔴", "MEDIUM": "🟠", "CHECK": "🟡"}
+    for item in research.get("technical_risks") or []:
+        if not isinstance(item, Mapping) or not str(item.get("issue") or "").strip():
+            continue
+        component = str(item.get("component") or "").strip()
+        issue = str(item.get("issue") or "").strip()
+        title = f"{component} — {issue}" if component else issue
+        icon = severity_icons.get(str(item.get("risk_level") or "").upper(), "🟡")
+        risk_lines.append(f"### {icon} {title}")
+        for key, label in (
+            ("buyer_impact", impact_label),
+            ("specific_vehicle_evidence", evidence_label),
+            ("verification_action", verify_label),
+        ):
+            value = str(item.get(key) or "").strip()
+            if value:
+                risk_lines.append(f"- **{label}:** {value}")
+        low = item.get("estimated_cost_eur_low")
+        high = item.get("estimated_cost_eur_high")
+        if isinstance(low, (int, float)) and isinstance(high, (int, float)):
+            low_label = f"{int(round(low)):,}".replace(",", " ")
+            high_label = f"{int(round(high)):,}".replace(",", " ")
+            risk_lines.append(f"- **{estimate_label}:** {low_label} – {high_label} EUR")
+        links = _evidence_source_links(item, source_map)
+        if links:
+            risk_lines.append(f"- **{source_label}:** {links}")
+        risk_lines.append("")
+    if not risk_lines:
+        risk_lines = [unsupported_messages["risks"]]
+
+    costs = [item for item in research.get("expected_costs") or [] if isinstance(item, Mapping)]
+    if costs:
+        headers = (
+            ("Item", "Why", "Estimated EUR", "Urgency")
+            if language == "en"
+            else ("Položka", "Prečo", "Odhad EUR", "Urgentnosť")
+        )
+        cost_lines = ["| " + " | ".join(headers) + " |", "|---|---|---:|---|"]
+        cost_source_lines: list[str] = []
+        for item in costs:
+            low = item.get("estimated_cost_eur_low")
+            high = item.get("estimated_cost_eur_high")
+            if not isinstance(low, (int, float)) or not isinstance(high, (int, float)):
+                continue
+            low_label = f"{int(round(low)):,}".replace(",", " ")
+            high_label = f"{int(round(high)):,}".replace(",", " ")
+            estimate = low_label if low_label == high_label else f"{low_label} – {high_label}"
+            cost_lines.append(
+                "| " + " | ".join((
+                    _markdown_table_cell(item.get("item")),
+                    _markdown_table_cell(item.get("why")),
+                    estimate,
+                    _markdown_table_cell(item.get("urgency")),
+                )) + " |"
+            )
+            links = _evidence_source_links(item, source_map)
+            if links and links not in cost_source_lines:
+                cost_source_lines.append(links)
+        if len(cost_lines) == 2:
+            cost_lines = [unsupported_messages["costs"]]
+        elif cost_source_lines:
+            cost_lines.extend(["", f"**{source_label}:** " + ", ".join(cost_source_lines)])
+    else:
+        cost_lines = [unsupported_messages["costs"]]
+    return {"web": web_lines, "risks": risk_lines, "costs": cost_lines}
+
+
 def _lock_report_evidence_claims(
     report_text: str,
     text_research: Any,
@@ -1582,24 +1704,17 @@ def _lock_report_evidence_claims(
             else "Nie je dostupný dostatočne podložený odhad nákladov na opravy; vyžiadajte si cenovú ponuku pre konkrétne vozidlo."
         ),
     }
-    if not research.get("web_research_findings"):
-        text = _replace_report_section(
-            text,
-            ("webove overenie", "web verification"),
-            [unsupported_section_messages["web"]],
-        )
-    if not research.get("technical_risks"):
-        text = _replace_report_section(
-            text,
-            ("technicke rizika", "technical risks"),
-            [unsupported_section_messages["risks"]],
-        )
-    if not research.get("expected_costs"):
-        text = _replace_report_section(
-            text,
-            ("ocakavane naklady", "expected costs"),
-            [unsupported_section_messages["costs"]],
-        )
+    locked_sections = _render_locked_research_sections(
+        research,
+        language=language,
+        unsupported_messages=unsupported_section_messages,
+    )
+    for key, terms in (
+        ("web", ("webove overenie", "web verification")),
+        ("risks", ("technicke rizika", "technical risks")),
+        ("costs", ("ocakavane naklady", "expected costs")),
+    ):
+        text = _replace_report_section(text, terms, locked_sections[key])
     authoritative_interval_ids = {
         str(source.get("source_id") or "")
         for source in research.get("sources_used") or []
@@ -3131,6 +3246,7 @@ def _multi_model_analysis_events(
             "\n\nRECOVERY REQUIREMENT: The previous response was invalid or truncated. "
             "Return one complete schema-valid JSON object. Do not search again, add facts, "
             "or reproduce backend-owned listing, identity, VIN, market, score, verdict, or report fields. "
+            "Write all human-readable strings in the requested output language from the supplied context. "
             "Use at most 2 technical risks, 2 web findings, 2 expected costs, 1 seller claim, "
             "1 unknown, 1 consistency check, and 4 sources; keep every string to one short sentence."
             if research_v2_active

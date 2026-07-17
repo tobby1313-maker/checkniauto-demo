@@ -485,7 +485,8 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "- Oil consumption is documented. It can exceed 1 litre per 1 000 km.\n"
             "- The issue often appears above 150 000 km.\n\n"
             "- The critical period is between 120 000 and 180 000 km.\n\n"
-            "## Technical risks\n\n- **Estimated cost:** 800 - 2 500 EUR.\n\n"
+            "## Technical risks\n\n### Invented Haldex failure\n"
+            "- **Estimated cost:** 800 - 2 500 EUR.\n\n"
             "## Expected costs over the next 30 000 km\n\n"
             "| Item | Estimated EUR |\n|---|---:|\n"
             "| Supported service | 185 - 228 |\n"
@@ -511,14 +512,15 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
 
         locked = _lock_report_evidence_claims(report, research, {}, output_language="en")
 
-        self.assertIn("Oil consumption is documented.", locked)
+        self.assertIn("Oil consumption is documented", locked)
         self.assertNotIn("1 litre per 1 000 km", locked)
         self.assertNotIn("150 000 km", locked)
         self.assertNotIn("120 000", locked)
         self.assertNotIn("180 000 km", locked)
-        self.assertIn("185 - 228", locked)
+        self.assertIn("185 – 228", locked)
         self.assertNotIn("1 500 - 2 500", locked)
         self.assertNotIn("800 - 2 500", locked)
+        self.assertNotIn("Invented Haldex failure", locked)
 
     def test_incomplete_research_delivery_gate_caps_green_verdict(self):
         risk_score = {
