@@ -453,16 +453,22 @@
         }
 
         async function loadArtifacts() {
-            const response = await fetch('/api/listings');
-            if (!response.ok) return;
+            const response = await fetch('/api/admin/listings', { cache: 'no-store' });
+            if (!response.ok) {
+                byId('artifactBody').innerHTML = '<tr><td colspan="2" class="muted">Could not load analysis artifacts (' + response.status + ').</td></tr>';
+                return;
+            }
             const listings = await response.json();
             const selected = (listings || []).slice(0, 8);
             const artifactsBySlug = {};
             await Promise.all(selected.map(async (listing) => {
                 if (!listing.slug) return;
                 try {
-                    const artifactResponse = await fetch('/api/listings/' + encodeURIComponent(listing.slug) + '/artifacts');
-                    if (!artifactResponse.ok) return;
+                    const artifactResponse = await fetch('/api/admin/listings/' + encodeURIComponent(listing.slug) + '/artifacts', { cache: 'no-store' });
+                    if (!artifactResponse.ok) {
+                        artifactsBySlug[listing.slug] = [];
+                        return;
+                    }
                     const payload = await artifactResponse.json();
                     artifactsBySlug[listing.slug] = payload.artifacts || [];
                 } catch (e) {

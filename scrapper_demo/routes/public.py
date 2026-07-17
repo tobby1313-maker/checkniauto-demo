@@ -31,6 +31,12 @@ PUBLIC_ROUTES = (
     RouteSpec("/api/demo/analyze-manual", "api_demo_analyze_manual", ("POST",)),
     RouteSpec("/api/admin/calibration-bundles/<slug>", "api_admin_calibration_bundle"),
     RouteSpec("/api/admin/debugging-bundles/<slug>", "api_admin_debugging_bundle"),
+    RouteSpec("/api/admin/listings", "api_admin_listings"),
+    RouteSpec("/api/admin/listings/<slug>/artifacts", "api_admin_listing_artifacts"),
+    RouteSpec(
+        "/api/admin/listings/<slug>/artifacts/<filename>",
+        "api_admin_listing_artifact",
+    ),
 )
 
 

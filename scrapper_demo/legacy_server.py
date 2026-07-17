@@ -1092,6 +1092,13 @@ def api_demo_listings():
     return jsonify(get_listings(require_analysis=True, image_route_prefix="/api/demo/listings"))
 
 
+def api_admin_listings():
+    denied = _admin_api_guard()
+    if denied:
+        return denied
+    return jsonify(get_listings(image_route_prefix="/api/admin/listings"))
+
+
 def api_listing_detail(slug):
     try:
         result = _build_listing_detail_payload(slug)
@@ -1169,6 +1176,22 @@ def api_demo_listing_artifacts(slug):
         return jsonify({"error": "Saved analysis not found"}), 404
 
 
+def api_admin_listing_artifacts(slug):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
+    try:
+        return jsonify({
+            "slug": slug,
+            "artifacts": _list_listing_artifacts(
+                slug,
+                route_prefix="/api/admin/listings",
+            ),
+        })
+    except FileNotFoundError:
+        return jsonify({"error": "Analysis attempt not found"}), 404
+
+
 def api_listing_artifact(slug, filename):
     denied = _admin_api_guard()
     if denied:
@@ -1177,6 +1200,16 @@ def api_listing_artifact(slug, filename):
         return _send_listing_artifact_file(slug, filename)
     except FileNotFoundError:
         return jsonify({"error": "Listing not found"}), 404
+
+
+def api_admin_listing_artifact(slug, filename):
+    denied = _admin_api_guard()
+    if denied:
+        return denied
+    try:
+        return _send_listing_artifact_file(slug, filename)
+    except FileNotFoundError:
+        return jsonify({"error": "Analysis attempt not found"}), 404
 
 
 def api_demo_listing_artifact(slug, filename):

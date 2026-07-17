@@ -114,11 +114,35 @@ class CalibrationWorkflowTest(unittest.TestCase):
         dashboard = self.client.get("/token-dashboard.html")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Download debugging bundle", dashboard.data)
-        self.assertIn(b"fetch('/api/listings')", dashboard.data)
+        self.assertIn(b"fetch('/api/admin/listings'", dashboard.data)
+        self.assertNotIn(b"fetch('/api/listings')", dashboard.data)
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store, max-age=0")
         self.assertEqual(dashboard.headers["Pragma"], "no-cache")
         dashboard.close()
         self.assertEqual(self.client.get("/api/token-usage").status_code, 200)
+
+    def test_dashboard_admin_artifact_endpoints_work_in_demo_mode(self):
+        self._job("dashboard-case")
+        self.assertEqual(self.client.get("/api/admin/listings").status_code, 401)
+        self._login()
+
+        listings = self.client.get("/api/admin/listings")
+        artifacts = self.client.get(
+            "/api/admin/listings/dashboard-case/artifacts"
+        )
+        car_info = self.client.get(
+            "/api/admin/listings/dashboard-case/artifacts/car_info.md?raw=1"
+        )
+
+        self.assertEqual(listings.status_code, 200)
+        self.assertIn("dashboard-case", {item["slug"] for item in listings.get_json()})
+        self.assertEqual(artifacts.status_code, 200)
+        self.assertIn(
+            "analysis_result.md",
+            {item["filename"] for item in artifacts.get_json()["artifacts"]},
+        )
+        self.assertEqual(car_info.status_code, 200)
+        self.assertIn(b"# Car", car_info.data)
 
     def test_development_secret_cannot_enable_admin_api(self):
         web_server.app.config["SECRET_KEY"] = "dev-demo-secret-change-me"
