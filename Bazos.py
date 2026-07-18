@@ -206,7 +206,7 @@ def extract_car_info(soup, url):
         info["parameters"]["Engine Power"] = f"{power_match.group(1)} kW"
 
     engine_match = re.search(
-        r'(?:Typ\s+motora|Motor|Engine)\s*:?\s*([^\r\n,;]{2,80})',
+        r'(?:Typ\s+motora|\bMotor\b|\bEngine\b)\s*:?\s*([^\r\n,;/•]{2,80})',
         desc_text,
         re.I,
     )

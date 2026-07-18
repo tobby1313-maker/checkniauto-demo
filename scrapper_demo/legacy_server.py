@@ -2462,7 +2462,7 @@ def _description_listing_facts(description, title=""):
     engine = _description_capture(
         text,
         (
-            r"(?:typ\s+motora|motor|engine)\s*:?\s*([^\r\n,;]{2,80})",
+            r"(?:typ\s+motora|\bmotor\b|\bengine\b)\s*:?\s*([^\r\n,;/•]{2,80})",
             r"\b(\d(?:[.,]\d)\s*(?:l|lit(?:er|re|ra|rov)?))\b",
         ),
     )

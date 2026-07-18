@@ -379,6 +379,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "MANUFACTURER_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_SPECIFIC_ISSUE": "MODEL_LEVEL_RISK",
+        "MODEL_GENERAL_ISSUE": "MODEL_LEVEL_RISK",
         "RECALL_AFFECTED": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
     }
@@ -406,6 +407,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "MAINTENANCE": "initial_service",
         "PREVENTIVE_MAINTENANCE": "initial_service",
         "RECOMMENDED_MAINTENANCE": "initial_service",
+        "REQUIRED_MAINTENANCE": "initial_service",
         "INSPECTION": "diagnostic",
         "DIAGNOSTICS": "diagnostic",
         "POTENTIAL_REPAIR": "conditional_repair",

@@ -361,7 +361,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         }]
         packet["web_research_findings"] = [{
             "claim": "Hybrid-system inspection is recommended.",
-            "evidence_category": "MANUFACTURER_ISSUE",
+            "evidence_category": "MODEL_GENERAL_ISSUE",
             "buyer_impact": "Check the system before purchase.",
             "confidence": "MODERATE",
             "source_ids": [],
@@ -384,7 +384,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "why": "Routine maintenance.",
             "estimated_cost_eur_low": None,
             "estimated_cost_eur_high": None,
-            "cost_type": "RECOMMENDED_MAINTENANCE",
+            "cost_type": "REQUIRED_MAINTENANCE",
             "urgency": "medium",
             "basis": "Workshop quote required.",
             "source_ids": [],

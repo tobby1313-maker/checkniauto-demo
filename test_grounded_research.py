@@ -239,6 +239,16 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertIn("automat", context["transmission"].lower())
         self.assertEqual(context["drive"], "4x4")
 
+    def test_listing_context_engine_label_ignores_inflected_motor_word(self):
+        context = web_server._listing_context_object(
+            "# Audi A5 Coupe 3.0 TDI Quattro\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "Vozidlo s nesmrteľným 3.0 TDI V6 motorom a manuálnou prevodovkou. "
+            "• Motor: 3.0 TDI V6 / 176 kW (240 PS) / Palivo Diesel"
+        )
+
+        self.assertEqual(context["engine"], "3.0 TDI V6")
+
     def test_listing_context_repairs_stale_troc_mileage_and_inventory_alternatives(self):
         context = web_server._listing_context_object(
             "# VW T-Roc 2023, 1.5TSi, DSG\n\n"

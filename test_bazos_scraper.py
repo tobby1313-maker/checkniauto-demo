@@ -70,6 +70,24 @@ class BazosScraperTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["Drivetrain"], "Predný")
         self.assertEqual(result["parameters"]["Transmission"], "DSG 7-stupňov")
 
+    def test_engine_label_does_not_match_inflected_motor_word(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Audi A5 Coupe 3.0 TDI Quattro</h1>
+              <div class="popisdetail">
+                Vozidlo s nesmrteľným 3.0 TDI V6 motorom a manuálnou prevodovkou.
+                • Motor: 3.0 TDI V6 / 176 kW (240 PS) / Palivo Diesel
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/audi.php")
+
+        self.assertEqual(result["parameters"]["Engine"], "3.0 TDI V6")
+
 
 if __name__ == "__main__":
     unittest.main()
