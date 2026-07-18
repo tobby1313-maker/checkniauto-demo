@@ -2473,10 +2473,26 @@ def _description_listing_facts(description, title=""):
     transmission = _description_capture(
         text,
         (
-            r"(?:prevodovka|transmission|gearbox)\s*:?\s*([^\r\n,;]{2,80})",
-            r"\b((?:automatick(?:á|a|ou)|automat|automatic|manuáln(?:a|ou)|manualn(?:a|ou)|manual|CVT|DCT|DSG)(?:\s+prevodovk(?:a|ou))?)\b",
+            r"(?:prevodovka|převodovka|transmission|gearbox)\s*:?\s*([^\r\n,;]{2,80})",
+            r"\b((?:automatick(?:á|a|ou)|automat|automatic|manuáln(?:a|ou)|manualn(?:a|i|ou)|manual|CVT|DCT|DSG)(?:\s+(?:prevodovk|převodovk)(?:a|ou))?)\b",
         ),
     )
+    folded_transmission_text = _fold_listing_text(text)
+    manual_marker = re.search(
+        r"\bmanualn(?:a|i|ou)\s+prevodovk(?:a|ou)\b|\bmanual\s+\d+\s*(?:rychlost|stupn|speed)",
+        folded_transmission_text,
+        re.IGNORECASE,
+    )
+    manual_gears = re.search(
+        r"\b([4-9])\s*(?:rychlostnich|rychlostni|rychlosti|stupnov|stupnova|speed)",
+        folded_transmission_text,
+        re.IGNORECASE,
+    )
+    if manual_marker:
+        transmission = (
+            f"Manuálna {manual_gears.group(1)}-st."
+            if manual_gears else "Manuálna"
+        )
     transmission = re.sub(
         r"\([^)]*\)",
         lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),

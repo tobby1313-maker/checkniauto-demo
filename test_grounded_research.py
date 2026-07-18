@@ -249,6 +249,15 @@ class GroundedResearchTest(unittest.TestCase):
 
         self.assertEqual(context["engine"], "3.0 TDI V6")
 
+    def test_listing_context_extracts_czech_manual_transmission(self):
+        context = web_server._listing_context_object(
+            "# BMW X3 xDrive20i F25\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "manuální převodovka, 6 rychlostních stupňů, pohon 4x4"
+        )
+
+        self.assertEqual(context["transmission"], "Manuálna 6-st.")
+
     def test_listing_context_repairs_stale_troc_mileage_and_inventory_alternatives(self):
         context = web_server._listing_context_object(
             "# VW T-Roc 2023, 1.5TSi, DSG\n\n"

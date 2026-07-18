@@ -4,6 +4,7 @@ from scrapper_demo.component_identity import (
     component_is_identified,
     normalize_component_identity,
     parse_first_json_object,
+    reconcile_component_identity_with_listing,
 )
 
 
@@ -222,6 +223,37 @@ class ComponentIdentityTests(unittest.TestCase):
         )
         preserved = {item["source_id"] for item in identity["sources"]}
         self.assertTrue(set(identity["engine"]["evidence_refs"]) <= preserved)
+
+    def test_explicit_manual_listing_replaces_incompatible_automatic_guess(self):
+        identity = normalize_component_identity({
+            "identification_status": "PROBABLE",
+            "generation": {"name": "BMW X3 F25", "resolution": "PROBABLE"},
+            "engine": {"marketing_name": "2.0 TwinPower Turbo", "resolution": "PROBABLE"},
+            "transmission": {
+                "marketing_name": "8-speed Automatic",
+                "family": "ZF 8HP",
+                "resolution": "PROBABLE",
+                "confidence": "HIGH",
+                "verification_basis": "MULTIPLE_CANDIDATES",
+            },
+            "candidate_variants": [{
+                "engine_code": "N20B20A",
+                "transmission_code": "GA8HP45Z",
+                "reason": "Common automatic candidate.",
+            }],
+        })
+
+        reconciled = reconcile_component_identity_with_listing(
+            identity,
+            {"transmission": "Manuálna 6-st."},
+        )
+
+        self.assertEqual(reconciled["transmission"]["marketing_name"], "6-speed Manual")
+        self.assertEqual(reconciled["transmission"]["family"], "Manual")
+        self.assertEqual(reconciled["transmission"]["code"], "")
+        self.assertEqual(len(reconciled["candidate_variants"]), 1)
+        self.assertEqual(reconciled["candidate_variants"][0]["transmission_code"], "")
+        self.assertEqual(reconciled["identification_status"], "PROBABLE")
 
 
 if __name__ == "__main__":

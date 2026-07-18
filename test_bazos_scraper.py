@@ -88,6 +88,23 @@ class BazosScraperTests(unittest.TestCase):
 
         self.assertEqual(result["parameters"]["Engine"], "3.0 TDI V6")
 
+    def test_extracts_czech_manual_transmission_and_gear_count(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>BMW X3 xDrive20i F25</h1>
+              <div class="popisdetail">
+                manuální převodovka, 6 rychlostních stupňů, pohon 4x4
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/bmw.php")
+
+        self.assertEqual(result["parameters"]["Transmission"], "Manuálna 6-st.")
+
 
 if __name__ == "__main__":
     unittest.main()

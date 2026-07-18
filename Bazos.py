@@ -233,13 +233,29 @@ def extract_car_info(soup, url):
     # Transmission. Preserve an explicit labelled value because the gear count
     # and DCT/DSG/CVT family materially improve component identification.
     transmission_match = re.search(
-        r'(?:Prevodovka|Transmission|Gearbox)\s*:?\s*([^\r\n,;]{2,80})',
+        r'(?:Prevodovka|Převodovka|Transmission|Gearbox)\s*:?\s*([^\r\n,;]{2,80})',
         desc_text,
+        re.I,
+    )
+    folded_desc = _fold_text(desc_text)
+    manual_match = re.search(
+        r'\bmanualn(?:a|i|ou)\s+prevodovk(?:a|ou)\b|\bmanual\s+\d+\s*(?:rychlost|stupn|speed)',
+        folded_desc,
+        re.I,
+    )
+    manual_gears = re.search(
+        r'\b([4-9])\s*(?:rychlostnich|rychlostni|rychlosti|stupnov|stupnova|speed)',
+        folded_desc,
         re.I,
     )
     if transmission_match:
         transmission = _without_inventory_alternatives(transmission_match.group(1))
         info["parameters"]["Transmission"] = transmission.strip()
+    elif manual_match:
+        info["parameters"]["Transmission"] = (
+            f"Manuálna {manual_gears.group(1)}-st."
+            if manual_gears else "Manuálna"
+        )
     # First check for explicit manual transmission mentions (e.g. "manualnou prevodovkou", "Manual 6 rýchlostný")
     elif re.search(r'(?:manuálna\s+prevodovka|manualnou\s+prevodovkou|manual\s+\d+\s*rýchlost|manuál\s+\d+\s*stupňov)', desc_text, re.I):
         info["parameters"]["Transmission"] = "Manuálna"

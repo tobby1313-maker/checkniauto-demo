@@ -19,6 +19,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _canonical_research_from_v2,
     _enforce_research_source_policy,
     _ensure_final_recommendation_body,
+    _filter_research_transmission_conflicts,
     _merge_backend_evidence,
     _promote_selected_key,
     _select_limited_research_candidate,
@@ -461,6 +462,58 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(limited["expected_costs"][0]["cost_type"], "diagnostic")
         self.assertEqual(limited["expected_costs"][0]["urgency"], "medium")
 
+    def test_research_v2_normalizes_aliases_seen_in_bmw_x3_run(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["consistency_checks"] = [{
+            "check": "Transmission",
+            "result": "neoverené",
+            "explanation": "Requires inspection.",
+        }]
+        packet["web_research_findings"] = [{
+            "claim": "Model-level issue",
+            "evidence_category": "MODEL_COMMON_ISSUE",
+            "buyer_impact": "Inspect before purchase.",
+            "confidence": "LOW",
+            "source_ids": [],
+        }]
+        packet["technical_risks"] = [{
+            "component": "Drivetrain",
+            "issue": "Maintenance point",
+            "risk_level": "CHECK",
+            "evidence_category": "MODEL_MAINTENANCE_REQUIREMENT",
+            "buyer_impact": "Check service history.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Inspect it.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "LOW",
+            "source_ids": [],
+        }]
+        packet["expected_costs"] = [{
+            "item": "Conditional repair",
+            "why": "Only if inspection confirms a fault.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "cost_type": "REPAIR",
+            "urgency": "medium",
+            "basis": "Workshop quote required.",
+            "source_ids": [],
+        }]
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(normalized["consistency_checks"][0]["result"], "unknown")
+        self.assertEqual(
+            normalized["web_research_findings"][0]["evidence_category"],
+            "MODEL_LEVEL_RISK",
+        )
+        self.assertEqual(
+            normalized["technical_risks"][0]["evidence_category"],
+            "MODEL_LEVEL_RISK",
+        )
+        self.assertEqual(normalized["expected_costs"][0]["cost_type"], "conditional_repair")
+        self.assertTrue(_valid_research_model_output(normalized))
+
     def test_limited_research_prefers_useful_initial_attempt_over_broken_recovery(self):
         initial = _unavailable_research_model_output("fixture")
         initial["evidence_summary"]["data_completeness_score"] = 65
@@ -506,6 +559,36 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(len(limited["web_research_findings"]), 1)
         self.assertEqual(len(limited["technical_risks"]), 1)
         self.assertEqual(len(limited["expected_costs"]), 1)
+
+    def test_explicit_manual_listing_removes_automatic_research_items(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["web_research_findings"] = [
+            {"claim": "ZF 8HP automatic transmission oil service", "buyer_impact": "Cost"},
+            {"claim": "N20 timing-chain inspection", "buyer_impact": "Engine risk"},
+        ]
+        packet["technical_risks"] = [
+            {"component": "Automatic transmission ZF 8HP", "issue": "Oil service"},
+            {"component": "Engine N20", "issue": "Timing chain"},
+        ]
+        packet["expected_costs"] = [
+            {"item": "ZF 8HP automatic transmission service", "why": "Maintenance"},
+            {"item": "Engine diagnostics", "why": "Inspection"},
+        ]
+
+        filtered, counts = _filter_research_transmission_conflicts(
+            packet,
+            {"transmission": "Manuálna 6-st."},
+            {"transmission": {"marketing_name": "6-speed Manual", "family": "Manual"}},
+        )
+
+        self.assertEqual(counts, {
+            "web_research_findings": 1,
+            "technical_risks": 1,
+            "expected_costs": 1,
+        })
+        self.assertEqual(filtered["web_research_findings"][0]["claim"], "N20 timing-chain inspection")
+        self.assertEqual(filtered["technical_risks"][0]["component"], "Engine N20")
+        self.assertEqual(filtered["expected_costs"][0]["item"], "Engine diagnostics")
 
     def test_report_renders_limited_evidence_and_non_numeric_cost_actions(self):
         report = (

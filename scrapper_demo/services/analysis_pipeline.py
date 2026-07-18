@@ -50,6 +50,7 @@ from scrapper_demo.scorecard import build_buyer_scorecard
 from scrapper_demo.component_identity import (
     normalize_component_identity,
     parse_first_json_object,
+    reconcile_component_identity_with_listing,
     unknown_component_identity,
 )
 from scrapper_demo.direct_market_search import search_all_marketplaces
@@ -380,6 +381,8 @@ def _normalize_research_model_output(value: Any) -> Any:
         "MODEL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_SPECIFIC_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_GENERAL_ISSUE": "MODEL_LEVEL_RISK",
+        "MODEL_COMMON_ISSUE": "MODEL_LEVEL_RISK",
+        "MODEL_MAINTENANCE_REQUIREMENT": "MODEL_LEVEL_RISK",
         "RECALL_AFFECTED": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
     }
@@ -412,6 +415,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "DIAGNOSTICS": "diagnostic",
         "POTENTIAL_REPAIR": "conditional_repair",
         "CONDITIONAL": "conditional_repair",
+        "REPAIR": "conditional_repair",
         "MAJOR_REPAIR": "major_downside",
     }
     source_aliases = {
@@ -431,6 +435,9 @@ def _normalize_research_model_output(value: Any) -> Any:
         "NOT_CHECKED": "unknown",
         "NEEDS_VERIFICATION": "unknown",
         "REQUIRES_VERIFICATION": "unknown",
+        "NEOVERENÉ": "unknown",
+        "NEOVERENE": "unknown",
+        "NEOVĚŘENÉ": "unknown",
         "NEEDS_INSPECTION": "concern",
         "KONZISTENTNÉ S HLÁSENÝMI PROBLÉMAMI.": "concern",
         "KONZISTENTNE S HLASENYMI PROBLEMAMI.": "concern",
@@ -1517,6 +1524,73 @@ def _select_limited_research_candidate(
 
     candidates = (("initial", initial), ("recovery", recovery))
     return max(candidates, key=lambda candidate: score(candidate[1]))
+
+
+def _research_transmission_kind(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    folded = "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    )
+    if re.search(r"\bmanual(?:n[aiou]?)?\b", folded):
+        return "MANUAL"
+    if re.search(
+        r"\bautomat|\bautomatik|\bautomatic|\b(?:dsg|dct|cvt|stronic|tiptronic)\b|"
+        r"\bs[ -]?tronic\b|\b(?:zf\s*)?8hp\d*\b|\bga8hp",
+        folded,
+    ):
+        return "AUTOMATIC"
+    return ""
+
+
+def _filter_research_transmission_conflicts(
+    packet: Any,
+    listing_context: Any,
+    component_identity: Any,
+) -> tuple[Any, dict[str, int]]:
+    """Remove model research about a transmission type contradicted by the ad."""
+    counts = {
+        "web_research_findings": 0,
+        "technical_risks": 0,
+        "expected_costs": 0,
+    }
+    if not isinstance(packet, dict) or not isinstance(listing_context, dict):
+        return packet, counts
+    listing_kind = _research_transmission_kind(listing_context.get("transmission"))
+    identity_transmission = (
+        component_identity.get("transmission", {})
+        if isinstance(component_identity, dict) else {}
+    )
+    identity_text = " ".join(
+        str(identity_transmission.get(key) or "")
+        for key in ("marketing_name", "family", "code")
+    )
+    identity_kind = _research_transmission_kind(identity_text)
+    if not listing_kind or identity_kind != listing_kind:
+        return packet, counts
+
+    result = json.loads(json.dumps(packet, ensure_ascii=False))
+    field_keys = {
+        "web_research_findings": ("claim", "buyer_impact"),
+        "technical_risks": (
+            "component", "issue", "buyer_impact", "specific_vehicle_evidence",
+            "verification_action",
+        ),
+        "expected_costs": ("item", "why", "basis"),
+    }
+    for field, keys in field_keys.items():
+        kept: list[Any] = []
+        for item in result.get(field, []) if isinstance(result.get(field), list) else []:
+            if not isinstance(item, dict):
+                kept.append(item)
+                continue
+            item_text = " ".join(str(item.get(key) or "") for key in keys)
+            item_kind = _research_transmission_kind(item_text)
+            if item_kind and item_kind != listing_kind:
+                counts[field] += 1
+                continue
+            kept.append(item)
+        result[field] = kept
+    return result, counts
 
 
 def _canonical_research_from_v2(
@@ -3260,6 +3334,10 @@ def _multi_model_analysis_events(
             slug, "component_identity_research.md", identity_grounded
         )
         component_identity = normalize_component_identity(identity_grounded)
+        component_identity = reconcile_component_identity_with_listing(
+            component_identity,
+            listing_context_data,
+        )
         status = component_identity.get("identification_status", "UNKNOWN")
         diagnostics["phases"]["component_identity"] = {
             "status": "completed",
@@ -4202,6 +4280,16 @@ def _multi_model_analysis_events(
             recovery_valid=recovery_valid,
         )
     if research_v2_active:
+        research_data, transmission_conflict_counts = (
+            _filter_research_transmission_conflicts(
+                research_data,
+                listing_context_data,
+                component_identity,
+            )
+        )
+        diagnostics["phases"]["text_research"][
+            "transmission_conflict_removed_counts"
+        ] = transmission_conflict_counts
         research_model_output_text = dependencies.compact_json_for_prompt(research_data)
         repository.write_text(
             slug,

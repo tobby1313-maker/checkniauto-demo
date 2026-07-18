@@ -389,6 +389,105 @@ def normalize_component_identity(value: Any) -> dict[str, Any]:
     return result
 
 
+def _transmission_kind(value: Any) -> str:
+    if isinstance(value, dict):
+        text = " ".join(
+            _text(value.get(key), 160)
+            for key in ("marketing_name", "name", "family", "code", "transmission")
+        )
+    else:
+        text = _text(value, 500)
+    folded = unicodedata.normalize("NFKD", text).casefold()
+    folded = "".join(char for char in folded if not unicodedata.combining(char))
+    if re.search(r"\bmanual(?:n[aiou]?)?\b", folded):
+        return "MANUAL"
+    if re.search(
+        r"\bautomat|\bautomatik|\bautomatic|\b(?:dsg|dct|cvt|stronic|tiptronic)\b|"
+        r"\bs[ -]?tronic\b|\b(?:zf\s*)?8hp\d*\b|\bga8hp",
+        folded,
+    ):
+        return "AUTOMATIC"
+    return ""
+
+
+def reconcile_component_identity_with_listing(
+    identity: Any,
+    listing_context: Any,
+) -> dict[str, Any]:
+    """Prefer an explicit listing transmission over an incompatible model guess."""
+    result = json.loads(json.dumps(identity if isinstance(identity, dict) else {}))
+    if not result:
+        return unknown_component_identity("Component identity was unavailable for reconciliation.")
+    listing = listing_context if isinstance(listing_context, dict) else {}
+    listing_transmission = _text(listing.get("transmission"), 200)
+    listing_kind = _transmission_kind(listing_transmission)
+    transmission = result.get("transmission")
+    transmission = transmission if isinstance(transmission, dict) else {}
+    identity_kind = _transmission_kind(transmission)
+    if not listing_kind or identity_kind == listing_kind:
+        return result
+
+    direct_identity = (
+        transmission.get("resolution") == "VERIFIED"
+        and transmission.get("verification_basis") in DIRECT_VERIFICATION_BASES
+    )
+    if direct_identity:
+        result["identification_status"] = "AMBIGUOUS"
+        result["notes"] = ([
+            "Explicit listing transmission conflicts with directly verified component identity; verify the vehicle documents."
+        ] + _string_list(result.get("notes"), limit=5))[:6]
+        return result
+
+    gear_match = re.search(r"\b([4-9]|10)\s*(?:[- ]?st\.?|speed|gear)", listing_transmission, re.I)
+    if listing_kind == "MANUAL":
+        marketing_name = (
+            f"{gear_match.group(1)}-speed Manual" if gear_match else "Manual"
+        )
+        family = "Manual"
+    else:
+        marketing_name = listing_transmission or "Automatic"
+        family = "Automatic"
+    result["transmission"] = {
+        "marketing_name": marketing_name,
+        "code": "",
+        "family": family,
+        "resolution": "PROBABLE",
+        "confidence": "MEDIUM",
+        "verification_basis": "SPECIFICATION_MATCH",
+        "evidence_refs": [],
+    }
+
+    candidates: list[dict[str, str]] = []
+    for raw in result.get("candidate_variants", []):
+        if not isinstance(raw, dict):
+            continue
+        engine_code = _text(raw.get("engine_code"), 120)
+        if engine_code and not any(
+            candidate.get("engine_code") == engine_code for candidate in candidates
+        ):
+            candidates.append({
+                "engine_code": engine_code,
+                "transmission_code": "",
+                "reason": "Engine candidate retained; incompatible transmission candidate removed using the explicit listing specification.",
+            })
+    result["candidate_variants"] = candidates[:5]
+    result["notes"] = ([
+        "Model transmission guess replaced because it conflicted with the explicit listing transmission."
+    ] + _string_list(result.get("notes"), limit=5))[:6]
+
+    substantive = (result.get("generation", {}), result.get("engine", {}), result["transmission"])
+    resolutions = [str(component.get("resolution") or "UNKNOWN") for component in substantive]
+    if all(resolution == "UNKNOWN" for resolution in resolutions):
+        result["identification_status"] = "UNKNOWN"
+    elif "AMBIGUOUS" in resolutions or "UNKNOWN" in resolutions:
+        result["identification_status"] = "AMBIGUOUS"
+    elif all(resolution == "VERIFIED" for resolution in resolutions):
+        result["identification_status"] = "VERIFIED"
+    else:
+        result["identification_status"] = "PROBABLE"
+    return result
+
+
 def component_is_identified(identity: Any, component_name: str) -> bool:
     """Return whether a component has a usable family/name/code identification."""
     if not isinstance(identity, dict):
