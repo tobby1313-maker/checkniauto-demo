@@ -357,6 +357,7 @@ def _normalize_research_model_output(value: Any) -> Any:
 
     evidence_aliases = {
         "SELLER_CLAIM": "LISTING_CLAIM",
+        "LISTING_DATA": "LISTING_CLAIM",
         "UNVERIFIED_CLAIM": "LISTING_CLAIM",
         "UNVERIFIED": "LISTING_CLAIM",
         "OTHER": "NEEDS_VERIFICATION",
@@ -374,6 +375,10 @@ def _normalize_research_model_output(value: Any) -> Any:
         "MAINTENANCE_RECOMMENDATION": "MODEL_LEVEL_RISK",
         "MAINTENANCE_ITEM": "MODEL_LEVEL_RISK",
         "OFFICIAL_RECALL": "NEEDS_VERIFICATION",
+        "RECALL_INFORMATION": "NEEDS_VERIFICATION",
+        "MANUFACTURER_ISSUE": "MODEL_LEVEL_RISK",
+        "MODEL_ISSUE": "MODEL_LEVEL_RISK",
+        "RECALL_AFFECTED": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
     }
     recall_aliases = {
@@ -381,6 +386,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "RECALLS_IDENTIFIED_PENDING_VIN_CHECK": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
         "RECALL_IDENTIFIED": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
         "RECALL_PENDING_VIN_CHECK": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+        "ACTION_REQUIRED": "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
         "NO_RECALL_FOUND": "NO_RELEVANT_CAMPAIGN_FOUND",
         "NO_RECALLS_FOUND": "NO_RELEVANT_CAMPAIGN_FOUND",
     }
@@ -398,6 +404,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "INITIAL_MAINTENANCE": "initial_service",
         "MAINTENANCE": "initial_service",
         "PREVENTIVE_MAINTENANCE": "initial_service",
+        "RECOMMENDED_MAINTENANCE": "initial_service",
         "INSPECTION": "diagnostic",
         "DIAGNOSTICS": "diagnostic",
         "POTENTIAL_REPAIR": "conditional_repair",
@@ -422,6 +429,8 @@ def _normalize_research_model_output(value: Any) -> Any:
         "NEEDS_VERIFICATION": "unknown",
         "REQUIRES_VERIFICATION": "unknown",
         "NEEDS_INSPECTION": "concern",
+        "KONZISTENTNÉ S HLÁSENÝMI PROBLÉMAMI.": "concern",
+        "KONZISTENTNE S HLASENYMI PROBLEMAMI.": "concern",
     }
 
     summary = packet.get("evidence_summary")
@@ -1395,6 +1404,39 @@ def _limited_research_model_output(
         )
         return _redact_fixed_service_interval(cleaned)
 
+    recall_action = _localized(
+        output_language,
+        sk="Overte otvorené zvolávacie akcie podľa VIN v autorizovanom servise.",
+        cs="Ověřte otevřené svolávací akce podle VIN v autorizovaném servisu.",
+        en="Verify open recall campaigns by VIN with an authorized workshop.",
+    )
+    recall_markers = ("recall", "zvolav", "svolav", "campaign", "kampan", "nhtsa")
+
+    def redact_recall_identifier(text: Any) -> str:
+        cleaned = str(text or "")
+        cleaned = re.sub(
+            r"\bNHTSA\s+Campaign\s+(?:Number|No\.?)[\s:]*\d{2}[A-Z]\d{6}\b",
+            _localized(
+                output_language,
+                sk="prípadná zvolávacia akcia",
+                cs="případná svolávací akce",
+                en="a possible recall campaign",
+            ),
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(
+            r"\b\d{2}[A-Z]\d{6}\b",
+            _localized(
+                output_language,
+                sk="zvolávacia akcia na overenie",
+                cs="svolávací akce k ověření",
+                en="recall campaign to verify",
+            ),
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
     packet["evidence_summary"] = {
         "data_completeness_score": min(
             35,
@@ -1429,13 +1471,17 @@ def _limited_research_model_output(
             item["source_ids"] = []
             for key, raw in list(item.items()):
                 if isinstance(raw, str):
-                    item[key] = redact_money(raw)
+                    item[key] = redact_recall_identifier(redact_money(raw))
             if field in {"web_research_findings", "technical_risks"}:
                 item["confidence"] = "Nizka"
             if field == "technical_risks":
+                item["risk_level"] = "CHECK"
                 item["estimated_cost_eur_low"] = None
                 item["estimated_cost_eur_high"] = None
                 item["evidence_category"] = "MODEL_LEVEL_RISK"
+                action = _fold_market_text(item.get("verification_action"))
+                if any(marker in action for marker in recall_markers):
+                    item["verification_action"] = recall_action
             elif field == "expected_costs":
                 item["estimated_cost_eur_low"] = None
                 item["estimated_cost_eur_high"] = None

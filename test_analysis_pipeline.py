@@ -343,11 +343,49 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
 
     def test_research_v2_normalizes_aliases_seen_in_honda_recovery(self):
         packet = _unavailable_research_model_output("fixture")
+        packet["safety_and_recall"].update({
+            "status": "ACTION_REQUIRED",
+            "evidence_category": "RECALL_INFORMATION",
+        })
+        packet["seller_claims"] = [{
+            "claim": "Servisná história",
+            "evidence_category": "LISTING_DATA",
+            "verification_status": "UNVERIFIED",
+            "buyer_relevance": "Overiť doklady.",
+        }]
+        packet["consistency_checks"] = [{
+            "check": "Modelové problémy",
+            "result": "konzistentné s hlásenými problémami.",
+            "explanation": "Vyžaduje kontrolu.",
+        }]
         packet["web_research_findings"] = [{
             "claim": "Hybrid-system inspection is recommended.",
-            "evidence_category": "MAINTENANCE_RECOMMENDATION",
+            "evidence_category": "MANUFACTURER_ISSUE",
             "buyer_impact": "Check the system before purchase.",
             "confidence": "MODERATE",
+            "source_ids": [],
+        }]
+        packet["technical_risks"] = [{
+            "component": "Hybrid system",
+            "issue": "Inspection point",
+            "risk_level": "CHECK",
+            "evidence_category": "MODEL_ISSUE",
+            "buyer_impact": "Check before purchase.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Run diagnostics.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "MODERATE",
+            "source_ids": [],
+        }]
+        packet["expected_costs"] = [{
+            "item": "Oil service",
+            "why": "Routine maintenance.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "cost_type": "RECOMMENDED_MAINTENANCE",
+            "urgency": "medium",
+            "basis": "Workshop quote required.",
             "source_ids": [],
         }]
         packet["text_research_risk_flags"] = [{
@@ -363,6 +401,14 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             normalized["web_research_findings"][0]["evidence_category"],
             "MODEL_LEVEL_RISK",
         )
+        self.assertEqual(
+            normalized["safety_and_recall"]["status"],
+            "POSSIBLE_CAMPAIGN_NEEDS_VIN_CHECK",
+        )
+        self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
+        self.assertEqual(normalized["consistency_checks"][0]["result"], "concern")
+        self.assertEqual(normalized["technical_risks"][0]["evidence_category"], "MODEL_LEVEL_RISK")
+        self.assertEqual(normalized["expected_costs"][0]["cost_type"], "initial_service")
         self.assertEqual(normalized["web_research_findings"][0]["confidence"], "Stredna")
         self.assertEqual(normalized["text_research_risk_flags"][0]["confidence"], "Stredna")
         self.assertTrue(_valid_research_model_output(normalized))
@@ -380,11 +426,11 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         packet["technical_risks"] = [{
             "component": "Hybrid system",
             "issue": "Inspect system operation",
-            "risk_level": "REVIEW",
+            "risk_level": "HIGH",
             "evidence_category": "NEW_PROVIDER_ENUM",
             "buyer_impact": "A workshop check is prudent.",
             "specific_vehicle_evidence": "",
-            "verification_action": "Run diagnostics.",
+            "verification_action": "Verify NHTSA Campaign Number 23V858000 by VIN.",
             "estimated_cost_eur_low": None,
             "estimated_cost_eur_high": None,
             "confidence": "UNCERTAIN",
@@ -406,6 +452,11 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertTrue(_valid_research_model_output(limited))
         self.assertEqual(limited["web_research_findings"][0]["confidence"], "Nizka")
         self.assertEqual(limited["technical_risks"][0]["risk_level"], "CHECK")
+        self.assertNotIn("23V858000", limited["technical_risks"][0]["verification_action"])
+        self.assertEqual(
+            limited["technical_risks"][0]["verification_action"],
+            "Overte otvorené zvolávacie akcie podľa VIN v autorizovanom servise.",
+        )
         self.assertEqual(limited["expected_costs"][0]["cost_type"], "diagnostic")
         self.assertEqual(limited["expected_costs"][0]["urgency"], "medium")
 
