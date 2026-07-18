@@ -378,6 +378,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "RECALL_INFORMATION": "NEEDS_VERIFICATION",
         "MANUFACTURER_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_ISSUE": "MODEL_LEVEL_RISK",
+        "MODEL_SPECIFIC_ISSUE": "MODEL_LEVEL_RISK",
         "RECALL_AFFECTED": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
     }
@@ -1491,6 +1492,29 @@ def _limited_research_model_output(
                     else "Indicative inspection item without a verified price; request a workshop quote."
                 )
     return packet
+
+
+def _select_limited_research_candidate(
+    initial: Any,
+    recovery: Any,
+) -> tuple[str, Any]:
+    """Prefer the most structurally useful attempt for safe limited salvage."""
+
+    def score(value: Any) -> tuple[int, int, int, int]:
+        packet = _salvage_research_enum_values(value)
+        if not isinstance(packet, dict) or packet.get("_parse_error") is True:
+            return (0, 0, 0, -100)
+        errors = _research_contract_validation_errors(packet)
+        required_fields = sum(field in packet for field in RESEARCH_V2_REQUIRED_FIELDS)
+        core_items = sum(
+            len(packet.get(field) or [])
+            for field in ("web_research_findings", "technical_risks", "expected_costs")
+            if isinstance(packet.get(field), list)
+        )
+        return (int(not errors), required_fields, core_items, -len(errors))
+
+    candidates = (("initial", initial), ("recovery", recovery))
+    return max(candidates, key=lambda candidate: score(candidate[1]))
 
 
 def _canonical_research_from_v2(
@@ -3995,6 +4019,8 @@ def _multi_model_analysis_events(
         research_data = dependencies.safe_model_json(text_research_json_text)
     except Exception:
         research_data = {"_parse_error": True}
+    initial_raw_research_data = research_data
+    recovery_raw_research_data: Any = {"_parse_error": True}
     if research_v2_active and isinstance(research_data, dict):
         raw_research_data = research_data
         source_policy_diagnostics: dict[str, Any] = {}
@@ -4094,6 +4120,7 @@ def _multi_model_analysis_events(
                     ),
                 )
             research_data = dependencies.safe_model_json(text_research_json_text)
+            recovery_raw_research_data = research_data
             if research_v2_active and isinstance(research_data, dict):
                 raw_research_data = research_data
                 source_policy_diagnostics = {}
@@ -4140,10 +4167,17 @@ def _multi_model_analysis_events(
                     "Text/research analysis returned incomplete JSON twice. Analysis stopped before creating an unreliable report."
                 )
                 return
+            fallback_attempt, fallback_candidate = _select_limited_research_candidate(
+                initial_raw_research_data,
+                recovery_raw_research_data,
+            )
             research_data = _limited_research_model_output(
-                raw_research_data,
+                fallback_candidate,
                 output_language=dependencies.output_language(output_language),
             )
+            diagnostics["phases"]["text_research"][
+                "limited_fallback_source_attempt"
+            ] = fallback_attempt
             degraded_research_fallback_used = bool(
                 research_data.get("web_research_findings")
                 or research_data.get("technical_risks")

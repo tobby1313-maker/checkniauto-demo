@@ -534,7 +534,8 @@ not individual makes, models, or listing slugs.
 Research calibration uses field-level salvage after the one allowed structured
 recovery. Known provider enum aliases are normalized; any remaining unknown enum
 is downgraded to a conservative low-confidence value while structural/type
-errors still fail validation. A limited report may retain model-level inspection
+errors still fail validation. If recovery is less usable than the initial
+attempt, limited mode salvages the structurally stronger attempt. A limited report may retain model-level inspection
 points and non-numeric workshop actions, but labels them as indicative rather
 than evidence of a defect in the specific car. VIN, accident, recall, exact
 service-interval, exact-cost, and public-link claims remain fail-closed.

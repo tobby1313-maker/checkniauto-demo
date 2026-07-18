@@ -21,6 +21,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _ensure_final_recommendation_body,
     _merge_backend_evidence,
     _promote_selected_key,
+    _select_limited_research_candidate,
     _research_parse_failed,
     _research_v2_response_schema,
     _normalize_research_model_output,
@@ -459,6 +460,52 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(limited["expected_costs"][0]["cost_type"], "diagnostic")
         self.assertEqual(limited["expected_costs"][0]["urgency"], "medium")
+
+    def test_limited_research_prefers_useful_initial_attempt_over_broken_recovery(self):
+        initial = _unavailable_research_model_output("fixture")
+        initial["evidence_summary"]["data_completeness_score"] = 65
+        initial["web_research_findings"] = [{
+            "claim": "Published model inspection point",
+            "evidence_category": "MODEL_SPECIFIC_ISSUE",
+            "buyer_impact": "Inspect before purchase.",
+            "confidence": "MEDIUM",
+            "source_ids": [],
+        }]
+        initial["technical_risks"] = [{
+            "component": "Emissions system",
+            "issue": "Inspection point",
+            "risk_level": "CHECK",
+            "evidence_category": "MODEL_SPECIFIC_ISSUE",
+            "buyer_impact": "Diagnostics are prudent.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Run diagnostics.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "MEDIUM",
+            "source_ids": [],
+        }]
+        initial["expected_costs"] = [{
+            "item": "Diagnostics",
+            "why": "Inspect the emissions system.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "cost_type": "diagnostic",
+            "urgency": "medium",
+            "basis": "Workshop quote required.",
+            "source_ids": [],
+        }]
+
+        attempt, selected = _select_limited_research_candidate(
+            initial,
+            {"_parse_error": True},
+        )
+        limited = _limited_research_model_output(selected, output_language="sk")
+
+        self.assertEqual(attempt, "initial")
+        self.assertTrue(_valid_research_model_output(limited))
+        self.assertEqual(len(limited["web_research_findings"]), 1)
+        self.assertEqual(len(limited["technical_risks"]), 1)
+        self.assertEqual(len(limited["expected_costs"]), 1)
 
     def test_report_renders_limited_evidence_and_non_numeric_cost_actions(self):
         report = (

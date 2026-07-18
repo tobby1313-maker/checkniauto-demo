@@ -296,7 +296,9 @@ tuning/holdout výsledky.
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy
 sa normalizujú a po jednom neúspešnom recovery sa neznáme enum hodnoty znížia
 na bezpečné low-confidence defaults, aby sa zachovali použiteľné modelové
-kontrolné body. Limited-evidence report ich musí označiť ako orientačné a môže
+kontrolné body. Ak je recovery horší alebo neparsovateľný, limited fallback
+vyberie štrukturálne najužitočnejší z initial/recovery pokusov namiesto slepého
+uprednostnenia posledného. Limited-evidence report ich musí označiť ako orientačné a môže
 uviesť servisný úkon s cenou na overenie. Naďalej sa striktne blokujú nepodložené
 VIN/nehodové/recall závery, presné servisné intervaly, konkrétne náklady a
 neoverené verejné odkazy. Sprísňovanie sa robí až podľa opakovaných chýb v
