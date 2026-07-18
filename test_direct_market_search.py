@@ -4,6 +4,7 @@ from unittest.mock import patch
 import requests
 
 from scrapper_demo.direct_market_search import (
+    _similarity,
     bazos_search_url,
     derive_bazos_identity,
     parse_bazos_search_page,
@@ -51,6 +52,35 @@ class DirectMarketSearchTests(unittest.TestCase):
             bazos_search_url("SK", self.identity["query"]),
             "https://auto.bazos.sk/inzeraty/volkswagen-t-roc/",
         )
+
+    def test_tier_a_requires_visible_matching_power_and_drivetrain(self):
+        listing = {
+            "title": "Škoda Kodiaq 2.0 TDI 110 kW DSG",
+            "engine": "2.0 TDI",
+            "power": "110 kW",
+            "transmission": "DSG",
+            "drive": "Predný",
+            "description_excerpt": "2.0 TDI 110 kW DSG, pohon: predný náhon",
+        }
+
+        exact = _similarity(
+            listing,
+            "Škoda Kodiaq 2.0 TDI 110 kW DSG, predný náhon",
+        )
+        different = _similarity(
+            listing,
+            "Škoda Kodiaq 2.0 TDI 147 kW DSG 4x4",
+        )
+        missing_drive = _similarity(
+            listing,
+            "Škoda Kodiaq 2.0 TDI 110 kW DSG",
+        )
+
+        self.assertEqual(exact[0], "A")
+        self.assertEqual(different[0], "B")
+        self.assertIn("different power", different[1])
+        self.assertIn("different drive", different[1])
+        self.assertEqual(missing_drive, ("B", "drive not visible"))
 
     def test_parser_keeps_exact_detail_url_and_visible_fields(self):
         html = _card(

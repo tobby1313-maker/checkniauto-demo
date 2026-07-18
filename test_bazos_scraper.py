@@ -105,6 +105,21 @@ class BazosScraperTests(unittest.TestCase):
 
         self.assertEqual(result["parameters"]["Transmission"], "Manuálna 6-st.")
 
+    def test_extracts_slovak_front_wheel_nahon(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Škoda Kodiaq 2.0 TDI DSG</h1>
+              <div class="popisdetail">Pohon: predný náhon</div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/kodiaq.php")
+
+        self.assertEqual(result["parameters"]["Drivetrain"], "Predný")
+
 
 if __name__ == "__main__":
     unittest.main()

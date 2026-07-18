@@ -2522,7 +2522,7 @@ def _description_listing_facts(description, title=""):
         else "4x4"
         if drive_token or re.search(r"\b(?:4x4|4wd|awd|quattro|allrad|stvorkol(?:ka|kou|ky))\b", combined)
         else "Predný"
-        if re.search(r"\b(?:fwd|predny\s+pohon|predokolka)\b", combined)
+        if re.search(r"\b(?:fwd|predny\s+(?:pohon|nahon)|predokolka)\b", combined)
         else ""
     )
     return {

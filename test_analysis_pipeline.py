@@ -12,6 +12,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _apply_research_delivery_gate,
     _build_grounded_source_registry,
     _contains_fixed_service_interval,
+    _redact_fixed_service_interval,
     _complete_supported_research_sections,
     _lock_report_evidence_claims,
     _lock_registration_age_claims,
@@ -20,6 +21,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _enforce_research_source_policy,
     _ensure_final_recommendation_body,
     _filter_research_transmission_conflicts,
+    _generalize_candidate_component_codes,
     _merge_backend_evidence,
     _promote_selected_key,
     _select_limited_research_candidate,
@@ -514,6 +516,48 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(normalized["expected_costs"][0]["cost_type"], "conditional_repair")
         self.assertTrue(_valid_research_model_output(normalized))
 
+    def test_research_v2_normalizes_aliases_seen_in_kodiaq_run(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["consistency_checks"] = [{
+            "check": "Configuration",
+            "result": "konzistentné",
+            "explanation": "Visible facts agree.",
+        }]
+        packet["web_research_findings"] = [{
+            "claim": "General model reliability",
+            "evidence_category": "MODEL_GENERAL_RELIABILITY",
+            "buyer_impact": "Useful background.",
+            "confidence": "LOW",
+            "source_ids": [],
+        }]
+        packet["technical_risks"] = [{
+            "component": "Engine",
+            "issue": "Inspection point",
+            "risk_level": "LOW",
+            "evidence_category": "MODEL_KNOWLEDGE",
+            "buyer_impact": "Inspect before purchase.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Run diagnostics.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "LOW",
+            "source_ids": [],
+        }]
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(normalized["consistency_checks"][0]["result"], "ok")
+        self.assertEqual(
+            normalized["web_research_findings"][0]["evidence_category"],
+            "MODEL_LEVEL_RISK",
+        )
+        self.assertEqual(normalized["technical_risks"][0]["risk_level"], "CHECK")
+        self.assertEqual(
+            normalized["technical_risks"][0]["evidence_category"],
+            "MODEL_LEVEL_RISK",
+        )
+        self.assertTrue(_valid_research_model_output(normalized))
+
     def test_limited_research_prefers_useful_initial_attempt_over_broken_recovery(self):
         initial = _unavailable_research_model_output("fixture")
         initial["evidence_summary"]["data_completeness_score"] = 65
@@ -589,6 +633,41 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(filtered["web_research_findings"][0]["claim"], "N20 timing-chain inspection")
         self.assertEqual(filtered["technical_risks"][0]["component"], "Engine N20")
         self.assertEqual(filtered["expected_costs"][0]["item"], "Engine diagnostics")
+
+    def test_candidate_only_component_codes_are_not_rendered_as_selected_facts(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["web_research_findings"] = [{
+            "claim": "Motor EA288 (DFGA) is reliable and DQ381 is robust.",
+            "buyer_impact": "Inspect both components.",
+        }]
+        packet["technical_risks"] = [{
+            "component": "Prevodovka DQ381 (7-st. DSG)",
+            "issue": "DQ381 mechatronic inspection",
+        }]
+        packet["expected_costs"] = [{
+            "item": "DFGA diagnostics",
+            "why": "Check the engine.",
+        }]
+        identity = {
+            "engine": {"marketing_name": "2.0 TDI", "family": "EA288", "code": ""},
+            "transmission": {"marketing_name": "7-st. DSG", "family": "DQ", "code": ""},
+            "candidate_variants": [
+                {"engine_code": "DFGA", "transmission_code": ""},
+                {"engine_code": "", "transmission_code": "DQ381"},
+            ],
+        }
+
+        generalized, counts = _generalize_candidate_component_codes(packet, identity)
+        serialized = json.dumps(generalized)
+
+        self.assertNotIn("DFGA", serialized)
+        self.assertNotIn("DQ381", serialized)
+        self.assertEqual(
+            generalized["technical_risks"][0]["component"],
+            "Prevodovka (7-st. DSG)",
+        )
+        self.assertGreaterEqual(counts["engine"], 2)
+        self.assertGreaterEqual(counts["transmission"], 3)
 
     def test_report_renders_limited_evidence_and_non_numeric_cost_actions(self):
         report = (
@@ -1052,6 +1131,20 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertIn("podľa servisného plánu výrobcu", locked)
         self.assertNotIn("800 – 2 500", locked)
         self.assertIn("185 – 228", locked)
+
+    def test_interval_redaction_does_not_leave_repeated_broken_phrases(self):
+        redacted = _redact_fixed_service_interval(
+            "Vozidlo má 107 296 km, čo je blízko odporúčaného "
+            "servisného intervalu 150 000 km."
+        )
+
+        self.assertEqual(
+            redacted,
+            "Konkrétny interval a aktuálnu potrebu úkonu overte podľa "
+            "servisnej histórie a servisného plánu výrobcu.",
+        )
+        self.assertNotIn("107 296", redacted)
+        self.assertNotIn("150 000", redacted)
 
     def test_report_lock_keeps_sources_internal_and_attributes_service_claim(self):
         report = (

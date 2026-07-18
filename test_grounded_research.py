@@ -258,6 +258,15 @@ class GroundedResearchTest(unittest.TestCase):
 
         self.assertEqual(context["transmission"], "Manuálna 6-st.")
 
+    def test_listing_context_extracts_slovak_front_wheel_nahon(self):
+        context = web_server._listing_context_object(
+            "# Škoda Kodiaq 2.0 TDI DSG\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "Pohon: predný náhon"
+        )
+
+        self.assertEqual(context["drive"], "Predný")
+
     def test_listing_context_repairs_stale_troc_mileage_and_inventory_alternatives(self):
         context = web_server._listing_context_object(
             "# VW T-Roc 2023, 1.5TSi, DSG\n\n"

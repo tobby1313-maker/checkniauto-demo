@@ -383,6 +383,8 @@ def _normalize_research_model_output(value: Any) -> Any:
         "MODEL_GENERAL_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_COMMON_ISSUE": "MODEL_LEVEL_RISK",
         "MODEL_MAINTENANCE_REQUIREMENT": "MODEL_LEVEL_RISK",
+        "MODEL_KNOWLEDGE": "MODEL_LEVEL_RISK",
+        "MODEL_GENERAL_RELIABILITY": "MODEL_LEVEL_RISK",
         "RECALL_AFFECTED": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
     }
@@ -425,8 +427,11 @@ def _normalize_research_model_output(value: Any) -> Any:
         "FORUM": "OWNER_REPORT",
     }
     urgency_aliases = {"IMMEDIATE": "high", "URGENT": "critical"}
+    risk_level_aliases = {"LOW": "CHECK"}
     check_aliases = {
         "CONSISTENT": "ok",
+        "KONZISTENTNÉ": "ok",
+        "KONZISTENTNE": "ok",
         "PASSED": "ok",
         "MATCH": "ok",
         "POTENTIALLY_INCONSISTENT": "concern",
@@ -474,7 +479,7 @@ def _normalize_research_model_output(value: Any) -> Any:
                 item["confidence"] = alias(item.get("confidence"), confidence_aliases)
     for item in packet.get("technical_risks") if isinstance(packet.get("technical_risks"), list) else []:
         if isinstance(item, dict):
-            item["risk_level"] = str(item.get("risk_level") or "").upper()
+            item["risk_level"] = alias(item.get("risk_level"), risk_level_aliases)
     for item in packet.get("expected_costs") if isinstance(packet.get("expected_costs"), list) else []:
         if isinstance(item, dict):
             item["cost_type"] = alias(item.get("cost_type"), cost_aliases)
@@ -682,7 +687,22 @@ def _redact_fixed_service_interval(value: Any) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    replacement_folded = _fold_market_text(replacement)
+    text_folded = _fold_market_text(text)
+    if (
+        text_folded.count(replacement_folded) > 1
+        or f"vozidlo ma {replacement_folded}" in text_folded
+        or f"vehicle has {replacement_folded}" in text_folded
+    ):
+        return (
+            "Konkrétny interval a aktuálnu potrebu úkonu overte podľa "
+            "servisnej histórie a servisného plánu výrobcu."
+            if replacement.startswith("podľa")
+            else "Verify the exact interval and whether the work is currently due "
+            "from the service history and manufacturer schedule."
+        )
+    return text
 
 
 def _enforce_research_source_policy(
@@ -1590,6 +1610,81 @@ def _filter_research_transmission_conflicts(
                 continue
             kept.append(item)
         result[field] = kept
+    return result, counts
+
+
+def _generalize_candidate_component_codes(
+    packet: Any,
+    component_identity: Any,
+) -> tuple[Any, dict[str, int]]:
+    """Prevent candidate-only exact codes from reappearing as selected facts."""
+    counts = {"engine": 0, "transmission": 0}
+    if not isinstance(packet, dict) or not isinstance(component_identity, dict):
+        return packet, counts
+    candidate_codes: dict[str, set[str]] = {"engine": set(), "transmission": set()}
+    for candidate in component_identity.get("candidate_variants", []):
+        if not isinstance(candidate, dict):
+            continue
+        engine_code = str(candidate.get("engine_code") or "").strip()
+        transmission_code = str(candidate.get("transmission_code") or "").strip()
+        if engine_code:
+            candidate_codes["engine"].add(engine_code)
+        if transmission_code:
+            candidate_codes["transmission"].add(transmission_code)
+    for component_name in ("engine", "transmission"):
+        selected = component_identity.get(component_name, {})
+        selected_code = str(
+            selected.get("code") if isinstance(selected, dict) else ""
+        ).strip().casefold()
+        candidate_codes[component_name] = {
+            code for code in candidate_codes[component_name]
+            if code.casefold() != selected_code
+        }
+    if not any(candidate_codes.values()):
+        return packet, counts
+
+    result = json.loads(json.dumps(packet, ensure_ascii=False))
+    fields = (
+        "evidence_summary", "consistency_checks", "web_research_findings",
+        "technical_risks", "expected_costs", "text_research_risk_flags",
+    )
+
+    def clean_text(value: str) -> str:
+        cleaned = value
+        for component_name, codes in candidate_codes.items():
+            for code in sorted(codes, key=len, reverse=True):
+                escaped = re.escape(code)
+                updated = re.sub(
+                    rf"\s*\(\s*{escaped}\s*\)",
+                    "",
+                    cleaned,
+                    flags=re.IGNORECASE,
+                )
+                updated = re.sub(
+                    rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])",
+                    "",
+                    updated,
+                    flags=re.IGNORECASE,
+                )
+                if updated != cleaned:
+                    counts[component_name] += 1
+                    cleaned = updated
+        cleaned = re.sub(r"\(\s*\)", "", cleaned)
+        cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+        return re.sub(r"\s+", " ", cleaned).strip(" -–—,;:")
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, str):
+            return clean_text(value)
+        if isinstance(value, list):
+            return [walk(item) for item in value]
+        if isinstance(value, dict):
+            return {key: walk(child) for key, child in value.items()}
+        return value
+
+    for field in fields:
+        if field in result:
+            result[field] = walk(result[field])
     return result, counts
 
 
@@ -4290,6 +4385,15 @@ def _multi_model_analysis_events(
         diagnostics["phases"]["text_research"][
             "transmission_conflict_removed_counts"
         ] = transmission_conflict_counts
+        research_data, candidate_code_generalization_counts = (
+            _generalize_candidate_component_codes(
+                research_data,
+                component_identity,
+            )
+        )
+        diagnostics["phases"]["text_research"][
+            "candidate_code_generalization_counts"
+        ] = candidate_code_generalization_counts
         research_model_output_text = dependencies.compact_json_for_prompt(research_data)
         repository.write_text(
             slug,

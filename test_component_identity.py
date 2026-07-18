@@ -255,6 +255,87 @@ class ComponentIdentityTests(unittest.TestCase):
         self.assertEqual(reconciled["candidate_variants"][0]["transmission_code"], "")
         self.assertEqual(reconciled["identification_status"], "PROBABLE")
 
+    def test_generic_kodiaq_sources_cannot_select_exact_component_codes(self):
+        identity = normalize_component_identity({
+            "identification_status": "PROBABLE",
+            "generation": {"name": "Kodiaq NS7", "resolution": "PROBABLE"},
+            "engine": {
+                "marketing_name": "2.0 TDI",
+                "code": "DFGA",
+                "family": "EA288",
+                "resolution": "PROBABLE",
+                "evidence_refs": ["engine_codes"],
+            },
+            "transmission": {
+                "marketing_name": "7-speed DSG",
+                "code": "DQ381",
+                "family": "DQ",
+                "resolution": "PROBABLE",
+                "evidence_refs": ["repair"],
+            },
+            "sources": [
+                {
+                    "source_id": "engine_codes",
+                    "source_name": "Skoda Kodiaq diesel engine codes",
+                    "source_url": "https://example.test/kodiaq-engine-codes",
+                    "source_type": "PARTS_CATALOG",
+                },
+                {
+                    "source_id": "repair",
+                    "source_name": "Skoda Kodiaq DQ381 mechatronic fault",
+                    "source_url": "https://example.test/kodiaq-dq381-fault",
+                    "source_type": "REPAIR_SOURCE",
+                },
+            ],
+        })
+
+        reconciled = reconcile_component_identity_with_listing(identity, {
+            "title": "Škoda Kodiaq 2.0 TDI 110 kW DSG 2023",
+            "engine": "2.0 TDI",
+            "power": "110 kW",
+            "transmission": "automatická DSG (7-st.)",
+            "drive": "Predný",
+            "year": "2023",
+        })
+
+        self.assertEqual(reconciled["engine"]["code"], "")
+        self.assertEqual(reconciled["transmission"]["code"], "")
+        self.assertTrue(any(
+            item["engine_code"] == "DFGA" for item in reconciled["candidate_variants"]
+        ))
+        self.assertTrue(any(
+            item["transmission_code"] == "DQ381" for item in reconciled["candidate_variants"]
+        ))
+
+    def test_application_specific_source_keeps_exact_transmission_code(self):
+        identity = normalize_component_identity({
+            "identification_status": "PROBABLE",
+            "generation": {"name": "Audi A5 8T", "resolution": "PROBABLE"},
+            "engine": {"marketing_name": "3.0 TDI", "resolution": "PROBABLE"},
+            "transmission": {
+                "marketing_name": "6-speed Manual",
+                "code": "0B4",
+                "resolution": "PROBABLE",
+                "evidence_refs": ["application"],
+            },
+            "sources": [{
+                "source_id": "application",
+                "source_name": "Audi A5 3.0 TDI Quattro manual gearbox 0B4",
+                "source_url": "https://example.test/audi-a5-30tdi-quattro-0b4",
+                "source_type": "PARTS_CATALOG",
+            }],
+        })
+
+        reconciled = reconcile_component_identity_with_listing(identity, {
+            "title": "Audi A5 Coupe 3.0 TDI Quattro",
+            "engine": "3.0 TDI",
+            "transmission": "Manuálna 6-st.",
+            "drive": "4x4",
+            "year": "2008",
+        })
+
+        self.assertEqual(reconciled["transmission"]["code"], "0B4")
+
 
 if __name__ == "__main__":
     unittest.main()

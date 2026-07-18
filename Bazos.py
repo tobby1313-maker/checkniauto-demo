@@ -86,7 +86,7 @@ def _advertised_drivetrain(title, description):
         return "4x4"
     if re.search(r"\b(?:4x4|quattro|awd|4wd|allrad)\b", combined, re.IGNORECASE):
         return "4x4"
-    if re.search(r"\b(?:predny\s+pohon|fwd|predokolka)\b", combined, re.IGNORECASE):
+    if re.search(r"\b(?:predny\s+(?:pohon|nahon)|fwd|predokolka)\b", combined, re.IGNORECASE):
         return "Predný"
     if re.search(r"\b(?:zadny\s+pohon|rwd)\b", combined, re.IGNORECASE):
         return "Zadný"

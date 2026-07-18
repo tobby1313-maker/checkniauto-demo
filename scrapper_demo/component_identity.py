@@ -410,15 +410,138 @@ def _transmission_kind(value: Any) -> str:
     return ""
 
 
+def _fold_text(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def _exact_code_has_application_support(
+    identity: dict[str, Any],
+    component_name: str,
+    listing: dict[str, Any],
+) -> bool:
+    component = identity.get(component_name)
+    if not isinstance(component, dict):
+        return True
+    code = _text(component.get("code"), 120)
+    if not code or component.get("verification_basis") in DIRECT_VERIFICATION_BASES:
+        return True
+    refs = set(_string_list(component.get("evidence_refs"), limit=12))
+    sources = [
+        source for source in identity.get("sources", [])
+        if isinstance(source, dict) and source.get("source_id") in refs
+    ]
+    code_compact = re.sub(r"[^a-z0-9]", "", _fold_text(code))
+    listing_text = " ".join(
+        str(listing.get(key) or "")
+        for key in ("title", "engine", "power", "transmission", "drive", "year")
+    )
+    listing_folded = _fold_text(listing_text)
+    title_tokens = _fold_tokens(listing.get("title"))
+    model_tokens = title_tokens - {
+        "audi", "bmw", "skoda", "volkswagen", "vw", "seat", "honda",
+        "hyundai", "toyota", "ford", "nissan", "kia", "mazda", "mercedes",
+        "benz", "nabizim", "ponukam", "predam", "coupe", "combi", "kombi",
+        "suv", "diesel", "benzin", "automat", "manual", "dsg", "tdi", "tsi",
+        "line", "look", "matrix", "pano", "navi", "tour",
+    }
+    engine_match = re.search(
+        r"\b(\d[.,]\d\s*(?:tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt))\b",
+        listing_folded,
+    )
+    engine_compact = (
+        re.sub(r"[^a-z0-9]", "", engine_match.group(1)) if engine_match else ""
+    )
+    power_match = re.search(r"\b(\d{2,3})\s*kw\b", listing_folded)
+    year_match = re.search(r"\b((?:19|20)\d{2})\b", listing_folded)
+    listing_transmission_kind = _transmission_kind(listing.get("transmission"))
+    listing_has_dsg = "dsg" in listing_folded
+    listing_drive = _fold_text(listing.get("drive"))
+
+    for source in sources:
+        source_text = _fold_text(
+            f"{source.get('source_name', '')} {source.get('source_url', '')}"
+        )
+        source_compact = re.sub(r"[^a-z0-9]", "", source_text)
+        if not code_compact or code_compact not in source_compact:
+            continue
+        score = 0
+        source_tokens = _fold_tokens(source_text)
+        if model_tokens and model_tokens & source_tokens:
+            score += 1
+        if engine_compact and engine_compact in source_compact:
+            score += 1
+        if power_match and re.search(rf"\b{power_match.group(1)}\s*kw\b", source_text):
+            score += 1
+        if listing_has_dsg and "dsg" in source_text:
+            score += 1
+        elif listing_transmission_kind == "MANUAL" and "manual" in source_text:
+            score += 1
+        elif listing_transmission_kind == "AUTOMATIC" and re.search(
+            r"\bautomat|\bautomatic|\bautomatik", source_text
+        ):
+            score += 1
+        if listing_drive:
+            if any(term in listing_drive for term in ("4x4", "awd", "quattro")):
+                if re.search(r"\b(?:4x4|awd|quattro|4wd|xdrive)\b", source_text):
+                    score += 1
+            elif any(term in listing_drive for term in ("predn", "fwd")):
+                if re.search(r"\b(?:fwd|front[ -]wheel|predny)\b", source_text):
+                    score += 1
+        if year_match and year_match.group(1) in source_text:
+            score += 1
+        if score >= 2:
+            return True
+    return False
+
+
+def _move_code_to_candidates(
+    identity: dict[str, Any],
+    component_name: str,
+) -> None:
+    component = identity.get(component_name)
+    if not isinstance(component, dict):
+        return
+    code = _text(component.get("code"), 120)
+    if not code:
+        return
+    candidate_key = "engine_code" if component_name == "engine" else "transmission_code"
+    candidates = identity.setdefault("candidate_variants", [])
+    if isinstance(candidates, list) and not any(
+        isinstance(item, dict) and item.get(candidate_key) == code for item in candidates
+    ):
+        candidates.append({
+            "engine_code": code if component_name == "engine" else "",
+            "transmission_code": code if component_name == "transmission" else "",
+            "reason": (
+                f"{component_name.title()} code is plausible for the model family, but the "
+                "available source does not uniquely match this listing application."
+            ),
+        })
+    component["code"] = ""
+    if component.get("confidence") == "HIGH":
+        component["confidence"] = "MEDIUM"
+    existing_notes = [
+        note for note in _string_list(identity.get("notes"), limit=6)
+        if code.casefold() not in note.casefold()
+    ]
+    identity["notes"] = ([
+        f"Exact {component_name} code moved to candidates: application support was not specific enough for this listing."
+    ] + existing_notes[:5])[:6]
+
+
 def reconcile_component_identity_with_listing(
     identity: Any,
     listing_context: Any,
 ) -> dict[str, Any]:
-    """Prefer an explicit listing transmission over an incompatible model guess."""
+    """Reconcile exact component claims and transmission type with listing facts."""
     result = json.loads(json.dumps(identity if isinstance(identity, dict) else {}))
     if not result:
         return unknown_component_identity("Component identity was unavailable for reconciliation.")
     listing = listing_context if isinstance(listing_context, dict) else {}
+    for component_name in ("engine", "transmission"):
+        if not _exact_code_has_application_support(result, component_name, listing):
+            _move_code_to_candidates(result, component_name)
     listing_transmission = _text(listing.get("transmission"), 200)
     listing_kind = _transmission_kind(listing_transmission)
     transmission = result.get("transmission")

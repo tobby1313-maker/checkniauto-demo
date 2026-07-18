@@ -187,6 +187,11 @@ def _engine(value: str) -> str:
     return " ".join(match.group(1).upper().replace(",", ".").split()) if match else ""
 
 
+def _power(value: str) -> str:
+    match = re.search(r"\b(\d{2,3})\s*kw\b", _fold(value), re.IGNORECASE)
+    return f"{int(match.group(1))} KW" if match else ""
+
+
 def _transmission(value: str) -> str:
     folded = _fold(value)
     if re.search(r"\b(?:dsg|dct|cvt|edc|s-tronic|tiptronic)\b", folded):
@@ -201,8 +206,8 @@ def _transmission(value: str) -> str:
 def _drivetrain(value: str) -> str:
     folded = _fold(value)
     four_wheel = bool(re.search(r"\b(?:4x4|4wd|awd|quattro|allrad|4motion)\b", folded))
-    front_wheel = bool(re.search(r"\b(?:fwd|predny pohon|predokol)\w*\b", folded))
-    rear_wheel = bool(re.search(r"\b(?:rwd|zadny pohon|zadokol)\w*\b", folded))
+    front_wheel = bool(re.search(r"\b(?:fwd|predny(?: (?:pohon|nahon))?|predokol)\w*\b", folded))
+    rear_wheel = bool(re.search(r"\b(?:rwd|zadny(?: (?:pohon|nahon))?|zadokol)\w*\b", folded))
     if sum((four_wheel, front_wheel, rear_wheel)) > 1:
         return ""
     if four_wheel:
@@ -323,6 +328,7 @@ def parse_local_portal_search_page(
         year = _first_year(combined)
         mileage = _first_mileage(combined)
         engine = _engine(combined)
+        power = _power(combined)
         transmission = _transmission(combined)
         drive = _drivetrain(combined)
         similarity_tier, material_difference = _similarity(listing, combined)
@@ -338,6 +344,7 @@ def parse_local_portal_search_page(
                 "year": year,
                 "mileage_km": mileage,
                 "engine": engine,
+                "power": power,
                 "transmission": transmission,
                 "drivetrain": drive,
                 "price_eur": price_amount if currency == "EUR" else None,
@@ -374,10 +381,12 @@ def _similarity(
         str(listing.get(key) or "") for key in ("title", "description_excerpt")
     )
     differences: list[str] = []
+    missing: list[str] = []
     matches = 0
-    compared = 0
+    expected_count = 0
     for label, extractor, structured_key in (
         ("engine", _engine, "engine"),
+        ("power", _power, "power"),
         ("transmission", _transmission, "transmission"),
         ("drive", _drivetrain, "drive"),
     ):
@@ -385,16 +394,21 @@ def _similarity(
             fallback_listing_text
         )
         observed = extractor(candidate_text)
-        if expected and observed:
-            compared += 1
-            if _compact(expected) == _compact(observed):
-                matches += 1
-            else:
-                differences.append(f"different {label}")
-    if compared >= 2 and matches == compared:
-        return "A", "same visible engine/transmission/drivetrain attributes"
+        if not expected:
+            continue
+        expected_count += 1
+        if not observed:
+            missing.append(f"{label} not visible")
+        elif _compact(expected) == _compact(observed):
+            matches += 1
+        else:
+            differences.append(f"different {label}")
+    if expected_count >= 2 and matches == expected_count:
+        return "A", "same visible engine/power/transmission/drivetrain attributes"
     if differences:
         return "B", ", ".join(differences)
+    if missing:
+        return "B", ", ".join(missing)
     return "B", "same make/model; configuration not fully visible in result card"
 
 
@@ -457,6 +471,7 @@ def parse_bazos_search_page(
         year = _first_year(combined)
         mileage = _first_mileage(combined)
         engine = _engine(combined)
+        power = _power(combined)
         transmission = _transmission(combined)
         drive = _drivetrain(combined)
         similarity_tier, material_difference = _similarity(listing, combined)
@@ -474,6 +489,7 @@ def parse_bazos_search_page(
             "year": year,
             "mileage_km": mileage,
             "engine": engine,
+            "power": power,
             "transmission": transmission,
             "drivetrain": drive,
             "price_eur": amount if currency == "EUR" else None,
@@ -938,6 +954,7 @@ def parse_mobile_de_search_page(
         year = _first_year(combined)
         mileage = _first_mileage(combined)
         engine = _engine(combined)
+        power = _power(combined)
         transmission = _transmission(combined)
         drive = _drivetrain(combined)
         similarity_tier, material_difference = _similarity(listing, combined)
@@ -949,6 +966,7 @@ def parse_mobile_de_search_page(
                 "year": year,
                 "mileage_km": mileage,
                 "engine": engine,
+                "power": power,
                 "transmission": transmission,
                 "drivetrain": drive,
                 "price_eur": price_amount if currency == "EUR" else None,

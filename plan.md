@@ -293,8 +293,8 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 18. 7. 2026:** spracované sú štyri unikátne prípady
-(Honda HR-V, Seat Arona, Audi A5 a BMW X3). Pipeline už pri zlyhaní presného prepojenia
+**Priebežná kalibrácia 18. 7. 2026:** spracovaných je päť unikátnych prípadov
+(Honda HR-V, Seat Arona, Audi A5, BMW X3 a Škoda Kodiaq). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
 pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
@@ -303,7 +303,13 @@ pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
 jedinej blízkej ponuky. BMW prípad doplnil deterministickú kontrolu konfliktu
 prevodovky: explicitná manuálna prevodovka z inzerátu nesmie byť nahradená
 nekompatibilným automatickým variantom z component grounding alebo research.
-Do minimálnej vzorky chýba 16 ďalších unikátnych
+Kodiaq prípad sprísnil market Tier A: všetky známe kľúčové vlastnosti
+(motor, výkon, prevodovka a pohon) musia byť na kandidátovi viditeľné a zhodné;
+chýbajúci údaj sa nesmie považovať za zhodu. Presný komponentový kód bez VIN
+zostane zvolený iba s aplikačným zdrojom, ktorý obsahuje kód a najmenej dve
+zhody s konkrétnou konfiguráciou; inak zostane kandidátom na overenie.
+Do minimálnej vzorky chýba
+15 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy
