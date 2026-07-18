@@ -28,6 +28,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _research_parse_failed,
     _research_v2_response_schema,
     _normalize_research_model_output,
+    _sanitize_vision_claims,
     _unavailable_research_model_output,
     _unavailable_vision_payload,
     _valid_vision_payload,
@@ -343,6 +344,24 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "NEEDS_VERIFICATION",
         )
         self.assertEqual(normalized["expected_costs"][0]["cost_type"], "diagnostic")
+        self.assertTrue(_valid_research_model_output(normalized))
+
+    def test_research_v2_normalizes_recommended_cost_urgency(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["expected_costs"] = [{
+            "item": "Predkúpna diagnostika",
+            "why": "Overenie chybových kódov.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "cost_type": "DIAGNOSTIC",
+            "urgency": "recommended",
+            "basis": "Kontrolný úkon.",
+            "source_ids": [],
+        }]
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(normalized["expected_costs"][0]["urgency"], "medium")
         self.assertTrue(_valid_research_model_output(normalized))
 
     def test_research_v2_normalizes_aliases_seen_in_honda_recovery(self):
@@ -1389,6 +1408,28 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(payload["analysis_status"], "unavailable")
         self.assertEqual(payload["photo_coverage"]["original_count"], 7)
         self.assertTrue(_valid_vision_payload(payload))
+
+    def test_vision_policy_downgrades_authenticity_function_and_tread_claims(self):
+        payload = {
+            "supported_observations": [
+                {"observation": "Výrobný štítok je originálny a nepoškodený.", "confidence": "HIGH", "evidence_category": "CONFIRMED"},
+                {"observation": "Displej zobrazuje plne funkčný 360-stupňový kamerový systém.", "confidence": "HIGH"},
+                {"observation": "Pneumatika vykazuje dobrú hĺbku dezénu.", "confidence": "HIGH"},
+            ]
+        }
+
+        sanitized, counts = _sanitize_vision_claims(payload, output_language="sk")
+
+        observations = sanitized["supported_observations"]
+        self.assertIn("pravosť nemožno potvrdiť", observations[0]["observation"])
+        self.assertEqual(observations[0]["evidence_category"], "VISUAL_INDICATION")
+        self.assertIn("treba vyskúšať", observations[1]["observation"])
+        self.assertIn("bez merania", observations[2]["observation"])
+        self.assertEqual(counts, {
+            "plate_authenticity": 1,
+            "system_functionality": 1,
+            "tread_depth": 1,
+        })
 
     def test_unverified_market_and_missing_vin_claims_are_locked(self):
         report = """# Toyota RAV4

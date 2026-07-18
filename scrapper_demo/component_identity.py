@@ -530,6 +530,60 @@ def _move_code_to_candidates(
     ] + existing_notes[:5])[:6]
 
 
+def _generalize_unverified_code_family(
+    identity: dict[str, Any],
+    component_name: str,
+    listing: dict[str, Any],
+) -> None:
+    """Do not let an unsupported exact code escape through the family field."""
+    component = identity.get(component_name)
+    if not isinstance(component, dict) or _text(component.get("code"), 120):
+        return
+    family = _text(component.get("family"), 160)
+    parts = [part.strip() for part in re.split(r"\s*/\s*", family) if part.strip()]
+    if not parts or not all(
+        re.fullmatch(r"[A-Za-z0-9-]{3,12}", part)
+        and re.search(r"[A-Za-z]", part)
+        and re.search(r"\d", part)
+        for part in parts
+    ):
+        return
+
+    exact_candidates = [part for part in parts if "x" not in part.casefold()]
+    for candidate_code in exact_candidates:
+        probe = json.loads(json.dumps(identity))
+        probe[component_name]["code"] = candidate_code
+        if _exact_code_has_application_support(probe, component_name, listing):
+            return
+
+    candidate_key = "engine_code" if component_name == "engine" else "transmission_code"
+    candidates = identity.setdefault("candidate_variants", [])
+    if isinstance(candidates, list):
+        for candidate_code in exact_candidates:
+            if any(
+                isinstance(item, dict) and item.get(candidate_key) == candidate_code
+                for item in candidates
+            ):
+                continue
+            candidates.append({
+                "engine_code": candidate_code if component_name == "engine" else "",
+                "transmission_code": candidate_code if component_name == "transmission" else "",
+                "reason": (
+                    f"{component_name.title()} family code is plausible, but the available "
+                    "source does not uniquely match this listing application."
+                ),
+            })
+    generic_family = _text(component.get("marketing_name"), 160)
+    if component_name == "transmission" and not generic_family:
+        generic_family = "Manual" if _transmission_kind(component) == "MANUAL" else "Automatic"
+    component["family"] = generic_family
+    if component.get("confidence") == "HIGH":
+        component["confidence"] = "MEDIUM"
+    identity["notes"] = ([
+        f"Unverified {component_name} family code {family} moved to candidates/generalized."
+    ] + _string_list(identity.get("notes"), limit=5))[:6]
+
+
 def reconcile_component_identity_with_listing(
     identity: Any,
     listing_context: Any,
@@ -542,6 +596,7 @@ def reconcile_component_identity_with_listing(
     for component_name in ("engine", "transmission"):
         if not _exact_code_has_application_support(result, component_name, listing):
             _move_code_to_candidates(result, component_name)
+        _generalize_unverified_code_family(result, component_name, listing)
     listing_transmission = _text(listing.get("transmission"), 200)
     listing_kind = _transmission_kind(listing_transmission)
     transmission = result.get("transmission")

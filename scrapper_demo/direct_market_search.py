@@ -211,6 +211,10 @@ def _power(value: str) -> str:
 
 def _transmission(value: str) -> str:
     folded = _fold(value)
+    if re.search(r"\ba\s*/\s*t\b", folded):
+        return "AUTOMATIC"
+    if re.search(r"\bm\s*/\s*t\b", folded):
+        return "MANUAL"
     if re.search(r"\b(?:dsg|dct|cvt|edc|s-tronic|tiptronic)\b", folded):
         return re.search(r"\b(?:dsg|dct|cvt|edc|s-tronic|tiptronic)\b", folded).group(0).upper()  # type: ignore[union-attr]
     if re.search(r"\b(?:automat|automatic|automatik)\w*\b", folded):

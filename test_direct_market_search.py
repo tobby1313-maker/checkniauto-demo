@@ -96,6 +96,20 @@ class DirectMarketSearchTests(unittest.TestCase):
             "A",
         )
 
+    def test_tier_a_recognizes_at_as_automatic(self):
+        listing = {
+            "title": "Hyundai Santa Fe 2.2 CRDI 147 kW 4x4 A/T",
+            "engine": "2.2 CRDI",
+            "power": "147 kW",
+            "transmission": "Automatická",
+            "drive": "4x4",
+        }
+
+        self.assertEqual(
+            _similarity(listing, "Hyundai Santa Fe 2.2 CRDI 147 kW 4x4 A/T")[0],
+            "A",
+        )
+
     def test_parser_keeps_exact_detail_url_and_visible_fields(self):
         html = _card(
             123456,

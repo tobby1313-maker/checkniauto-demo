@@ -106,24 +106,10 @@ class _ToleranceStage(TypedDict):
 _TOLERANCE_STAGES: tuple[_ToleranceStage, ...] = (
     {
         "name": "STRICT",
-        "year_delta": 3,
-        "mileage_floor": 40000,
-        "mileage_ratio": 0.35,
+        "year_delta": 1,
+        "mileage_floor": 25000,
+        "mileage_ratio": 0.15,
         "weight": 1.0,
-    },
-    {
-        "name": "EXPANDED_YEAR",
-        "year_delta": 5,
-        "mileage_floor": 40000,
-        "mileage_ratio": 0.35,
-        "weight": 0.75,
-    },
-    {
-        "name": "EXPANDED_MILEAGE",
-        "year_delta": 5,
-        "mileage_floor": 80000,
-        "mileage_ratio": 0.60,
-        "weight": 0.5,
     },
 )
 
@@ -1144,7 +1130,7 @@ def _build_market_benchmark_v1(
             "Asking prices are not completed transaction prices.",
             "No deterministic adjustment is made for equipment, condition, import costs, or warranty.",
             "Tier C, net, auction, damaged, export-only, and non-normalizable offers are excluded.",
-            "Offers outside +/-3 model years or the mileage tolerance are excluded.",
+            "Offers outside +/-1 model year or max(25,000 km, 15%) mileage difference are excluded.",
         ],
     }
     return benchmark
@@ -1479,13 +1465,7 @@ def build_market_benchmark(
     )
     selected_prices = [int(item["normalized_price_eur"]) for item in selected]
     classification_threshold = (
-        12
-        if benchmark_scope == "SK_CZ" and stage_name == "STRICT"
-        else 15
-        if stage_name == "STRICT"
-        else 18
-        if stage_name == "EXPANDED_YEAR"
-        else 22
+        12 if benchmark_scope == "SK_CZ" and stage_name == "STRICT" else 15
     )
     advertised = (
         _number(listing_facts.get("asking_price_gross_eur"))
@@ -1621,9 +1601,9 @@ def build_market_benchmark(
             "Asking prices are not completed transaction prices.",
             "No deterministic adjustment is made for equipment, condition, import costs, or warranty.",
             "Tier C, net, auction, damaged, export-only, and non-normalizable offers are excluded.",
-            "Tolerance expands only when fewer than three candidates survive: year first, then mileage.",
+            "All benchmark offers require Tier A, +/-1 model year, and max(25,000 km, 15%) mileage difference.",
             "Foreign background offers require Tier A, +/-1 model year, and max(25,000 km, 15%) mileage difference; they never use expanded tolerance stages.",
-            "Expanded and search-card observations receive lower weights.",
+            "Search-card observations receive lower weights.",
         ],
     }
 

@@ -293,8 +293,8 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 18. 7. 2026:** spracovaných je šesť unikátnych prípadov
-(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq a Mazda CX-5). Pipeline už pri zlyhaní presného prepojenia
+**Priebežná kalibrácia 18. 7. 2026:** spracovaných je sedem unikátnych prípadov
+(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5 a Hyundai Santa Fe). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
 pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
@@ -318,8 +318,16 @@ výkonu uvedeného iba v PS, prevod 160 PS na porovnateľných 118 kW a opravu
 prípadu, keď všeobecný údaj „6 stupňová“ prekryl explicitnú manuálnu
 prevodovku. Detektor neoficiálnych servisných intervalov teraz zachytí aj
 presnú kilometrickú kontrolu alebo nastavenie komponentu, nielen výmenu oleja.
+Hyundai prípad odhalil nesprávny „STRICT“ benchmark: tri autá z roku 2016
+nesmú vytvoriť medián pre model z roku 2019. Všetky benchmarkové ponuky preto
+teraz používajú rovnakú pevnú hranicu ako verejné odkazy a Mobile precheck:
+±1 rok a max(25 000 km, 15 %) rozdiel nájazdu, bez rozšírených tolerančných
+stupňov. Doplnila sa extrakcia `A/T` a motora z titulku, normalizácia urgency
+`recommended` bez plateného recovery, blokovanie nepodloženého presného kódu
+prevodovky ukrytého vo family poli a redakcia vizuálnych tvrdení o pravosti
+štítku, plnej funkčnosti kamier a hĺbke dezénu bez merania.
 Do minimálnej vzorky chýba
-14 ďalších unikátnych
+13 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy

@@ -221,6 +221,14 @@ def extract_car_info(soup, url):
     )
     if engine_match:
         info["parameters"]["Engine"] = engine_match.group(1).strip()
+    else:
+        engine_identity_match = re.search(
+            r'\b(\d[.,]\d\s*(?:TSI|TDI|T-GDI|TGDI|GDI|CRDI|CRDi|DCI|HDI|BlueHDi|EcoBoost|VVT))\b',
+            f"{info.get('title', '')}\n{desc_text}",
+            re.I,
+        )
+        if engine_identity_match:
+            info["parameters"]["Engine"] = engine_identity_match.group(1).strip()
 
     # Engine capacity
     capacity_match = re.search(r'(\d+[.,]?\d*)\s*(?:cm3|l\b)', desc_text, re.I)
@@ -247,6 +255,7 @@ def extract_car_info(soup, url):
         re.I,
     )
     folded_desc = _fold_text(desc_text)
+    folded_transmission_source = _fold_text(f"{info.get('title', '')}\n{desc_text}")
     manual_match = re.search(
         r'\bmanualn(?:a|i|ou)\s+prevodovk(?:a|ou)\b|\bmanual\s+\d+\s*(?:rychlost|stupn|speed)',
         folded_desc,
@@ -283,7 +292,7 @@ def extract_car_info(soup, url):
     elif re.search(r'(?:manuálna\s+prevodovka|manualnou\s+prevodovkou|manual\s+\d+\s*rýchlost|manuál\s+\d+\s*stupňov)', desc_text, re.I):
         info["parameters"]["Transmission"] = "Manuálna"
     # Then check for explicit automatic transmission mentions
-    elif re.search(r'(?:automatická\s+prevodovka|automatickou\s+prevodovkou|tiptronic|s-tronic|dsg|cvt)', desc_text, re.I):
+    elif re.search(r'(?:automatická\s+prevodovka|automatickou\s+prevodovkou|tiptronic|s-tronic|dsg|cvt)', desc_text, re.I) or re.search(r'\ba\s*/\s*t\b', folded_transmission_source, re.I):
         info["parameters"]["Transmission"] = "Automatická"
     # Fallback: standalone "automat" vs "manuál/manual" - check which one appears (but "automat" also matches "automatická klimatizácia")
     elif re.search(r'\bautomat\b', desc_text, re.I) and not re.search(r'\b(?:manuál|manual)\b', desc_text, re.I):

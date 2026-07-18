@@ -426,7 +426,11 @@ def _normalize_research_model_output(value: Any) -> Any:
         "OWNER_FORUM": "OWNER_REPORT",
         "FORUM": "OWNER_REPORT",
     }
-    urgency_aliases = {"IMMEDIATE": "high", "URGENT": "critical"}
+    urgency_aliases = {
+        "IMMEDIATE": "high",
+        "URGENT": "critical",
+        "RECOMMENDED": "medium",
+    }
     risk_level_aliases = {"LOW": "CHECK"}
     check_aliases = {
         "CONSISTENT": "ok",
@@ -2526,6 +2530,83 @@ def _guard_visual_history_and_tire_claims(
     return "\n".join(rewritten).rstrip() + "\n"
 
 
+def _sanitize_vision_claims(
+    payload: Any,
+    *,
+    output_language: str = "sk",
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """Downgrade photo claims that require measurement, testing, or authentication."""
+    result = json.loads(json.dumps(payload if isinstance(payload, dict) else {}))
+    counts = {
+        "plate_authenticity": 0,
+        "system_functionality": 0,
+        "tread_depth": 0,
+    }
+    list_fields = (
+        "supported_observations",
+        "exterior_observations",
+        "interior_observations",
+        "dashboard_or_warning_lights",
+        "visible_red_flags",
+    )
+    for field in list_fields:
+        items = result.get(field)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            observation = str(item.get("observation") or "")
+            folded = _fold_market_text(observation)
+            if (
+                any(term in folded for term in ("stitok", "vin plate", "production plate", "identification plate"))
+                and any(term in folded for term in ("original", "authentic", "pravy"))
+            ):
+                item["observation"] = _localized(
+                    output_language,
+                    sk="Výrobný alebo VIN štítok je na fotografii viditeľný a pôsobí nepoškodene; jeho pravosť nemožno potvrdiť iba z fotografie.",
+                    cs="Výrobní nebo VIN štítek je na fotografii viditelný a působí nepoškozeně; jeho pravost nelze potvrdit pouze z fotografie.",
+                    en="The production or VIN plate is visible and appears undamaged, but its authenticity cannot be confirmed from a photo alone.",
+                )
+                item["evidence_category"] = "VISUAL_INDICATION"
+                item["confidence"] = "MEDIUM"
+                counts["plate_authenticity"] += 1
+
+            camera_or_display = any(
+                term in folded
+                for term in ("kamer", "camera", "multimed", "display", "displej")
+            )
+            fully_functional = any(
+                term in folded
+                for term in ("plne funkc", "fully functional", "fully working", "plne funkcn")
+            )
+            if camera_or_display and fully_functional:
+                item["observation"] = _localized(
+                    output_language,
+                    sk="Displej na fotografii zobrazuje výstup kamerového systému; funkčnosť všetkých kamier a režimov treba vyskúšať na mieste.",
+                    cs="Displej na fotografii zobrazuje výstup kamerového systému; funkčnost všech kamer a režimů je třeba vyzkoušet na místě.",
+                    en="The display shows a camera-system view; test every camera and mode in person before treating the system as fully functional.",
+                )
+                item["confidence"] = "MEDIUM"
+                counts["system_functionality"] += 1
+
+            tire_claim = any(term in folded for term in ("pneumat", "tire", "tyre"))
+            tread_depth_claim = any(
+                term in folded
+                for term in ("dobra hlbka dezenu", "dobru hlbku dezenu", "good tread depth", "deep tread")
+            )
+            if tire_claim and tread_depth_claim and not re.search(r"\b\d+(?:[.,]\d+)?\s*mm\b", folded):
+                item["observation"] = _localized(
+                    output_language,
+                    sk="Dezén pneumatiky je na fotografii viditeľný, ale jeho hĺbku ani stav celej sady nemožno potvrdiť bez merania a kontroly DOT.",
+                    cs="Dezén pneumatiky je na fotografii viditelný, ale jeho hloubku ani stav celé sady nelze potvrdit bez měření a kontroly DOT.",
+                    en="Tread is visible in the photo, but its depth and the condition of the full set require measurement and DOT-code checks.",
+                )
+                item["confidence"] = "MEDIUM"
+                counts["tread_depth"] += 1
+    return result, counts
+
+
 def _lock_report_evidence_claims(
     report_text: str,
     text_research: Any,
@@ -2557,6 +2638,8 @@ def _lock_report_evidence_claims(
             en="No source-supported repair-cost estimate is available; request a vehicle-specific workshop quotation.",
         ),
     }
+
+
     locked_sections = _render_locked_research_sections(
         research,
         language=language,
@@ -4789,6 +4872,22 @@ def _multi_model_analysis_events(
         vision_result_json = dependencies.no_photos_vision_result()
         yield _status_event("No photos available for Gemini vision.")
 
+    vision_claim_sanitization_counts = {
+        "plate_authenticity": 0,
+        "system_functionality": 0,
+        "tread_depth": 0,
+    }
+    try:
+        parsed_vision_for_policy = dependencies.safe_model_json(vision_result_json)
+    except Exception:
+        parsed_vision_for_policy = {"_parse_error": True}
+    if _valid_vision_payload(parsed_vision_for_policy):
+        sanitized_vision, vision_claim_sanitization_counts = _sanitize_vision_claims(
+            parsed_vision_for_policy,
+            output_language=dependencies.output_language(output_language),
+        )
+        vision_result_json = json.dumps(sanitized_vision, indent=2, ensure_ascii=False)
+
     repository.write_json(
         slug,
         "vision_provider_attempts.json",
@@ -4819,6 +4918,7 @@ def _multi_model_analysis_events(
         "attempt_count": len(vision_attempts),
         "recovery_attempted": vision_recovery_attempted,
         "recovered": bool(vision_attempts and vision_attempts[-1].get("valid_json") and vision_recovery_attempted),
+        "claim_sanitization_counts": vision_claim_sanitization_counts,
         "provider_events": vision_provider_events,
     })
     save_diagnostics()

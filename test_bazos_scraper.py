@@ -138,6 +138,24 @@ class BazosScraperTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["Transmission"], "Manuálna 6-st.")
         self.assertEqual(result["parameters"]["Engine Power"], "118 kW (160 PS)")
 
+    def test_extracts_engine_from_title_and_at_abbreviation(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>HYUNDAI SANTA FE 2.2 CRDI PREMIUM 4X4 A/T</h1>
+              <div class="popisdetail">
+                R.V.: 3/2019, 2199 CM3, 147KW, A/T, NAFTA, 183 270 KM
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/santa-fe.php")
+
+        self.assertEqual(result["parameters"]["Engine"].upper(), "2.2 CRDI")
+        self.assertEqual(result["parameters"]["Transmission"], "Automatická")
+
 
 if __name__ == "__main__":
     unittest.main()

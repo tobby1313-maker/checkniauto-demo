@@ -336,6 +336,42 @@ class ComponentIdentityTests(unittest.TestCase):
 
         self.assertEqual(reconciled["transmission"]["code"], "0B4")
 
+    def test_unverified_exact_codes_cannot_hide_in_transmission_family(self):
+        identity = normalize_component_identity({
+            "identification_status": "PROBABLE",
+            "generation": {"name": "Santa Fe TM", "resolution": "PROBABLE"},
+            "engine": {"marketing_name": "2.2 CRDi", "family": "R-series", "resolution": "PROBABLE"},
+            "transmission": {
+                "marketing_name": "8-speed automatic",
+                "family": "A8LF1 / A8Fxx",
+                "resolution": "PROBABLE",
+                "confidence": "HIGH",
+                "evidence_refs": ["spec"],
+            },
+            "sources": [{
+                "source_id": "spec",
+                "source_name": "Hyundai Santa Fe 2.2 CRDi 8-speed automatic specification",
+                "source_url": "https://example.test/santa-fe-automatic",
+                "source_type": "OFFICIAL",
+            }],
+        })
+
+        reconciled = reconcile_component_identity_with_listing(identity, {
+            "title": "Hyundai Santa Fe 2.2 CRDi 147 kW 4x4 A/T",
+            "engine": "2.2 CRDI",
+            "power": "147 kW",
+            "transmission": "Automatická",
+            "drive": "4x4",
+            "year": "2019",
+        })
+
+        self.assertEqual(reconciled["transmission"]["family"], "8-speed automatic")
+        self.assertEqual(reconciled["transmission"]["confidence"], "MEDIUM")
+        self.assertTrue(any(
+            item["transmission_code"] == "A8LF1"
+            for item in reconciled["candidate_variants"]
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

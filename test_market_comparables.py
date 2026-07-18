@@ -223,7 +223,7 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
             "search_pass": "mobile_de",
         }
 
-    def test_tolerance_expands_year_before_mileage_and_lowers_weight(self):
+    def test_benchmark_does_not_expand_beyond_one_model_year(self):
         research = {
             "listing_facts": {"year": 2008, "mileage_km": 122000},
             "market_assessment": {"advertised_price_eur": 6900},
@@ -237,15 +237,11 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
 
         benchmark = build_market_benchmark(research, "# Other listing")
 
-        self.assertTrue(benchmark["available"])
-        self.assertEqual(benchmark["tolerance_stage"], "EXPANDED_YEAR")
-        expanded = next(
-            item for item in benchmark["accepted_comparables"]
-            if item["tolerance_stage"] == "EXPANDED_YEAR"
-        )
-        self.assertLess(expanded["weight"], 0.75)
+        self.assertFalse(benchmark["available"])
+        self.assertEqual(benchmark["tolerance_stage"], "NONE")
+        self.assertEqual(benchmark["diagnostic_counts"]["year_rejected"], 1)
 
-    def test_just_outside_mileage_limit_enters_expanded_mileage_stage(self):
+    def test_benchmark_does_not_expand_beyond_tight_mileage_limit(self):
         research = {
             "listing_facts": {"year": 2008, "mileage_km": 122000},
             "market_assessment": {"advertised_price_eur": 6900},
@@ -259,13 +255,9 @@ class MarketComparableDeduplicationTests(unittest.TestCase):
 
         benchmark = build_market_benchmark(research, "# Other listing")
 
-        self.assertTrue(benchmark["available"])
-        self.assertEqual(benchmark["tolerance_stage"], "EXPANDED_MILEAGE")
-        expanded = next(
-            item for item in benchmark["accepted_comparables"]
-            if item["tolerance_stage"] == "EXPANDED_MILEAGE"
-        )
-        self.assertLess(expanded["weight"], 0.5)
+        self.assertFalse(benchmark["available"])
+        self.assertEqual(benchmark["tolerance_stage"], "NONE")
+        self.assertEqual(benchmark["diagnostic_counts"]["mileage_rejected"], 1)
 
     def test_zero_local_sample_can_use_hidden_european_background(self):
         research = {

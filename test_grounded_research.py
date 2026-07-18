@@ -280,6 +280,16 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(context["transmission"], "Manuálna 6-st.")
         self.assertEqual(context["power"], "118 kW (160 PS)")
 
+    def test_listing_context_extracts_title_engine_and_at_abbreviation(self):
+        context = web_server._listing_context_object(
+            "# HYUNDAI SANTA FE 2.2 CRDI PREMIUM 4X4 A/T\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "R.V.: 3/2019, 2199 CM3, 147KW, A/T, NAFTA, 183 270 KM"
+        )
+
+        self.assertEqual(context["engine"], "2.2 CRDI")
+        self.assertEqual(context["transmission"], "Automatická")
+
     def test_listing_context_repairs_stale_troc_mileage_and_inventory_alternatives(self):
         context = web_server._listing_context_object(
             "# VW T-Roc 2023, 1.5TSi, DSG\n\n"
