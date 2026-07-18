@@ -3561,7 +3561,8 @@ def _multi_model_analysis_events(
             save_diagnostics()
             yield _error_event(
                 "Grounded component identification is unavailable. "
-                "Analysis stopped before paid synthesis; please retry later."
+                "Text research, vision, and final synthesis were not started; "
+                "customer credit was not charged. Please retry later."
             )
             return
         yield _status_event(
@@ -3636,7 +3637,12 @@ def _multi_model_analysis_events(
             yield _status_event("Web research ready for text/research analysis.")
     except Exception as exc:
         dependencies.log(f"Web research warning: {exc}")
-        yield _status_event("Web research unavailable; continuing with listing data.")
+        yield _status_event(
+            "Web research unavailable; verified technical sources are required, "
+            "so this analysis cannot continue."
+            if research_v2_active
+            else "Web research unavailable; continuing with listing data."
+        )
         diagnostics["phases"]["grounded_research"] = {
             "status": "failed",
             "error_type": type(exc).__name__,
@@ -3671,7 +3677,8 @@ def _multi_model_analysis_events(
         dependencies.log(skip_reason)
         yield _error_event(
             "Technical web research returned no verifiable sources. "
-            "Analysis stopped before paid synthesis; please retry later."
+            "Text research, vision, and final synthesis were not started; "
+            "customer credit was not charged. Please retry later."
         )
         return
 

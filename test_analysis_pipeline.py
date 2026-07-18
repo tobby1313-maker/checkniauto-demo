@@ -1915,7 +1915,7 @@ Vo\u013En\u00fd text z modelu.
             ['data: {"error": "Gemini API keys are not configured on the server."}\n\n'],
         )
 
-    def test_missing_grounded_sources_stops_before_paid_synthesis(self):
+    def test_missing_grounded_sources_stops_before_downstream_synthesis(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             repository = ListingJobRepository(root / "jobs")
@@ -1960,7 +1960,8 @@ Vo\u013En\u00fd text z modelu.
             diagnostics = repository.read_json("sample", "analysis_diagnostics.json")
 
         self.assertEqual(phases, ["component identity research", "web research"])
-        self.assertTrue(any("stopped before paid synthesis" in event for event in events))
+        self.assertTrue(any("analysis cannot continue" in event for event in events))
+        self.assertTrue(any("customer credit was not charged" in event for event in events))
         self.assertEqual(diagnostics["delivery"]["status"], "RETRY_REQUIRED")
         self.assertFalse(diagnostics["delivery"]["chargeable"])
         self.assertEqual(diagnostics["phases"]["final_synthesis"]["status"], "skipped")
@@ -1995,7 +1996,7 @@ Vo\u013En\u00fd text z modelu.
             diagnostics = repository.read_json("sample", "analysis_diagnostics.json")
 
         self.assertEqual(phases, ["component identity research"])
-        self.assertTrue(any("stopped before paid synthesis" in event for event in events))
+        self.assertTrue(any("customer credit was not charged" in event for event in events))
         self.assertEqual(
             diagnostics["delivery"]["reason"],
             "component_identity_grounding_unavailable",
