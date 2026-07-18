@@ -1146,6 +1146,53 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertNotIn("107 296", redacted)
         self.assertNotIn("150 000", redacted)
 
+    def test_interval_redaction_catches_unofficial_inspection_mileage(self):
+        original = "Potreba kontroly a vymedzenia ventilovej vôle po 100 000 km."
+
+        self.assertTrue(_contains_fixed_service_interval(original))
+        redacted = _redact_fixed_service_interval(original)
+        self.assertNotIn("100 000", redacted)
+        self.assertIn("servisného plánu výrobcu", redacted)
+
+    def test_source_policy_keeps_risk_after_redacting_unofficial_interval(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["technical_risks"] = [{
+            "component": "Valve train",
+            "issue": "Kontrola ventilovej vôle po 100 000 km.",
+            "risk_level": "MEDIUM",
+            "evidence_category": "MODEL_LEVEL_MAINTENANCE",
+            "buyer_impact": "Pri zanedbaní môže vzniknúť hlučnosť.",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Overiť servisné záznamy.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "MEDIUM",
+            "source_ids": ["article"],
+        }]
+        packet["sources_used"] = [{
+            "source_id": "article",
+            "source_name": "Valve train technical article",
+            "source_type": "TECHNICAL_PUBLICATION",
+            "reliability": "MEDIUM",
+            "source_url": "https://example.test/valve-train",
+            "verified_url": True,
+            "used_for": "Valve train clearance inspection and noise",
+        }]
+        diagnostics = {}
+
+        filtered = _enforce_research_source_policy(
+            _normalize_research_model_output(packet),
+            verified_source_urls={"https://example.test/valve-train"},
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(len(filtered["technical_risks"]), 1)
+        self.assertNotIn("100 000", filtered["technical_risks"][0]["issue"])
+        self.assertEqual(
+            diagnostics["source_rejection_counts"]["redacted_fixed_interval"],
+            1,
+        )
+
     def test_report_lock_keeps_sources_internal_and_attributes_service_claim(self):
         report = (
             "# Report\n\n## 🌐 Webové overenie\n\n- Modelové riziko.\n\n"

@@ -658,7 +658,11 @@ def _contains_fixed_service_interval(value: Any) -> bool:
     text = _fold_market_text(str(value or ""))
     return bool(
         re.search(r"\b\d[\d\s.,]*(?:km|kilomet|mile|mesiac|month|rok|year)s?\b", text)
-        and any(term in text for term in ("interval", "every", "kazd", "menen", "change", "service"))
+        and any(term in text for term in (
+            "interval", "every", "kazd", "menen", "change", "service", "servis",
+            "kontrol", "inspection", "check", "adjust", "vymedz", "olej", "oil",
+            "fluid", "filter", "vymen", "replace",
+        ))
     )
 
 
@@ -670,8 +674,8 @@ def _redact_fixed_service_interval(value: Any) -> str:
     folded = _fold_market_text(text)
     replacement = (
         "podľa servisného plánu výrobcu"
-        if any(term in folded for term in ("kazd", "interval", "vymen", "servis"))
-        and any(char in text for char in "áäčďéíľĺňóôŕšťúýž")
+        if any(char in text for char in "áäčďéíľĺňóôŕšťúýž")
+        or any(term in folded for term in ("kazd", "vymen", "servis", "kontrol", "vymedz", "olej", "potreba"))
         else "according to the manufacturer service schedule"
     )
     text = re.sub(
@@ -792,9 +796,18 @@ def _enforce_research_source_policy(
             and str(source.get("source_type") or "").upper() in {"OFFICIAL", "REGULATORY"}
             for source in referenced_sources
         )
-        if fixed_interval and text_key == "item" and not has_authoritative_interval_source:
+        if (
+            fixed_interval
+            and text_key in {"item", "issue"}
+            and not has_authoritative_interval_source
+        ):
             if isinstance(item, dict):
-                for key in ("item", "why", "basis"):
+                keys_to_redact = (
+                    ("item", "why", "basis")
+                    if text_key == "item"
+                    else ("issue", "buyer_impact", "verification_action")
+                )
+                for key in keys_to_redact:
                     item[key] = _redact_fixed_service_interval(item.get(key))
             fixed_interval = False
             rejection_counts["redacted_fixed_interval"] += 1

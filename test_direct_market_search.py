@@ -82,6 +82,20 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertIn("different drive", different[1])
         self.assertEqual(missing_drive, ("B", "drive not visible"))
 
+    def test_tier_a_normalizes_ps_to_kw_with_rounding_tolerance(self):
+        listing = {
+            "title": "Mazda CX-5 2.0 160 PS AWD manual",
+            "engine": "2.0 L",
+            "power": "118 kW (160 PS)",
+            "transmission": "Manuálna 6-st.",
+            "drive": "4x4",
+        }
+
+        self.assertEqual(
+            _similarity(listing, "Mazda CX-5 2.0 119 kW AWD manual 6-speed")[0],
+            "A",
+        )
+
     def test_parser_keeps_exact_detail_url_and_visible_fields(self):
         html = _card(
             123456,

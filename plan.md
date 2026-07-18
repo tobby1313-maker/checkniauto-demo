@@ -293,8 +293,8 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 18. 7. 2026:** spracovaných je päť unikátnych prípadov
-(Honda HR-V, Seat Arona, Audi A5, BMW X3 a Škoda Kodiaq). Pipeline už pri zlyhaní presného prepojenia
+**Priebežná kalibrácia 18. 7. 2026:** spracovaných je šesť unikátnych prípadov
+(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq a Mazda CX-5). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
 pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
@@ -308,8 +308,18 @@ Kodiaq prípad sprísnil market Tier A: všetky známe kľúčové vlastnosti
 chýbajúci údaj sa nesmie považovať za zhodu. Presný komponentový kód bez VIN
 zostane zvolený iba s aplikačným zdrojom, ktorý obsahuje kód a najmenej dve
 zhody s konkrétnou konfiguráciou; inak zostane kandidátom na overenie.
+Verifikačný Kodiaq rerun prešiel Research V2 na prvý pokus s 3 findings,
+3 risks, 2 costs a 5 zdrojmi. Falošný 21-ponukový benchmark zmizol, Mobile.de
+fallback sa korektne spustil a pri nulovej presnej vzorke nevznikol medián ani
+customer-facing link. Cena runu klesla z 0,191 EUR na 0,153 EUR bez recovery.
+Mazda prípad bez uvedeného roku a nájazdu správne nevytvoril cenový medián;
+strict benchmark nesmie tieto chýbajúce údaje domýšľať. Doplnil extrakciu
+výkonu uvedeného iba v PS, prevod 160 PS na porovnateľných 118 kW a opravu
+prípadu, keď všeobecný údaj „6 stupňová“ prekryl explicitnú manuálnu
+prevodovku. Detektor neoficiálnych servisných intervalov teraz zachytí aj
+presnú kilometrickú kontrolu alebo nastavenie komponentu, nielen výmenu oleja.
 Do minimálnej vzorky chýba
-15 ďalších unikátnych
+14 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy

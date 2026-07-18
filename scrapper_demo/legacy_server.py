@@ -2500,8 +2500,20 @@ def _description_listing_facts(description, title=""):
     ).strip()
     power = _description_capture(
         text,
-        (r"(?:v[ýy]kon|power)\s*:?\s*(\d{2,4}\s*kW)",),
+        (
+            r"(?:v[ýy]kon|power)\s*:?\s*(\d{2,4}\s*kW)",
+            r"\b(\d{2,4}\s*kW)\b",
+        ),
     )
+    if not power:
+        ps_match = re.search(r"\b(\d{2,3})\s*(PS|HP)\b", text, re.IGNORECASE)
+        if ps_match:
+            power_value = int(ps_match.group(1))
+            factor = 0.73549875 if ps_match.group(2).lower() == "ps" else 0.745699872
+            power = (
+                f"{round(power_value * factor)} kW "
+                f"({power_value} {ps_match.group(2).upper()})"
+            )
     cleaned_text = re.sub(
         r"\([^)]*\)",
         lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
@@ -2565,6 +2577,16 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
         or description_facts["transmission"]
         or ""
     )
+    # Structured scraping can retain only the words following "prevodovka"
+    # (for example "6 stupnova"). Prefer the explicit family recovered from
+    # the complete seller description when the structured value has no family.
+    transmission_has_kind = bool(re.search(
+        r"\b(?:manual|automat|dsg|dct|cvt|edc|s-tronic|tiptronic)\w*\b",
+        _fold_listing_text(transmission),
+        re.IGNORECASE,
+    ))
+    if description_facts["transmission"] and not transmission_has_kind:
+        transmission = description_facts["transmission"]
     transmission = re.sub(
         r"\([^)]*\)",
         lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),

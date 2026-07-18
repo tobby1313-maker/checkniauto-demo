@@ -179,17 +179,34 @@ def _price(value: str, country: str) -> tuple[int | None, str, str]:
 
 
 def _engine(value: str) -> str:
+    folded = _fold(value)
     match = re.search(
         r"\b(\d[.,]\d\s*(?:tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|hybrid|phev|l))\b",
-        _fold(value),
+        folded,
         re.IGNORECASE,
     )
-    return " ".join(match.group(1).upper().replace(",", ".").split()) if match else ""
+    if match:
+        return " ".join(match.group(1).upper().replace(",", ".").split())
+    # Some search result cards omit the litre suffix but place power directly
+    # after displacement: "2.0 160 PS" or "2.0 118 kW".
+    displacement = re.search(
+        r"\b(\d[.,]\d)(?=\s+\d{2,3}\s*(?:kw|ps|hp)\b)",
+        folded,
+        re.IGNORECASE,
+    )
+    return f"{displacement.group(1).replace(',', '.')} L" if displacement else ""
 
 
 def _power(value: str) -> str:
-    match = re.search(r"\b(\d{2,3})\s*kw\b", _fold(value), re.IGNORECASE)
-    return f"{int(match.group(1))} KW" if match else ""
+    folded = _fold(value)
+    match = re.search(r"\b(\d{2,3})\s*kw\b", folded, re.IGNORECASE)
+    if match:
+        return f"{int(match.group(1))} KW"
+    horsepower = re.search(r"\b(\d{2,3})\s*(ps|hp)\b", folded, re.IGNORECASE)
+    if not horsepower:
+        return ""
+    factor = 0.73549875 if horsepower.group(2).lower() == "ps" else 0.745699872
+    return f"{round(int(horsepower.group(1)) * factor)} KW"
 
 
 def _transmission(value: str) -> str:
@@ -399,6 +416,14 @@ def _similarity(
         expected_count += 1
         if not observed:
             missing.append(f"{label} not visible")
+        elif (
+            label == "power"
+            and abs(
+                int(re.search(r"\d+", expected).group(0))
+                - int(re.search(r"\d+", observed).group(0))
+            ) <= 2
+        ):
+            matches += 1
         elif _compact(expected) == _compact(observed):
             matches += 1
         else:

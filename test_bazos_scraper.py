@@ -120,6 +120,24 @@ class BazosScraperTests(unittest.TestCase):
 
         self.assertEqual(result["parameters"]["Drivetrain"], "Predný")
 
+    def test_extracts_slovak_manual_gear_count_and_ps_power(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Mazda CX-5 2.0 benzín 4x4</h1>
+              <div class="popisdetail">
+                2,0L, 160 PS, pohon 4x4, manuálna prevodovka 6 stupnova
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/mazda.php")
+
+        self.assertEqual(result["parameters"]["Transmission"], "Manuálna 6-st.")
+        self.assertEqual(result["parameters"]["Engine Power"], "118 kW (160 PS)")
+
 
 if __name__ == "__main__":
     unittest.main()

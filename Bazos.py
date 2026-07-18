@@ -200,10 +200,19 @@ def extract_car_info(soup, url):
     if year_match:
         info["parameters"]["Year"] = year_match.group(1)
 
-    # Engine power
-    power_match = re.search(r'(\d+)\s*kW', desc_text, re.I)
+    # Engine power. Private ads often publish metric horsepower only, while
+    # market comparison uses kW as its canonical value.
+    power_match = re.search(r'\b(\d{2,3})\s*kW\b', desc_text, re.I)
     if power_match:
         info["parameters"]["Engine Power"] = f"{power_match.group(1)} kW"
+    else:
+        ps_match = re.search(r'\b(\d{2,3})\s*(PS|HP)\b', desc_text, re.I)
+        if ps_match:
+            power_value = int(ps_match.group(1))
+            factor = 0.73549875 if ps_match.group(2).lower() == "ps" else 0.745699872
+            info["parameters"]["Engine Power"] = (
+                f"{round(power_value * factor)} kW ({power_value} {ps_match.group(2).upper()})"
+            )
 
     engine_match = re.search(
         r'(?:Typ\s+motora|\bMotor\b|\bEngine\b)\s*:?\s*([^\r\n,;/•]{2,80})',
@@ -248,7 +257,21 @@ def extract_car_info(soup, url):
         folded_desc,
         re.I,
     )
-    if transmission_match:
+    captured_transmission = (
+        _without_inventory_alternatives(transmission_match.group(1)).strip()
+        if transmission_match else ""
+    )
+    captured_has_kind = bool(re.search(
+        r'\b(?:manual|automat|dsg|dct|cvt|edc|s-tronic|tiptronic)\w*\b',
+        _fold_text(captured_transmission),
+        re.I,
+    ))
+    if manual_match and not captured_has_kind:
+        info["parameters"]["Transmission"] = (
+            f"Manuálna {manual_gears.group(1)}-st."
+            if manual_gears else "Manuálna"
+        )
+    elif transmission_match:
         transmission = _without_inventory_alternatives(transmission_match.group(1))
         info["parameters"]["Transmission"] = transmission.strip()
     elif manual_match:

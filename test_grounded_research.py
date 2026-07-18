@@ -267,6 +267,19 @@ class GroundedResearchTest(unittest.TestCase):
 
         self.assertEqual(context["drive"], "Predný")
 
+    def test_listing_context_repairs_gear_only_transmission_and_extracts_ps_power(self):
+        context = web_server._listing_context_object(
+            "# Mazda CX-5 2.0 benzín 4x4\n\n"
+            "## Specifications\n\n"
+            "| Parameter | Value |\n|---|---|\n"
+            "| Transmission | 6 stupnova |\n| Drivetrain | 4x4 |\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "2,0L, 160 PS, pohon 4x4, manuálna prevodovka 6 stupnova"
+        )
+
+        self.assertEqual(context["transmission"], "Manuálna 6-st.")
+        self.assertEqual(context["power"], "118 kW (160 PS)")
+
     def test_listing_context_repairs_stale_troc_mileage_and_inventory_alternatives(self):
         context = web_server._listing_context_object(
             "# VW T-Roc 2023, 1.5TSi, DSG\n\n"
