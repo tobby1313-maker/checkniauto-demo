@@ -156,6 +156,49 @@ class BazosScraperTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["Engine"].upper(), "2.2 CRDI")
         self.assertEqual(result["parameters"]["Transmission"], "Automatická")
 
+    def test_ignores_motor_section_heading_and_extracts_cx60_facts(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>CX-60 3.3 e-Skyactive D200 mHEV Exclusive Line A/T</h1>
+              <div class="popisdetail">
+                Dátum výroby: 01/2023
+                Pohon kolies: zadný
+                Objem valcov: 3 283cm3
+                Motor a prevodovka :
+                -3,3-litrový 6-valcový dieslový motor
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/cx60.php")
+
+        self.assertIn("E-SKYACTIV D200", result["parameters"]["Engine"].upper())
+        self.assertEqual(result["parameters"]["Engine Capacity"], "3283 cm3")
+        self.assertEqual(result["parameters"]["Drivetrain"], "Zadný")
+
+    def test_expands_masked_thousands_and_extracts_volvo_engine_badge(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>VOLVO 4x4 XC40 2.0 D4 INSCRIPTION</h1>
+              <div class="popisdetail">
+                Rok výroby: 4/2018
+                NÁJAZD 284xxx KILOMETROV
+                Výkon: 140 kW
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/xc40.php")
+
+        self.assertEqual(result["parameters"]["Mileage"], "284000 km")
+        self.assertEqual(result["parameters"]["Engine"].upper(), "2.0 D4")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,7 +36,7 @@
         "visible": { "type": "boolean" },
         "reading_km": { "type": ["integer", "number", "null"] },
         "photo_label": { "type": "string" },
-        "confidence": { "type": ["integer", "number", "null"] },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
         "notes": { "type": "string" }
       }
     },
@@ -64,7 +64,7 @@
           "observation": { "type": "string" },
           "evidence_category": { "type": "string", "enum": ["VISUAL_INDICATION", "CONFIRMED"] },
           "importance": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
-          "confidence": { "type": ["integer", "number", "null"] }
+          "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
         }
       }
     },

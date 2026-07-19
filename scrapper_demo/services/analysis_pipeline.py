@@ -385,6 +385,10 @@ def _normalize_research_model_output(value: Any) -> Any:
         "MODEL_MAINTENANCE_REQUIREMENT": "MODEL_LEVEL_RISK",
         "MODEL_KNOWLEDGE": "MODEL_LEVEL_RISK",
         "MODEL_GENERAL_RELIABILITY": "MODEL_LEVEL_RISK",
+        "LISTING_SPECIFICATION": "LISTING_CLAIM",
+        "SPECIFICATION_MATCH": "LISTING_CLAIM",
+        "OFFICIAL_MAINTENANCE_SCHEDULE": "MODEL_LEVEL_RISK",
+        "MODEL_SPECIFIC_CHARACTERISTIC": "MODEL_LEVEL_RISK",
         "RECALL_AFFECTED": "MODEL_LEVEL_RISK",
         "MODEL_RISK": "MODEL_LEVEL_RISK",
     }
@@ -430,18 +434,22 @@ def _normalize_research_model_output(value: Any) -> Any:
         "IMMEDIATE": "high",
         "URGENT": "critical",
         "RECOMMENDED": "medium",
+        "IMMEDIATE_IF_NOT_DONE": "high",
     }
     risk_level_aliases = {"LOW": "CHECK"}
     check_aliases = {
         "CONSISTENT": "ok",
+        "CONSISTENT_WITH_CLAIM": "ok",
         "KONZISTENTNÉ": "ok",
         "KONZISTENTNE": "ok",
         "PASSED": "ok",
         "MATCH": "ok",
         "POTENTIALLY_INCONSISTENT": "concern",
         "INCONSISTENT": "concern",
+        "INCONSISTENT_WITH_CLAIM": "concern",
         "MISMATCH": "concern",
         "NOT_CHECKED": "unknown",
+        "UNVERIFIED": "unknown",
         "NEEDS_VERIFICATION": "unknown",
         "REQUIRES_VERIFICATION": "unknown",
         "NEOVERENÉ": "unknown",
@@ -1511,6 +1519,14 @@ def _limited_research_model_output(
         "source_ids": [],
     }
     packet["sources_used"] = []
+    packet["consistency_checks"] = [
+        item
+        for item in packet.get("consistency_checks") or []
+        if isinstance(item, dict)
+        and not _contains_fixed_service_interval(
+            f"{item.get('check', '')} {item.get('explanation', '')}"
+        )
+    ]
     for field in ("web_research_findings", "technical_risks", "expected_costs"):
         for item in packet.get(field) or []:
             if not isinstance(item, dict):
@@ -2120,6 +2136,33 @@ def _merge_backend_evidence(
     return merged
 
 
+def _market_search_listing_context(
+    listing_context: Any,
+    component_identity: Any,
+) -> dict[str, Any]:
+    """Augment make-less dealer titles with the grounded generation name."""
+    listing = dict(listing_context) if isinstance(listing_context, dict) else {}
+    identity = component_identity if isinstance(component_identity, dict) else {}
+    generation = identity.get("generation")
+    generation = generation if isinstance(generation, dict) else {}
+    generation_name = str(generation.get("name") or "").strip()
+    title = str(listing.get("title") or "").strip()
+    if generation_name and title:
+        generation_tokens = set(_fold_market_text(generation_name).split())
+        title_tokens = set(_fold_market_text(title).split())
+        # Only augment when the grounded generation contributes useful brand
+        # or model tokens; generic labels such as "Fourth Generation" add no
+        # search identity value.
+        useful_tokens = generation_tokens - {
+            "first", "second", "third", "fourth", "generation", "generacia",
+            "gen", "model", "series", "facelift",
+        }
+        if useful_tokens - title_tokens:
+            listing["title"] = f"{generation_name} {title}"
+            listing["market_identity_augmented"] = True
+    return listing
+
+
 def _fold_market_text(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     return "".join(char for char in normalized if not unicodedata.combining(char)).lower()
@@ -2534,6 +2577,7 @@ def _sanitize_vision_claims(
     payload: Any,
     *,
     output_language: str = "sk",
+    listing_mileage_km: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """Downgrade photo claims that require measurement, testing, or authentication."""
     result = json.loads(json.dumps(payload if isinstance(payload, dict) else {}))
@@ -2541,6 +2585,9 @@ def _sanitize_vision_claims(
         "plate_authenticity": 0,
         "system_functionality": 0,
         "tread_depth": 0,
+        "odometer_conflict": 0,
+        "repair_history": 0,
+        "enum_normalization": 0,
     }
     list_fields = (
         "supported_observations",
@@ -2556,6 +2603,16 @@ def _sanitize_vision_claims(
         for item in items:
             if not isinstance(item, dict):
                 continue
+            impact_aliases = {
+                "equipment": "value",
+                "comfort": "value",
+                "legal": "identity_legal",
+                "identity": "identity_legal",
+            }
+            impact = str(item.get("buyer_impact") or "").lower()
+            if impact in impact_aliases:
+                item["buyer_impact"] = impact_aliases[impact]
+                counts["enum_normalization"] += 1
             observation = str(item.get("observation") or "")
             folded = _fold_market_text(observation)
             if (
@@ -2578,8 +2635,14 @@ def _sanitize_vision_claims(
             )
             fully_functional = any(
                 term in folded
-                for term in ("plne funkc", "fully functional", "fully working", "plne funkcn")
-            )
+                for term in (
+                    "plne funkc", "fully functional", "fully working", "plne funkcn",
+                    "funkcn", "functional", "working",
+                )
+            ) and not any(term in folded for term in (
+                "treba over", "treba vyskus", "nebola over", "nebolo over",
+                "cannot confirm", "requires verification", "needs testing", "test in person",
+            ))
             if camera_or_display and fully_functional:
                 item["observation"] = _localized(
                     output_language,
@@ -2593,7 +2656,10 @@ def _sanitize_vision_claims(
             tire_claim = any(term in folded for term in ("pneumat", "tire", "tyre"))
             tread_depth_claim = any(
                 term in folded
-                for term in ("dobra hlbka dezenu", "dobru hlbku dezenu", "good tread depth", "deep tread")
+                for term in (
+                    "dobra hlbka dezenu", "dobru hlbku dezenu", "dostatocny dezen",
+                    "good tread depth", "deep tread", "sufficient tread",
+                )
             )
             if tire_claim and tread_depth_claim and not re.search(r"\b\d+(?:[.,]\d+)?\s*mm\b", folded):
                 item["observation"] = _localized(
@@ -2603,7 +2669,110 @@ def _sanitize_vision_claims(
                     en="Tread is visible in the photo, but its depth and the condition of the full set require measurement and DOT-code checks.",
                 )
                 item["confidence"] = "MEDIUM"
+                if "buyer_relevance" in item:
+                    item["buyer_relevance"] = _localized(
+                        output_language,
+                        sk="Zmerajte hĺbku dezénu na všetkých pneumatikách a skontrolujte DOT.",
+                        cs="Změřte hloubku dezénu na všech pneumatikách a zkontrolujte DOT.",
+                        en="Measure every tire's tread depth and check its DOT code.",
+                    )
                 counts["tread_depth"] += 1
+
+            if str(item.get("type") or "").lower() == "odometer" and listing_mileage_km:
+                shown = re.search(r"(?<!\d)(\d{1,6})\s*km\b", folded)
+                shown_km = int(shown.group(1)) if shown else None
+                if shown_km and max(shown_km, listing_mileage_km) / min(shown_km, listing_mileage_km) >= 10:
+                    item["observation"] = _localized(
+                        output_language,
+                        sk=f"Fotografia prístrojového panela nie je dostatočne jasná na potvrdenie celého odpočtu; inzerát uvádza približne {listing_mileage_km:,} km.".replace(",", " "),
+                        cs=f"Fotografie přístrojového panelu není dostatečně jasná pro potvrzení celého odečtu; inzerát uvádí přibližně {listing_mileage_km:,} km.".replace(",", " "),
+                        en=f"The instrument-cluster photo is not clear enough to confirm the full reading; the listing states approximately {listing_mileage_km:,} km.",
+                    )
+                    item["evidence_category"] = "VISUAL_INDICATION"
+                    item["confidence"] = "LOW"
+                    counts["odometer_conflict"] += 1
+
+            relevance = str(item.get("buyer_relevance") or "")
+            folded_relevance = _fold_market_text(relevance)
+            if any(term in folded_relevance for term in (
+                "ziadne znamky predchadzajuceho poskodenia", "ziadne znamky opravy karoserie",
+                "no signs of previous damage", "no signs of body repair",
+            )):
+                item["buyer_relevance"] = _localized(
+                    output_language,
+                    sk="Medzery panelov na fotografiách pôsobia konzistentne; nehodovú ani opravárenskú históriu z fotografií potvrdiť nemožno.",
+                    cs="Mezery panelů na fotografiích působí konzistentně; nehodovou ani opravárenskou historii z fotografií potvrdit nelze.",
+                    en="Panel gaps appear consistent in the photos, but accident or repair history cannot be established visually.",
+                )
+                counts["repair_history"] += 1
+
+    odometer = result.get("odometer")
+    if isinstance(odometer, dict) and listing_mileage_km:
+        reading = odometer.get("reading_km")
+        if isinstance(reading, (int, float)) and reading > 0 and max(reading, listing_mileage_km) / min(reading, listing_mileage_km) >= 10:
+            odometer["reading_km"] = None
+            odometer["confidence"] = "LOW"
+            odometer["notes"] = _localized(
+                output_language,
+                sk=f"Celý odpočet nie je z fotografie spoľahlivo čitateľný; inzerát uvádza približne {listing_mileage_km:,} km.".replace(",", " "),
+                cs=f"Celý odečet není z fotografie spolehlivě čitelný; inzerát uvádí přibližně {listing_mileage_km:,} km.".replace(",", " "),
+                en=f"The full reading is not reliably legible in the photo; the listing states approximately {listing_mileage_km:,} km.",
+            )
+            if counts["odometer_conflict"] == 0:
+                counts["odometer_conflict"] = 1
+            consistency = result.get("mileage_wear_consistency")
+            if isinstance(consistency, dict):
+                consistency["assessment"] = "cannot_assess"
+                consistency["explanation"] = _localized(
+                    output_language,
+                    sk="Fotografie neumožňujú spoľahlivo porovnať opotrebovanie s deklarovaným nájazdom.",
+                    cs="Fotografie neumožňují spolehlivě porovnat opotřebení s deklarovaným nájezdem.",
+                    en="The photos do not support a reliable comparison between wear and the advertised mileage.",
+                )
+                consistency["confidence"] = "Nízka"
+    consistency = result.get("mileage_wear_consistency")
+    if isinstance(consistency, dict):
+        assessment = str(consistency.get("assessment") or "").lower()
+        assessment_aliases = {
+            "better_than_expected": "consistent",
+            "worse_than_expected": "possibly_inconsistent",
+            "unknown": "cannot_assess",
+            "uncertain": "cannot_assess",
+        }
+        if assessment in assessment_aliases:
+            consistency["assessment"] = assessment_aliases[assessment]
+            counts["enum_normalization"] += 1
+        confidence = str(consistency.get("confidence") or "")
+        confidence_aliases = {
+            "HIGH": "Vysoká",
+            "MEDIUM": "Stredná",
+            "LOW": "Nízka",
+        }
+        if confidence.upper() in confidence_aliases:
+            consistency["confidence"] = confidence_aliases[confidence.upper()]
+            counts["enum_normalization"] += 1
+    view_coverage = result.get("view_coverage")
+    if isinstance(view_coverage, dict):
+        missing_views = result.get("missing_views")
+        missing_views = list(missing_views) if isinstance(missing_views, list) else []
+        existing = {_fold_market_text(item) for item in missing_views}
+        labels = {
+            "exterior": ("Exteriér", "Exteriér", "Exterior"),
+            "interior": ("Interiér", "Interiér", "Interior"),
+            "dashboard": ("Prístrojový panel", "Přístrojový panel", "Dashboard"),
+            "engine_bay": ("Motorový priestor", "Motorový prostor", "Engine bay"),
+            "tires": ("Pneumatiky", "Pneumatiky", "Tires"),
+            "underbody": ("Podvozok", "Podvozek", "Underbody"),
+        }
+        language = normalize_language(output_language)
+        language_index = 0 if language == "sk" else 1 if language == "cs" else 2
+        for key, status in view_coverage.items():
+            if str(status or "").lower() != "missing" or key not in labels:
+                continue
+            label = labels[key][language_index]
+            if _fold_market_text(label) not in existing:
+                missing_views.append(label)
+        result["missing_views"] = missing_views
     return result, counts
 
 
@@ -3686,9 +3855,16 @@ def _multi_model_analysis_events(
     # card parsing preserves exact local-portal detail URLs and keeps foreign
     # observations out of the customer-facing link path.
     diagnostics["market"]["targeted_search_attempted"] = True
+    market_listing_context = _market_search_listing_context(
+        listing_context_data,
+        component_identity,
+    )
+    diagnostics["market"]["identity_title_augmented"] = bool(
+        market_listing_context.get("market_identity_augmented")
+    )
     yield _status_event("Searching local SK/CZ marketplaces and Mobile.de for comparable cars...")
     try:
-        market_pass_results = dependencies.direct_market_search(listing_context_data)
+        market_pass_results = dependencies.direct_market_search(market_listing_context)
     except Exception as market_exc:
         dependencies.log(f"Direct market search warning: {market_exc}")
         market_pass_results = [
@@ -3794,7 +3970,7 @@ def _multi_model_analysis_events(
             )
             grounded_background_precheck = strict_background_market_precheck(
                 list(grounded_mobile_pass.get("candidates") or []),
-                listing_context_data,
+                market_listing_context,
             )
             grounded_mobile_pass["strict_background_precheck"] = grounded_background_precheck
             grounded_mobile_pass["strict_eligible_count"] = grounded_background_precheck[
@@ -4883,6 +5059,9 @@ def _multi_model_analysis_events(
         "plate_authenticity": 0,
         "system_functionality": 0,
         "tread_depth": 0,
+        "odometer_conflict": 0,
+        "repair_history": 0,
+        "enum_normalization": 0,
     }
     try:
         parsed_vision_for_policy = dependencies.safe_model_json(vision_result_json)
@@ -4892,6 +5071,7 @@ def _multi_model_analysis_events(
         sanitized_vision, vision_claim_sanitization_counts = _sanitize_vision_claims(
             parsed_vision_for_policy,
             output_language=dependencies.output_language(output_language),
+            listing_mileage_km=listing_context_data.get("mileage_km"),
         )
         vision_result_json = json.dumps(sanitized_vision, indent=2, ensure_ascii=False)
 

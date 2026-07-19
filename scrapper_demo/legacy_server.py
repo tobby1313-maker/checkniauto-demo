@@ -2439,15 +2439,24 @@ def _description_listing_facts(description, title=""):
         mileage_km = int(abbreviated_mileage.group(1)) * 1000
         mileage = f"{mileage_km} km"
     else:
-        mileage = _description_capture(
-            text,
-            (
-                r"(?:najazden(?:e|é|ých)?(?:\s*km)?|najazd|mileage)\s*:?\s*(?:len\s*)?([\d\s.]+)(?:\s*km)?",
-                r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
-                r"\b(\d{4,6})\s*km\b",
-            ),
+        masked_mileage = re.search(
+            r"(?:najazd(?:ene|enych)?(?:\s*km)?[^\d]{0,20})?(\d{2,3})\s*x{3}\s*(?:km|kilometrov?)\b",
+            folded_text,
+            re.IGNORECASE,
         )
-        mileage_km = _mileage_km_value(mileage)
+        if masked_mileage:
+            mileage_km = int(masked_mileage.group(1)) * 1000
+            mileage = f"{mileage_km} km"
+        else:
+            mileage = _description_capture(
+                text,
+                (
+                    r"(?:najazden(?:e|é|ých)?(?:\s*km)?|najazd|mileage)\s*:?\s*(?:len\s*)?([\d\s.]+)(?:\s*km)?",
+                    r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
+                    r"\b(\d{4,6})\s*km\b",
+                ),
+            )
+            mileage_km = _mileage_km_value(mileage)
     if mileage_km:
         mileage = f"{mileage_km} km"
 
@@ -2477,14 +2486,17 @@ def _description_listing_facts(description, title=""):
             r"\b((?:automatick(?:á|a|ou)|automat|automatic|manuáln(?:a|ou)|manualn(?:a|i|ou)|manual|CVT|DCT|DSG)(?:\s+(?:prevodovk|převodovk)(?:a|ou))?)\b",
         ),
     )
+    if _fold_listing_text(engine).startswith("a prevodovka"):
+        engine = ""
     if not engine:
         engine_match = re.search(
-            r"\b(\d[.,]\d\s*(?:tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt))\b",
+            r"\b(\d[.,]\d\s*(?:e[- ]?skyactiv(?:e)?\s*d\s*\d{0,3}|tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|d[345]|b[3456]|t[34568]))\b",
             _fold_listing_text(f"{title}\n{text}"),
             re.IGNORECASE,
         )
         if engine_match:
             engine = engine_match.group(1).upper().replace(",", ".")
+            engine = re.sub(r"SKYACTIVE", "SKYACTIV", engine, flags=re.IGNORECASE)
     folded_transmission_text = _fold_listing_text(text)
     manual_marker = re.search(
         r"\bmanualn(?:a|i|ou)\s+prevodovk(?:a|ou)\b|\bmanual\s+\d+\s*(?:rychlost|stupn|speed)",
@@ -2537,9 +2549,16 @@ def _description_listing_facts(description, title=""):
         combined,
         re.IGNORECASE,
     )
+    labelled_wheel_drive = re.search(
+        r"pohon\s+kolies\s*:?\s*(predny|zadny)",
+        combined,
+        re.IGNORECASE,
+    )
     drive_token = explicit_drive.group(1).lower() if explicit_drive else ""
     drive = (
-        "Predný"
+        "Predný" if labelled_wheel_drive and labelled_wheel_drive.group(1).lower() == "predny"
+        else "Zadný" if labelled_wheel_drive
+        else "Predný"
         if drive_token == "fwd"
         else "Zadný"
         if drive_token == "rwd"
@@ -2599,6 +2618,9 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
     ))
     if description_facts["transmission"] and not transmission_has_kind:
         transmission = description_facts["transmission"]
+    structured_engine = specs.get("Engine") or specs.get("Motor") or ""
+    if _fold_listing_text(structured_engine).startswith("a prevodovka"):
+        structured_engine = ""
     transmission = re.sub(
         r"\([^)]*\)",
         lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
@@ -2616,7 +2638,7 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
         "mileage": mileage,
         "mileage_km": _mileage_km_value(mileage),
         "year": specs.get("Year") or specs.get("Rok") or description_facts["year"] or "",
-        "engine": specs.get("Engine") or specs.get("Motor") or description_facts["engine"] or "",
+        "engine": structured_engine or description_facts["engine"] or "",
         "power": specs.get("Engine Power") or specs.get("Výkon") or description_facts["power"] or "",
         "fuel": fuel,
         "color": color,

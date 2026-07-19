@@ -290,6 +290,20 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(context["engine"], "2.2 CRDI")
         self.assertEqual(context["transmission"], "Automatická")
 
+    def test_listing_context_repairs_cx60_heading_engine_and_reversed_drive_label(self):
+        context = web_server._listing_context_object(
+            "# CX-60 3.3 e-Skyactive D200 mHEV Exclusive Line A/T\n\n"
+            "## Specifications\n\n"
+            "| Parameter | Value |\n|---|---|\n"
+            "| Engine | a prevodovka : |\n| Transmission | automat 8st |\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "Dátum výroby: 01/2023 Pohon kolies: zadný Objem valcov: 3 283cm3 "
+            "Motor a prevodovka : -3,3-litrový 6-valcový dieselový motor"
+        )
+
+        self.assertIn("E-SKYACTIV D200", context["engine"])
+        self.assertEqual(context["drive"], "Zadný")
+
     def test_listing_context_repairs_stale_troc_mileage_and_inventory_alternatives(self):
         context = web_server._listing_context_object(
             "# VW T-Roc 2023, 1.5TSi, DSG\n\n"

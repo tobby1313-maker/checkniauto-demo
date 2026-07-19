@@ -23,6 +23,7 @@ from scrapper_demo.services.analysis_pipeline import (
     _filter_research_transmission_conflicts,
     _generalize_candidate_component_codes,
     _merge_backend_evidence,
+    _market_search_listing_context,
     _promote_selected_key,
     _select_limited_research_candidate,
     _research_parse_failed,
@@ -312,9 +313,14 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         packet["consistency_checks"] = [
             {"check": "Identity", "result": "passed", "explanation": "Matches"},
             {
-                "check": "Service history",
-                "result": "needs_inspection",
-                "explanation": "Check invoices",
+                "check": "Seller claim support",
+                "result": "consistent_with_claim",
+                "explanation": "Available data agrees.",
+            },
+            {
+                "check": "Imported history",
+                "result": "inconsistent_with_claim",
+                "explanation": "The claim conflicts with available data.",
             },
         ]
         packet["web_research_findings"] = [{
@@ -338,7 +344,8 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         normalized = _normalize_research_model_output(packet)
 
         self.assertEqual(normalized["consistency_checks"][0]["result"], "ok")
-        self.assertEqual(normalized["consistency_checks"][1]["result"], "concern")
+        self.assertEqual(normalized["consistency_checks"][1]["result"], "ok")
+        self.assertEqual(normalized["consistency_checks"][2]["result"], "concern")
         self.assertEqual(
             normalized["web_research_findings"][0]["evidence_category"],
             "NEEDS_VERIFICATION",
@@ -363,6 +370,62 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
 
         self.assertEqual(normalized["expected_costs"][0]["urgency"], "medium")
         self.assertTrue(_valid_research_model_output(normalized))
+
+    def test_research_v2_normalizes_cx60_provider_aliases(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["seller_claims"] = [{
+            "claim": "Mazda CX-60 D200",
+            "evidence_category": "LISTING_SPECIFICATION",
+            "verification_status": "UNVERIFIED",
+            "buyer_relevance": "Overiť doklady.",
+        }]
+        packet["web_research_findings"] = [{
+            "claim": "Official maintenance item",
+            "evidence_category": "OFFICIAL_MAINTENANCE_SCHEDULE",
+            "buyer_impact": "Check records.",
+            "confidence": "MEDIUM",
+            "source_ids": [],
+        }]
+        packet["technical_risks"] = [{
+            "component": "Chassis",
+            "issue": "Firm ride",
+            "risk_level": "CHECK",
+            "evidence_category": "MODEL_SPECIFIC_CHARACTERISTIC",
+            "buyer_impact": "Comfort",
+            "specific_vehicle_evidence": "",
+            "verification_action": "Test drive",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "confidence": "MEDIUM",
+            "source_ids": [],
+        }]
+        packet["expected_costs"] = [{
+            "item": "Service",
+            "why": "If records are missing.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "cost_type": "initial_service",
+            "urgency": "immediate_if_not_done",
+            "basis": "Quote required.",
+            "source_ids": [],
+        }]
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(normalized["seller_claims"][0]["evidence_category"], "LISTING_CLAIM")
+        self.assertEqual(normalized["web_research_findings"][0]["evidence_category"], "MODEL_LEVEL_RISK")
+        self.assertEqual(normalized["technical_risks"][0]["evidence_category"], "MODEL_LEVEL_RISK")
+        self.assertEqual(normalized["expected_costs"][0]["urgency"], "high")
+        self.assertTrue(_valid_research_model_output(normalized))
+
+    def test_market_search_context_uses_grounded_generation_for_make_less_title(self):
+        augmented = _market_search_listing_context(
+            {"title": "CX-60 3.3 e-Skyactive D200"},
+            {"generation": {"name": "Mazda CX-60 (KH)"}},
+        )
+
+        self.assertTrue(augmented["title"].startswith("Mazda CX-60 (KH)"))
+        self.assertTrue(augmented["market_identity_augmented"])
 
     def test_research_v2_normalizes_aliases_seen_in_honda_recovery(self):
         packet = _unavailable_research_model_output("fixture")
@@ -1212,6 +1275,18 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             1,
         )
 
+    def test_limited_fallback_removes_exact_service_interval_consistency_check(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["consistency_checks"] = [{
+            "check": "Servisné intervaly a najazdené kilometre",
+            "result": "ok",
+            "explanation": "Prehliadka je každých 20 000 km alebo 1 rok.",
+        }]
+
+        limited = _limited_research_model_output(packet, output_language="sk")
+
+        self.assertEqual(limited["consistency_checks"], [])
+
     def test_report_lock_keeps_sources_internal_and_attributes_service_claim(self):
         report = (
             "# Report\n\n## 🌐 Webové overenie\n\n- Modelové riziko.\n\n"
@@ -1411,10 +1486,13 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
 
     def test_vision_policy_downgrades_authenticity_function_and_tread_claims(self):
         payload = {
+            "view_coverage": {"underbody": "missing", "engine_bay": "visible_detail"},
+            "missing_views": [],
             "supported_observations": [
                 {"observation": "Výrobný štítok je originálny a nepoškodený.", "confidence": "HIGH", "evidence_category": "CONFIRMED"},
                 {"observation": "Displej zobrazuje plne funkčný 360-stupňový kamerový systém.", "confidence": "HIGH"},
-                {"observation": "Pneumatika vykazuje dobrú hĺbku dezénu.", "confidence": "HIGH"},
+                {"observation": "Na displeji je viditeľná funkčná parkovacia kamera.", "confidence": "HIGH"},
+                {"observation": "Pneumatiky majú dostatočný dezén.", "confidence": "HIGH"},
             ]
         }
 
@@ -1424,12 +1502,75 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertIn("pravosť nemožno potvrdiť", observations[0]["observation"])
         self.assertEqual(observations[0]["evidence_category"], "VISUAL_INDICATION")
         self.assertIn("treba vyskúšať", observations[1]["observation"])
-        self.assertIn("bez merania", observations[2]["observation"])
+        self.assertIn("treba vyskúšať", observations[2]["observation"])
+        self.assertIn("bez merania", observations[3]["observation"])
+        self.assertEqual(sanitized["missing_views"], ["Podvozok"])
         self.assertEqual(counts, {
             "plate_authenticity": 1,
-            "system_functionality": 1,
+            "system_functionality": 2,
             "tread_depth": 1,
+            "odometer_conflict": 0,
+            "repair_history": 0,
+            "enum_normalization": 0,
         })
+
+    def test_vision_policy_normalizes_known_nested_enum_aliases(self):
+        payload = {
+            "exterior_observations": [{
+                "observation": "Vozidlo má ťažné zariadenie.",
+                "buyer_impact": "equipment",
+            }],
+            "mileage_wear_consistency": {
+                "assessment": "better_than_expected",
+                "explanation": "Opotrebovanie je nižšie, než sa očakávalo.",
+                "confidence": "HIGH",
+            },
+        }
+
+        sanitized, counts = _sanitize_vision_claims(payload, output_language="sk")
+
+        self.assertEqual(sanitized["exterior_observations"][0]["buyer_impact"], "value")
+        self.assertEqual(sanitized["mileage_wear_consistency"]["assessment"], "consistent")
+        self.assertEqual(sanitized["mileage_wear_consistency"]["confidence"], "Vysoká")
+        self.assertEqual(counts["enum_normalization"], 3)
+
+    def test_vision_policy_downgrades_odometer_conflict_and_repair_history(self):
+        payload = {
+            "odometer": {
+                "visible": True,
+                "reading_km": 284,
+                "confidence": "HIGH",
+                "notes": "Jasne viditeľné.",
+            },
+            "supported_observations": [{
+                "type": "odometer",
+                "observation": "Digitálny odpočet ukazuje 284 km.",
+                "evidence_category": "CONFIRMED",
+                "confidence": "HIGH",
+            }],
+            "exterior_observations": [{
+                "observation": "Panely majú konzistentné medzery.",
+                "buyer_relevance": "Žiadne známky predchádzajúceho poškodenia alebo opravy karosérie.",
+            }],
+            "mileage_wear_consistency": {
+                "assessment": "consistent",
+                "explanation": "Opotrebovanie zodpovedá 284 km.",
+                "confidence": "Vysoká",
+            },
+        }
+
+        sanitized, counts = _sanitize_vision_claims(
+            payload,
+            output_language="sk",
+            listing_mileage_km=284000,
+        )
+
+        self.assertIsNone(sanitized["odometer"]["reading_km"])
+        self.assertEqual(sanitized["mileage_wear_consistency"]["assessment"], "cannot_assess")
+        self.assertEqual(sanitized["supported_observations"][0]["confidence"], "LOW")
+        self.assertIn("históriu", sanitized["exterior_observations"][0]["buyer_relevance"])
+        self.assertEqual(counts["odometer_conflict"], 1)
+        self.assertEqual(counts["repair_history"], 1)
 
     def test_unverified_market_and_missing_vin_claims_are_locked(self):
         report = """# Toyota RAV4

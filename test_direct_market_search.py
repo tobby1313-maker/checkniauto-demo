@@ -4,6 +4,7 @@ from unittest.mock import patch
 import requests
 
 from scrapper_demo.direct_market_search import (
+    _engine,
     _similarity,
     bazos_search_url,
     derive_bazos_identity,
@@ -51,6 +52,16 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertEqual(
             bazos_search_url("SK", self.identity["query"]),
             "https://auto.bazos.sk/inzeraty/volkswagen-t-roc/",
+        )
+
+    def test_identity_skips_drivetrain_prefix_before_model(self):
+        identity = derive_bazos_identity({
+            "title": "VOLVO 4x4 XC40 2.0 D4 INSCRIPTION /2018/",
+        })
+
+        self.assertEqual(
+            identity,
+            {"make": "Volvo", "model": "XC40", "query": "Volvo XC40"},
         )
 
     def test_tier_a_requires_visible_matching_power_and_drivetrain(self):
@@ -110,6 +121,23 @@ class DirectMarketSearchTests(unittest.TestCase):
             "A",
         )
 
+    def test_tier_a_normalizes_eskyactiv_spelling(self):
+        listing = {
+            "title": "Mazda CX-60 3.3 e-Skyactive D200 147 kW A/T RWD",
+            "engine": "3.3 e-Skyactive D200",
+            "power": "147 kW",
+            "transmission": "Automatická",
+            "drive": "Zadný",
+        }
+
+        self.assertEqual(
+            _similarity(
+                listing,
+                "Mazda CX-60 3.3 e-Skyactiv D200 147 kW automatic RWD",
+            )[0],
+            "A",
+        )
+
     def test_parser_keeps_exact_detail_url_and_visible_fields(self):
         html = _card(
             123456,
@@ -161,6 +189,29 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertEqual(counts["self_listing_filtered_count"], 1)
         self.assertEqual(counts["non_vehicle_filtered_count"], 1)
         self.assertEqual(counts["model_mismatch_count"], 1)
+
+    def test_parser_filters_specific_parts_and_wheel_fitment_ads(self):
+        html = "".join((
+            _card(201, "Spínač svetiel Mercedes-Benz GLK", "X204 2008 - 2015"),
+            _card(202, "Klima trúbka Mercedes GLK", "náhradný diel"),
+            _card(203, "5x112 R20 Mercedes AMG", "vhodné aj pre GLK"),
+        ))
+        identity = derive_bazos_identity({"title": "Mercedes-Benz GLK"})
+
+        candidates, counts = parse_bazos_search_page(
+            html,
+            country="SK",
+            search_url=bazos_search_url("SK", identity["query"]),
+            identity=identity,
+            listing={"title": "Mercedes-Benz GLK", "source_url": ""},
+        )
+
+        self.assertEqual(candidates, [])
+        self.assertEqual(counts["non_vehicle_filtered_count"], 3)
+
+    def test_engine_parser_accepts_litres_but_not_consumption(self):
+        self.assertEqual(_engine("Mercedes GLK 3,0 lit Benzín"), "3.0 L")
+        self.assertEqual(_engine("Spotreba 7.5L/100 km"), "")
 
     def test_two_country_pass_survives_one_source_failure_and_parses_czk(self):
         sk_html = _card(201, "VW T-Roc 2022", "1.5 TSI DSG, 140 000 km")

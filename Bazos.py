@@ -56,6 +56,13 @@ def _bazos_mileage_km(value):
     )
     if thousands:
         return int(thousands.group(1)) * 1000
+    masked_thousands = re.search(
+        r"(?:najazd(?:ene|enych)?(?:\s*km)?[^\d]{0,20})?(\d{2,3})\s*x{3}\s*(?:km|kilometrov?)\b",
+        folded,
+        re.IGNORECASE,
+    )
+    if masked_thousands:
+        return int(masked_thousands.group(1)) * 1000
     labelled = re.search(
         r"(?:najazd(?:ene|enych)?\s*km|najazd|mileage)\s*:?\s*([\d\s.]+)(?:\s*km)?",
         folded,
@@ -78,6 +85,13 @@ def _advertised_drivetrain(title, description):
         re.IGNORECASE,
     )
     token = explicit.group(1).lower() if explicit else ""
+    labelled_wheel_drive = re.search(
+        r"pohon\s+kolies\s*:?\s*(predny|zadny)",
+        combined,
+        re.IGNORECASE,
+    )
+    if labelled_wheel_drive:
+        return "Predný" if labelled_wheel_drive.group(1).lower() == "predny" else "Zadný"
     if token == "fwd":
         return "Predný"
     if token == "rwd":
@@ -219,21 +233,30 @@ def extract_car_info(soup, url):
         desc_text,
         re.I,
     )
-    if engine_match:
-        info["parameters"]["Engine"] = engine_match.group(1).strip()
-    else:
+    engine_value = engine_match.group(1).strip() if engine_match else ""
+    if _fold_text(engine_value).startswith("a prevodovka"):
+        engine_value = ""
+    if not engine_value:
         engine_identity_match = re.search(
-            r'\b(\d[.,]\d\s*(?:TSI|TDI|T-GDI|TGDI|GDI|CRDI|CRDi|DCI|HDI|BlueHDi|EcoBoost|VVT))\b',
+            r'\b(\d[.,]\d\s*(?:e[- ]?Skyactiv(?:e)?\s*D\s*\d{0,3}|TSI|TDI|T-GDI|TGDI|GDI|CRDI|DCI|HDI|BlueHDi|EcoBoost|VVT|D[345]|B[3456]|T[34568]))\b',
             f"{info.get('title', '')}\n{desc_text}",
             re.I,
         )
         if engine_identity_match:
-            info["parameters"]["Engine"] = engine_identity_match.group(1).strip()
+            engine_value = engine_identity_match.group(1).strip()
+    if engine_value:
+        info["parameters"]["Engine"] = re.sub(
+            r"skyactive", "Skyactiv", engine_value, flags=re.IGNORECASE
+        )
 
     # Engine capacity
-    capacity_match = re.search(r'(\d+[.,]?\d*)\s*(?:cm3|l\b)', desc_text, re.I)
-    if capacity_match:
-        info["parameters"]["Engine Capacity"] = capacity_match.group(0)
+    capacity_cm3 = re.search(r'\b(\d{1,2}(?:[\s\u00a0]\d{3})|\d{3,4})\s*cm3\b', desc_text, re.I)
+    capacity_litres = re.search(r'\b(\d+[.,]\d+)\s*l\b', desc_text, re.I)
+    if capacity_cm3:
+        capacity_digits = re.sub(r'\D', '', capacity_cm3.group(1))
+        info["parameters"]["Engine Capacity"] = f"{capacity_digits} cm3"
+    elif capacity_litres:
+        info["parameters"]["Engine Capacity"] = capacity_litres.group(0)
 
     # Fuel type
     fuel_keywords = {

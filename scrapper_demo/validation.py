@@ -16,15 +16,87 @@ from scrapper_demo.storage import atomic_write_json
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schemas"
 
 
-def _schema_required_fields(schema_name):
+def _load_schema(schema_name):
     schema_path = SCHEMA_DIR / schema_name
     try:
         with open(schema_path, "r", encoding="utf-8") as schema_file:
             schema = json.load(schema_file)
     except (OSError, json.JSONDecodeError) as exc:
-        return [], f"Could not read schema {schema_name}: {exc}"
+        return {}, f"Could not read schema {schema_name}: {exc}"
+    return schema if isinstance(schema, dict) else {}, None
+
+
+def _schema_required_fields(schema_name):
+    schema, warning = _load_schema(schema_name)
+    if warning:
+        return [], warning
     required = schema.get("required") if isinstance(schema, dict) else None
     return list(required or []), None
+
+
+def _schema_type_matches(value, expected):
+    types = expected if isinstance(expected, list) else [expected]
+    mapping = {
+        "object": lambda item: isinstance(item, dict),
+        "array": lambda item: isinstance(item, list),
+        "string": lambda item: isinstance(item, str),
+        "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+        "number": lambda item: isinstance(item, (int, float)) and not isinstance(item, bool),
+        "boolean": lambda item: isinstance(item, bool),
+        "null": lambda item: item is None,
+    }
+    return any(type_name in mapping and mapping[type_name](value) for type_name in types)
+
+
+def _nested_schema_errors(value, schema, *, root_schema, path="$", limit=30):
+    """Validate the JSON-schema subset used by project artifact contracts."""
+    errors = []
+
+    def add(message):
+        if len(errors) < limit:
+            errors.append(f"{path}: {message}")
+
+    if not isinstance(schema, dict):
+        return errors
+    reference = schema.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/"):
+        resolved = root_schema
+        for token in reference[2:].split("/"):
+            resolved = resolved.get(token.replace("~1", "/").replace("~0", "~"), {}) if isinstance(resolved, dict) else {}
+        return _nested_schema_errors(value, resolved, root_schema=root_schema, path=path, limit=limit)
+    for branch in schema.get("allOf") if isinstance(schema.get("allOf"), list) else []:
+        errors.extend(_nested_schema_errors(value, branch, root_schema=root_schema, path=path, limit=max(0, limit - len(errors))))
+        if len(errors) >= limit:
+            return errors[:limit]
+
+    expected_type = schema.get("type")
+    if expected_type is not None and not _schema_type_matches(value, expected_type):
+        add(f"expected type {expected_type!r}")
+        return errors
+    if "enum" in schema and value not in schema.get("enum", []):
+        add(f"value {value!r} is not in enum")
+    pattern = schema.get("pattern")
+    if isinstance(pattern, str) and isinstance(value, str) and re.search(pattern, value) is None:
+        add(f"value does not match pattern {pattern!r}")
+    if isinstance(value, dict):
+        required = schema.get("required") if isinstance(schema.get("required"), list) else []
+        for field in required:
+            if field not in value and path != "$":
+                add(f"missing required field {field!r}")
+        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        for field, child_schema in properties.items():
+            if field not in value:
+                continue
+            child_path = f"{path}.{field}"
+            errors.extend(_nested_schema_errors(value[field], child_schema, root_schema=root_schema, path=child_path, limit=max(0, limit - len(errors))))
+            if len(errors) >= limit:
+                break
+    elif isinstance(value, list) and isinstance(schema.get("items"), dict):
+        for index, item in enumerate(value):
+            errors.extend(_nested_schema_errors(item, schema["items"], root_schema=root_schema, path=f"{path}[{index}]", limit=max(0, limit - len(errors))))
+            if len(errors) >= limit:
+                break
+    return errors[:limit]
 
 
 def _soft_validate_json_contract(artifact_name, value, schema_name):
@@ -52,7 +124,7 @@ def _soft_validate_json_contract(artifact_name, value, schema_name):
             }
         )
 
-    required, schema_warning = _schema_required_fields(schema_name)
+    schema, schema_warning = _load_schema(schema_name)
     if schema_warning:
         warnings.append(
             {
@@ -63,6 +135,7 @@ def _soft_validate_json_contract(artifact_name, value, schema_name):
         )
         return warnings
 
+    required = list(schema.get("required") or [])
     missing = [field for field in required if field not in parsed]
     if missing:
         warnings.append(
@@ -71,6 +144,21 @@ def _soft_validate_json_contract(artifact_name, value, schema_name):
                 "type": "schema_required",
                 "message": f"{artifact_name} is missing required fields: {', '.join(missing)}.",
                 "fields": missing,
+            }
+        )
+
+    nested_errors = _nested_schema_errors(
+        parsed,
+        schema,
+        root_schema=schema,
+    )
+    if nested_errors:
+        warnings.append(
+            {
+                "artifact": artifact_name,
+                "type": "schema_contract",
+                "message": f"{artifact_name} contains nested schema violations.",
+                "errors": nested_errors,
             }
         )
 

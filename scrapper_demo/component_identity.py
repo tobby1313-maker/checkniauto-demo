@@ -597,6 +597,44 @@ def reconcile_component_identity_with_listing(
         if not _exact_code_has_application_support(result, component_name, listing):
             _move_code_to_candidates(result, component_name)
         _generalize_unverified_code_family(result, component_name, listing)
+
+    engine = result.get("engine")
+    engine = engine if isinstance(engine, dict) else {}
+    marketing_name = _text(engine.get("marketing_name"), 160)
+    variant_match = re.search(r"\b([A-Za-z]{2,5})\s+([1-9]\d{2})\b", marketing_name)
+    listing_text = _fold_text(" ".join(
+        str(listing.get(key) or "")
+        for key in ("title", "description_excerpt", "engine", "fuel")
+    ))
+    if variant_match:
+        advertised_variant = _fold_text(variant_match.group(0))
+        if advertised_variant not in listing_text:
+            listing_engine = _text(listing.get("engine"), 80)
+            displacement = re.search(r"\b(\d[.,]\d)\b", listing_engine)
+            suffix = re.sub(
+                r"^\s*[A-Za-z]{2,5}\s+[1-9]\d{2}\s*",
+                "",
+                marketing_name,
+            ).strip()
+            generic_parts = []
+            if displacement:
+                generic_parts.append(f"{displacement.group(1).replace(',', '.')} L")
+            if suffix:
+                generic_parts.append(suffix)
+            fuel = _text(listing.get("fuel"), 40)
+            if fuel:
+                generic_parts.append(fuel)
+            generic_name = " ".join(generic_parts) or listing_engine or "Engine variant to verify"
+            old_family = _text(engine.get("family"), 160)
+            engine["marketing_name"] = generic_name
+            if not old_family or _fold_text(old_family) == _fold_text(marketing_name):
+                engine["family"] = generic_name
+            engine["resolution"] = "AMBIGUOUS"
+            engine["confidence"] = "LOW"
+            result["identification_status"] = "AMBIGUOUS"
+            result["notes"] = ([
+                f"Specific engine variant {variant_match.group(0)} is not advertised by the seller; generalized until VIN or vehicle documents confirm it."
+            ] + _string_list(result.get("notes"), limit=5))[:6]
     listing_transmission = _text(listing.get("transmission"), 200)
     listing_kind = _transmission_kind(listing_transmission)
     transmission = result.get("transmission")

@@ -293,8 +293,8 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 18. 7. 2026:** spracovaných je sedem unikátnych prípadov
-(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5 a Hyundai Santa Fe). Pipeline už pri zlyhaní presného prepojenia
+**Priebežná kalibrácia 19. 7. 2026:** spracovaných je desať unikátnych prípadov
+(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40 a Mercedes-Benz GLK). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
 pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
@@ -326,8 +326,33 @@ stupňov. Doplnila sa extrakcia `A/T` a motora z titulku, normalizácia urgency
 `recommended` bez plateného recovery, blokovanie nepodloženého presného kódu
 prevodovky ukrytého vo family poli a redakcia vizuálnych tvrdení o pravosti
 štítku, plnej funkčnosti kamier a hĺbke dezénu bez merania.
+Mazda CX-60 opravila make-less market identitu: grounded názov generácie sa
+použije iba pre vyhľadávanie, takže titulok `CX-60` vytvorí query
+`Mazda CX-60`. Parser už nezamieňa nadpis „Motor a prevodovka“ za motor,
+normalizuje e-Skyactiv, zachová objem `3 283 cm3` ako `3283 cm3` a rozpozná
+„Pohon kolies: zadný“. Ďalšie pozorované evidence/urgency aliasy sa
+normalizujú bez recovery a limited fallback odstráni nepodložený presný
+servisný interval aj z consistency checks. Vision zosúladí chýbajúci podvozok
+s `missing_views` a neoznačí nemeraný dezén za dostatočný.
+Volvo XC40 doplnilo normalizáciu maskovaného nájazdu `284xxx km` na
+`284 000 km`, rozpoznanie motora `2.0 D4` a preskočenie prefixu `4x4` pred
+modelom, takže market query je `Volvo XC40`, nie `Volvo 4x4`. Vision pri
+zásadnom konflikte odometra s inzerátom už nepotvrdí skrátený odpočet ani
+nevyvodí nízke opotrebovanie; fotografie tiež nesmú samy potvrdiť funkčnosť
+kamery alebo beznehodovú históriu. Enum `unverified` sa normalizuje na
+`unknown`, čím sa odstráni zbytočný Research V2 recovery.
+Mercedes-Benz GLK potvrdil, že pri generickom titulku a údaji `3,0 lit` nemožno
+konkrétny variant `GLK 300` prezentovať ako pravdepodobne identifikovaný.
+Takýto variant sa zovšeobecní na podporenú konfiguráciu `3.0 L V6 Benzín` a
+ostane `AMBIGUOUS` do kontroly VIN alebo dokladov. Research synonymá
+`consistent_with_claim` a `inconsistent_with_claim` sa normalizujú bez
+recovery. Soft schema validácia teraz rekurzívne kontroluje vnorené typy,
+enumy, required polia, array items, `allOf` a lokálne `$ref`; vision navyše
+normalizuje známe hodnoty `equipment` a `better_than_expected`. Market parser
+odfiltruje ďalšie typické diely a zápis spotreby `7.5L/100 km` už nezamení za
+objem motora. Nulový presný benchmark GLK zostal správne zachovaný.
 Do minimálnej vzorky chýba
-13 ďalších unikátnych
+10 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy

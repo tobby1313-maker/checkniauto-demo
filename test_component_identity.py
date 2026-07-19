@@ -372,6 +372,34 @@ class ComponentIdentityTests(unittest.TestCase):
             for item in reconciled["candidate_variants"]
         ))
 
+    def test_unadvertised_mercedes_variant_is_generalized(self):
+        identity = normalize_component_identity({
+            "identification_status": "PROBABLE",
+            "generation": {"name": "GLK-Class X204", "resolution": "PROBABLE"},
+            "engine": {
+                "marketing_name": "GLK 300 V6",
+                "family": "GLK 300 V6",
+                "resolution": "PROBABLE",
+                "confidence": "MEDIUM",
+            },
+            "transmission": {
+                "marketing_name": "7G-TRONIC",
+                "resolution": "PROBABLE",
+            },
+        })
+
+        reconciled = reconcile_component_identity_with_listing(identity, {
+            "title": "Mercedes-Benz GLK",
+            "description_excerpt": "Predám GLK 3,0 lit Benzín + LPG, ročník 2009.",
+            "engine": "3,0 lit",
+            "fuel": "Benzín",
+        })
+
+        self.assertEqual(reconciled["identification_status"], "AMBIGUOUS")
+        self.assertEqual(reconciled["engine"]["marketing_name"], "3.0 L V6 Benzín")
+        self.assertEqual(reconciled["engine"]["resolution"], "AMBIGUOUS")
+        self.assertTrue(any("not advertised" in note for note in reconciled["notes"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -76,6 +76,11 @@ _NON_VEHICLE_TITLE_MARKERS = (
     "naraznik",
     "kapota",
     "svetlo na",
+    "spinac svetiel",
+    "klima trubk",
+    "pantograf",
+    "predna maska",
+    "grill w",
     "kupim",
 )
 
@@ -93,6 +98,13 @@ def _fold(value: Any) -> str:
 
 def _compact(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", _fold(value))
+
+
+def _looks_like_non_vehicle_listing(value: Any) -> bool:
+    folded = _fold(value)
+    return any(marker in folded for marker in _NON_VEHICLE_TITLE_MARKERS) or bool(
+        re.search(r"\b\d[x×]\d{2,3}\s+r\d{2}\b", folded)
+    )
 
 
 def _canonical_url(value: Any) -> str:
@@ -120,13 +132,23 @@ def derive_bazos_identity(listing: dict[str, Any]) -> dict[str, str]:
         if not match:
             continue
         # Positions are stable because NFKD removes combining characters but
-        # keeps the base characters.  The first following token is the model;
-        # this avoids polluting a query with year, engine, trim, or mileage.
+        # keeps the base characters. Some sellers put drivetrain or gearbox
+        # before the actual model (for example "VOLVO 4x4 XC40"). Skip only
+        # well-known non-model modifiers, then keep the first plausible token.
         remainder = title[match.end() :].lstrip(" -,:/")
-        model_match = re.match(r"([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)", remainder)
-        if not model_match:
+        model = ""
+        non_model_prefixes = {
+            "4x4", "4wd", "awd", "fwd", "rwd", "automat", "automatic",
+            "manual", "manualna", "manualni",
+        }
+        for model_match in re.finditer(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", remainder):
+            candidate = model_match.group(0).strip("-")
+            if _fold(candidate) in non_model_prefixes:
+                continue
+            model = candidate
+            break
+        if not model:
             return {}
-        model = model_match.group(1).strip("-")
         if not model or re.fullmatch(r"(?:19|20)\d{2}", model):
             return {}
         return {
@@ -156,6 +178,9 @@ def _first_year(value: str) -> int | None:
 
 def _first_mileage(value: str) -> int | None:
     folded = _fold(value).replace("\u00a0", " ")
+    masked = re.search(r"(?<!\d)(\d{2,3})\s*x{3}\s*(?:km|kilometrov?)\b", folded)
+    if masked:
+        return int(masked.group(1)) * 1000
     abbreviated = re.search(r"(\d{2,3})\s*tis(?:\.|ic)?\s*(?:km)?", folded)
     if abbreviated:
         return int(abbreviated.group(1)) * 1000
@@ -181,12 +206,14 @@ def _price(value: str, country: str) -> tuple[int | None, str, str]:
 def _engine(value: str) -> str:
     folded = _fold(value)
     match = re.search(
-        r"\b(\d[.,]\d\s*(?:tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|hybrid|phev|l))\b",
+        r"\b(\d[.,]\d\s*(?:e[- ]?skyactiv(?:e)?\s*d\s*\d{0,3}|tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|hybrid|phev|d[345]|b[3456]|t[34568]|l(?:it)?))(?!\s*/\s*100)\b",
         folded,
         re.IGNORECASE,
     )
     if match:
-        return " ".join(match.group(1).upper().replace(",", ".").split())
+        normalized = " ".join(match.group(1).upper().replace(",", ".").split())
+        normalized = normalized.replace("SKYACTIVE", "SKYACTIV")
+        return re.sub(r"\s+LIT$", " L", normalized)
     # Some search result cards omit the litre suffix but place power directly
     # after displacement: "2.0 160 PS" or "2.0 118 kW".
     displacement = re.search(
@@ -335,7 +362,7 @@ def parse_local_portal_search_page(
         )
         card_text = _portal_card_text(anchor)
         combined = f"{title} {card_text}".strip()
-        if any(marker in _fold(combined) for marker in _NON_VEHICLE_TITLE_MARKERS):
+        if _looks_like_non_vehicle_listing(combined):
             counters["non_vehicle_filtered_count"] += 1
             continue
         if model_compact and model_compact not in _compact(combined):
@@ -471,7 +498,7 @@ def parse_bazos_search_page(
             continue
         title = " ".join(title_link.get_text(" ", strip=True).split())
         folded_title = _fold(title)
-        if any(marker in folded_title for marker in _NON_VEHICLE_TITLE_MARKERS):
+        if _looks_like_non_vehicle_listing(folded_title):
             counters["non_vehicle_filtered_count"] += 1
             continue
         description_node = card.select_one("div.popis")
@@ -972,7 +999,7 @@ def parse_mobile_de_search_page(
         )
         card_text = _portal_card_text(anchor)
         combined = f"{title} {card_text}".strip()
-        if any(marker in _fold(combined) for marker in _NON_VEHICLE_TITLE_MARKERS):
+        if _looks_like_non_vehicle_listing(combined):
             counters["non_vehicle_filtered_count"] += 1
             continue
         if model_compact and model_compact not in _compact(combined):

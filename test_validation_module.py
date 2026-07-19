@@ -17,6 +17,36 @@ class ValidationModuleTest(unittest.TestCase):
         self.assertEqual(warnings[0]["type"], "schema_required")
         self.assertIn("allowed_final_verdict", warnings[0]["fields"])
 
+    def test_schema_validation_reports_nested_enum_and_type_violations(self):
+        payload = {
+            "source_role": "vision",
+            "photos_provided": True,
+            "photo_limitations": [],
+            "exterior_observations": [{
+                "buyer_impact": "equipment",
+                "confidence": "HIGH",
+            }],
+            "interior_observations": [],
+            "dashboard_or_warning_lights": [],
+            "visible_red_flags": [],
+            "mileage_wear_consistency": {
+                "assessment": "better_than_expected",
+                "confidence": "Vysoká",
+            },
+            "visual_verdict": "OK",
+            "must_not_infer": [],
+        }
+
+        warnings = validation.soft_validate_json_contract(
+            "gemini_vision.json",
+            json.dumps(payload),
+            "gemini_vision.schema.json",
+        )
+
+        contract = next(item for item in warnings if item["type"] == "schema_contract")
+        self.assertTrue(any("buyer_impact" in error for error in contract["errors"]))
+        self.assertTrue(any("mileage_wear_consistency.assessment" in error for error in contract["errors"]))
+
     def test_markdown_parser_preserves_parentheses_inside_url(self):
         links = validation.markdown_links(
             "[Source](https://example.invalid/article_(detail))"
