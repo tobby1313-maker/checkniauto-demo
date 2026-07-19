@@ -446,7 +446,7 @@ def _exact_code_has_application_support(
         "line", "look", "matrix", "pano", "navi", "tour",
     }
     engine_match = re.search(
-        r"\b(\d[.,]\d\s*(?:tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt))\b",
+        r"\b(\d[.,]\d\s*(?:tfsi|tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt))\b",
         listing_folded,
     )
     engine_compact = (

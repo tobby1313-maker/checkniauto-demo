@@ -36,7 +36,7 @@
         "visible": { "type": "boolean" },
         "reading_km": { "type": ["integer", "number", "null"] },
         "photo_label": { "type": "string" },
-        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "confidence": { "type": ["string", "null"], "enum": ["HIGH", "MEDIUM", "LOW", null] },
         "notes": { "type": "string" }
       }
     },

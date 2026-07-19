@@ -107,6 +107,24 @@ def _looks_like_non_vehicle_listing(value: Any) -> bool:
     )
 
 
+def _model_matches(model: Any, value: Any) -> bool:
+    model_folded = _fold(model).strip()
+    text = _fold(value)
+    if not model_folded:
+        return True
+    # Audi performance derivatives are different models for price comparison:
+    # Q3 must not silently accept SQ3/RS Q3/RSQ3 result cards.
+    if re.fullmatch(r"q\d", model_folded):
+        if re.search(rf"\b(?:rs|s)\s*-?\s*{re.escape(model_folded)}\b", text):
+            return False
+        if re.search(rf"\b(?:rs|s){re.escape(model_folded)}\b", text):
+            return False
+    model_pattern = re.escape(model_folded).replace(r"\-", r"[- ]?")
+    if re.search(rf"(?<![a-z0-9]){model_pattern}(?![a-z0-9])", text):
+        return True
+    return _compact(model_folded) in _compact(text)
+
+
 def _canonical_url(value: Any) -> str:
     text = str(value or "").strip()
     try:
@@ -206,7 +224,7 @@ def _price(value: str, country: str) -> tuple[int | None, str, str]:
 def _engine(value: str) -> str:
     folded = _fold(value)
     match = re.search(
-        r"\b(\d[.,]\d\s*(?:e[- ]?skyactiv(?:e)?\s*d\s*\d{0,3}|tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|hybrid|phev|d[345]|b[3456]|t[34568]|l(?:it)?))(?!\s*/\s*100)\b",
+        r"\b(\d[.,]\d\s*(?:e[- ]?skyactiv(?:e)?\s*d\s*\d{0,3}|tfsi|tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|hybrid|phev|d[345]|b[3456]|t[34568]|l(?:it)?))(?!\s*/\s*100)\b",
         folded,
         re.IGNORECASE,
     )
@@ -242,8 +260,12 @@ def _transmission(value: str) -> str:
         return "AUTOMATIC"
     if re.search(r"\bm\s*/\s*t\b", folded):
         return "MANUAL"
-    if re.search(r"\b(?:dsg|dct|cvt|edc|s-tronic|tiptronic)\b", folded):
-        return re.search(r"\b(?:dsg|dct|cvt|edc|s-tronic|tiptronic)\b", folded).group(0).upper()  # type: ignore[union-attr]
+    if re.search(r"\b(?:dsg|s[ -]?tronic)\b", folded):
+        return "DSG"
+    if re.search(r"\b(?:dct|edc)\b", folded):
+        return "DCT"
+    if re.search(r"\b(?:cvt|tiptronic)\b", folded):
+        return re.search(r"\b(?:cvt|tiptronic)\b", folded).group(0).upper()  # type: ignore[union-attr]
     if re.search(r"\b(?:automat|automatic|automatik)\w*\b", folded):
         return "AUTOMATIC"
     if re.search(r"\b(?:manual|manualn)\w*\b", folded):
@@ -365,7 +387,7 @@ def parse_local_portal_search_page(
         if _looks_like_non_vehicle_listing(combined):
             counters["non_vehicle_filtered_count"] += 1
             continue
-        if model_compact and model_compact not in _compact(combined):
+        if model_compact and not _model_matches(identity.get("model"), combined):
             counters["model_mismatch_count"] += 1
             continue
         if analyzed_url and source_url == analyzed_url:
@@ -507,7 +529,7 @@ def parse_bazos_search_page(
             if description_node is not None
             else ""
         )
-        if model_compact and model_compact not in _compact(f"{title} {description[:240]}"):
+        if model_compact and not _model_matches(identity.get("model"), f"{title} {description[:240]}"):
             counters["model_mismatch_count"] += 1
             continue
         source_url = _canonical_url(urljoin(search_url, str(title_link.get("href") or "")))
@@ -1002,7 +1024,7 @@ def parse_mobile_de_search_page(
         if _looks_like_non_vehicle_listing(combined):
             counters["non_vehicle_filtered_count"] += 1
             continue
-        if model_compact and model_compact not in _compact(combined):
+        if model_compact and not _model_matches(identity.get("model"), combined):
             counters["model_mismatch_count"] += 1
             continue
 

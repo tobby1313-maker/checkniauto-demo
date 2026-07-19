@@ -293,8 +293,8 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 19. 7. 2026:** spracovaných je desať unikátnych prípadov
-(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40 a Mercedes-Benz GLK). Pipeline už pri zlyhaní presného prepojenia
+**Priebežná kalibrácia 19. 7. 2026:** spracovaných je jedenásť unikátnych prípadov
+(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40, Mercedes-Benz GLK a Audi Q3). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
 pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
@@ -351,8 +351,18 @@ enumy, required polia, array items, `allOf` a lokálne `$ref`; vision navyše
 normalizuje známe hodnoty `equipment` a `better_than_expected`. Market parser
 odfiltruje ďalšie typické diely a zápis spotreby `7.5L/100 km` už nezamení za
 objem motora. Nulový presný benchmark GLK zostal správne zachovaný.
+Audi Q3 doplnilo extrakciu `TFSI`, zachovanie prevodovky `S tronic` a jej
+porovnateľnosť s označením DSG. Q3 už neprijme SQ3 alebo RS Q3 ako rovnaký
+model a VIN prefix `WAU` sa správne mapuje na Audi. Hodnota nákladového typu
+`SCHEDULED_MAINTENANCE` sa normalizuje bez recovery. Schema kontrakty boli
+zosúladené s platnou provenance `DIRECT_PORTAL_SEARCH`, neviditeľným
+odometrom s `confidence=null` a neznámou servisnou pripravenosťou. Vision
+nepovažuje fotografiu servisnej knižky za potvrdenie jej pravosti, úplnosti
+ani chronológie a semanticky deduplikuje chýbajúce pohľady. Po opätovnom
+prepočte 88 výsledkov neexistoval žiadny kandidát spĺňajúci motor, prevodovku,
+pohon, rok aj nájazd; nulový benchmark je preto správny.
 Do minimálnej vzorky chýba
-10 ďalších unikátnych
+9 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy

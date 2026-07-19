@@ -199,6 +199,25 @@ class BazosScraperTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["Mileage"], "284000 km")
         self.assertEqual(result["parameters"]["Engine"].upper(), "2.0 D4")
 
+    def test_extracts_tfsi_and_preserves_s_tronic(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Predám Audi Q3 2.0 TFSi, S-tronic Quattro automat</h1>
+              <div class="popisdetail">
+                Audi Q3 2.0 benzín, Quattro S-tronic, 160 000 km.
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/q3.php")
+
+        self.assertEqual(result["parameters"]["Engine"].upper(), "2.0 TFSI")
+        self.assertEqual(result["parameters"]["Transmission"], "S tronic")
+        self.assertEqual(result["parameters"]["Drivetrain"], "4x4")
+
 
 if __name__ == "__main__":
     unittest.main()

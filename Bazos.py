@@ -238,7 +238,7 @@ def extract_car_info(soup, url):
         engine_value = ""
     if not engine_value:
         engine_identity_match = re.search(
-            r'\b(\d[.,]\d\s*(?:e[- ]?Skyactiv(?:e)?\s*D\s*\d{0,3}|TSI|TDI|T-GDI|TGDI|GDI|CRDI|DCI|HDI|BlueHDi|EcoBoost|VVT|D[345]|B[3456]|T[34568]))\b',
+            r'\b(\d[.,]\d\s*(?:e[- ]?Skyactiv(?:e)?\s*D\s*\d{0,3}|TFSI|TSI|TDI|T-GDI|TGDI|GDI|CRDI|DCI|HDI|BlueHDi|EcoBoost|VVT|D[345]|B[3456]|T[34568]))\b',
             f"{info.get('title', '')}\n{desc_text}",
             re.I,
         )
@@ -315,7 +315,9 @@ def extract_car_info(soup, url):
     elif re.search(r'(?:manuálna\s+prevodovka|manualnou\s+prevodovkou|manual\s+\d+\s*rýchlost|manuál\s+\d+\s*stupňov)', desc_text, re.I):
         info["parameters"]["Transmission"] = "Manuálna"
     # Then check for explicit automatic transmission mentions
-    elif re.search(r'(?:automatická\s+prevodovka|automatickou\s+prevodovkou|tiptronic|s-tronic|dsg|cvt)', desc_text, re.I) or re.search(r'\ba\s*/\s*t\b', folded_transmission_source, re.I):
+    elif re.search(r'\bs[ -]?tronic\b', folded_transmission_source, re.I):
+        info["parameters"]["Transmission"] = "S tronic"
+    elif re.search(r'(?:automatická\s+prevodovka|automatickou\s+prevodovkou|tiptronic|dsg|cvt)', desc_text, re.I) or re.search(r'\ba\s*/\s*t\b', folded_transmission_source, re.I):
         info["parameters"]["Transmission"] = "Automatická"
     # Fallback: standalone "automat" vs "manuál/manual" - check which one appears (but "automat" also matches "automatická klimatizácia")
     elif re.search(r'\bautomat\b', desc_text, re.I) and not re.search(r'\b(?:manuál|manual)\b', desc_text, re.I):

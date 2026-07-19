@@ -2490,7 +2490,7 @@ def _description_listing_facts(description, title=""):
         engine = ""
     if not engine:
         engine_match = re.search(
-            r"\b(\d[.,]\d\s*(?:e[- ]?skyactiv(?:e)?\s*d\s*\d{0,3}|tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|d[345]|b[3456]|t[34568]))\b",
+            r"\b(\d[.,]\d\s*(?:e[- ]?skyactiv(?:e)?\s*d\s*\d{0,3}|tfsi|tsi|tdi|t-gdi|tgdi|gdi|crdi|dci|hdi|bluehdi|ecoboost|vvt|d[345]|b[3456]|t[34568]))\b",
             _fold_listing_text(f"{title}\n{text}"),
             re.IGNORECASE,
         )
@@ -2517,6 +2517,8 @@ def _description_listing_facts(description, title=""):
         transmission = "Automatická"
     elif re.search(r"\bm\s*/\s*t\b", _fold_listing_text(f"{title}\n{text}"), re.IGNORECASE):
         transmission = "Manuálna"
+    elif re.search(r"\bs[ -]?tronic\b", _fold_listing_text(f"{title}\n{text}"), re.IGNORECASE):
+        transmission = "S tronic"
     transmission = re.sub(
         r"\([^)]*\)",
         lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),

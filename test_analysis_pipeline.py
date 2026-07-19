@@ -360,7 +360,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "why": "Overenie chybových kódov.",
             "estimated_cost_eur_low": None,
             "estimated_cost_eur_high": None,
-            "cost_type": "DIAGNOSTIC",
+            "cost_type": "SCHEDULED_MAINTENANCE",
             "urgency": "recommended",
             "basis": "Kontrolný úkon.",
             "source_ids": [],
@@ -369,6 +369,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         normalized = _normalize_research_model_output(packet)
 
         self.assertEqual(normalized["expected_costs"][0]["urgency"], "medium")
+        self.assertEqual(normalized["expected_costs"][0]["cost_type"], "initial_service")
         self.assertTrue(_valid_research_model_output(normalized))
 
     def test_research_v2_normalizes_cx60_provider_aliases(self):
@@ -723,8 +724,8 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "buyer_impact": "Inspect both components.",
         }]
         packet["technical_risks"] = [{
-            "component": "Prevodovka DQ381 (7-st. DSG)",
-            "issue": "DQ381 mechatronic inspection",
+            "component": "Prevodovka DQ381/DQ500 (7-st. DSG)",
+            "issue": "DQ381 or DQ500 mechatronic inspection",
         }]
         packet["expected_costs"] = [{
             "item": "DFGA diagnostics",
@@ -736,6 +737,11 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "candidate_variants": [
                 {"engine_code": "DFGA", "transmission_code": ""},
                 {"engine_code": "", "transmission_code": "DQ381"},
+                {
+                    "engine_code": "",
+                    "transmission_code": "",
+                    "reason": "Possible DQ250 or DQ500 transmission; exact variant is unknown.",
+                },
             ],
         }
 
@@ -744,6 +750,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
 
         self.assertNotIn("DFGA", serialized)
         self.assertNotIn("DQ381", serialized)
+        self.assertNotIn("DQ500", serialized)
         self.assertEqual(
             generalized["technical_risks"][0]["component"],
             "Prevodovka (7-st. DSG)",
@@ -1512,6 +1519,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "odometer_conflict": 0,
             "repair_history": 0,
             "enum_normalization": 0,
+            "service_document": 0,
         })
 
     def test_vision_policy_normalizes_known_nested_enum_aliases(self):
@@ -1533,6 +1541,33 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(sanitized["mileage_wear_consistency"]["assessment"], "consistent")
         self.assertEqual(sanitized["mileage_wear_consistency"]["confidence"], "Vysoká")
         self.assertEqual(counts["enum_normalization"], 3)
+
+    def test_vision_policy_limits_service_book_and_deduplicates_missing_views(self):
+        payload = {
+            "view_coverage": {"engine_bay": "missing", "underbody": "missing"},
+            "missing_views": ["Motorový priestor", "Podvozok vozidla", "Podvozok"],
+            "supported_observations": [{
+                "type": "documents",
+                "observation": "Zobrazená servisná knižka s pečiatkami autorizovaného servisu Audi.",
+                "evidence_category": "CONFIRMED",
+                "confidence": "HIGH",
+            }],
+            "mileage_wear_consistency": {
+                "assessment": "consistent",
+                "explanation": "Záznamy v servisnej knižke chronologicky podporujú deklarovaný nájazd.",
+                "confidence": "Vysoká",
+            },
+        }
+
+        sanitized, counts = _sanitize_vision_claims(payload, output_language="sk")
+
+        document = sanitized["supported_observations"][0]
+        self.assertEqual(document["evidence_category"], "VISUAL_INDICATION")
+        self.assertEqual(document["confidence"], "MEDIUM")
+        self.assertIn("overiť podľa VIN", document["observation"])
+        self.assertEqual(sanitized["missing_views"], ["Motorový priestor", "Podvozok vozidla"])
+        self.assertIn("overiť nezávisle", sanitized["mileage_wear_consistency"]["explanation"])
+        self.assertEqual(counts["service_document"], 2)
 
     def test_vision_policy_downgrades_odometer_conflict_and_repair_history(self):
         payload = {

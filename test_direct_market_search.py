@@ -213,6 +213,34 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertEqual(_engine("Mercedes GLK 3,0 lit Benzín"), "3.0 L")
         self.assertEqual(_engine("Spotreba 7.5L/100 km"), "")
 
+    def test_q3_tfsi_does_not_accept_diesel_or_rsq3_as_exact(self):
+        listing = {
+            "title": "Audi Q3 2.0 TFSI S-tronic Quattro",
+            "engine": "2.0 TFSI",
+            "transmission": "S tronic",
+            "drive": "4x4",
+        }
+
+        self.assertEqual(
+            _similarity(listing, "Audi Q3 2.0 TFSI DSG Quattro")[0],
+            "A",
+        )
+        self.assertEqual(
+            _similarity(listing, "Audi Q3 2.0 TDI DSG Quattro")[0],
+            "B",
+        )
+        identity = derive_bazos_identity(listing)
+        html = _card(301, "Audi RSQ3 Quattro", "2012, 160 000 km, automat")
+        candidates, counts = parse_bazos_search_page(
+            html,
+            country="SK",
+            search_url=bazos_search_url("SK", identity["query"]),
+            identity=identity,
+            listing=listing,
+        )
+        self.assertEqual(candidates, [])
+        self.assertEqual(counts["model_mismatch_count"], 1)
+
     def test_two_country_pass_survives_one_source_failure_and_parses_czk(self):
         sk_html = _card(201, "VW T-Roc 2022", "1.5 TSI DSG, 140 000 km")
 

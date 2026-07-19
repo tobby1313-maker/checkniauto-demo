@@ -11,7 +11,7 @@ WMI_MAP = {
     # Germany — most common in SK/CZ
     "VW": "Volkswagen", "WV1": "Volkswagen", "WV2": "Volkswagen",
     "WV3": "Volkswagen", "WVW": "Volkswagen", "WVG": "Volkswagen",
-    "AUD": "Audi", "TRU": "Audi",
+    "AUD": "Audi", "TRU": "Audi", "WAU": "Audi",
     "WBA": "BMW", "WBS": "BMW", "WBY": "BMW",
     "WDD": "Mercedes-Benz", "WDB": "Mercedes-Benz", "WDC": "Mercedes-Benz",
     "W1K": "Mercedes-Benz", "W1N": "Mercedes-Benz", "W1V": "Mercedes-Benz",

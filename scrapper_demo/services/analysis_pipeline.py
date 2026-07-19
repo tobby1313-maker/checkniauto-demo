@@ -417,6 +417,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "PREVENTIVE_MAINTENANCE": "initial_service",
         "RECOMMENDED_MAINTENANCE": "initial_service",
         "REQUIRED_MAINTENANCE": "initial_service",
+        "SCHEDULED_MAINTENANCE": "initial_service",
         "INSPECTION": "diagnostic",
         "DIAGNOSTICS": "diagnostic",
         "POTENTIAL_REPAIR": "conditional_repair",
@@ -1664,6 +1665,11 @@ def _generalize_candidate_component_codes(
             candidate_codes["engine"].add(engine_code)
         if transmission_code:
             candidate_codes["transmission"].add(transmission_code)
+        reason = str(candidate.get("reason") or "")
+        candidate_codes["engine"].update(re.findall(r"\bEA\d{3}\b", reason, re.IGNORECASE))
+        candidate_codes["transmission"].update(
+            re.findall(r"\b(?:DQ|DL)\d{3}\b", reason, re.IGNORECASE)
+        )
     for component_name in ("engine", "transmission"):
         selected = component_identity.get(component_name, {})
         selected_code = str(
@@ -1703,6 +1709,7 @@ def _generalize_candidate_component_codes(
                     counts[component_name] += 1
                     cleaned = updated
         cleaned = re.sub(r"\(\s*\)", "", cleaned)
+        cleaned = re.sub(r"\s*/\s*", " ", cleaned)
         cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
         return re.sub(r"\s+", " ", cleaned).strip(" -–—,;:")
 
@@ -2155,7 +2162,7 @@ def _market_search_listing_context(
         # search identity value.
         useful_tokens = generation_tokens - {
             "first", "second", "third", "fourth", "generation", "generacia",
-            "gen", "model", "series", "facelift",
+            "gen", "model", "series", "facelift", "i", "ii", "iii", "iv", "v",
         }
         if useful_tokens - title_tokens:
             listing["title"] = f"{generation_name} {title}"
@@ -2588,6 +2595,7 @@ def _sanitize_vision_claims(
         "odometer_conflict": 0,
         "repair_history": 0,
         "enum_normalization": 0,
+        "service_document": 0,
     }
     list_fields = (
         "supported_observations",
@@ -2628,6 +2636,20 @@ def _sanitize_vision_claims(
                 item["evidence_category"] = "VISUAL_INDICATION"
                 item["confidence"] = "MEDIUM"
                 counts["plate_authenticity"] += 1
+
+            if (
+                any(term in folded for term in ("servisna kniz", "service book", "service booklet"))
+                and any(term in folded for term in ("peciat", "stamp", "zaznam", "record"))
+            ):
+                item["observation"] = _localized(
+                    output_language,
+                    sk="Na fotografii sú viditeľné strany servisnej knižky s pečiatkami alebo záznamami; ich pravosť, úplnosť a nadväznosť treba overiť podľa VIN v servise.",
+                    cs="Na fotografii jsou viditelné strany servisní knížky s razítky nebo záznamy; jejich pravost, úplnost a návaznost je třeba ověřit podle VIN v servisu.",
+                    en="Service-book pages with stamps or entries are visible; verify their authenticity, completeness, and continuity against the VIN with the workshop.",
+                )
+                item["evidence_category"] = "VISUAL_INDICATION"
+                item["confidence"] = "MEDIUM"
+                counts["service_document"] += 1
 
             camera_or_display = any(
                 term in folded
@@ -2751,10 +2773,51 @@ def _sanitize_vision_claims(
         if confidence.upper() in confidence_aliases:
             consistency["confidence"] = confidence_aliases[confidence.upper()]
             counts["enum_normalization"] += 1
+        explanation = str(consistency.get("explanation") or "")
+        folded_explanation = _fold_market_text(explanation)
+        if (
+            (("servisn" in folded_explanation and "kniz" in folded_explanation)
+             or any(term in folded_explanation for term in ("service book", "service record")))
+            and any(term in folded_explanation for term in ("chronolog", "podpor", "confirm", "potvrd"))
+        ):
+            consistency["explanation"] = _localized(
+                output_language,
+                sk="Vizuálne opotrebovanie nie je v zjavnom rozpore s deklarovaným nájazdom; kilometre a nadväznosť servisných záznamov treba overiť nezávisle podľa VIN.",
+                cs="Vizuální opotřebení není ve zjevném rozporu s deklarovaným nájezdem; kilometry a návaznost servisních záznamů je třeba ověřit nezávisle podle VIN.",
+                en="Visible wear does not obviously contradict the advertised mileage; verify the mileage and continuity of service records independently against the VIN.",
+            )
+            counts["service_document"] += 1
     view_coverage = result.get("view_coverage")
     if isinstance(view_coverage, dict):
         missing_views = result.get("missing_views")
         missing_views = list(missing_views) if isinstance(missing_views, list) else []
+        concept_terms = {
+            "exterior": ("exterier",),
+            "interior": ("interier",),
+            "dashboard": ("pristroj", "dashboard"),
+            "engine_bay": ("motor", "engine bay"),
+            "tires": ("pneumat", "tire", "tyre"),
+            "underbody": ("podvoz", "underbody"),
+        }
+        deduplicated_views: list[Any] = []
+        seen_text: set[str] = set()
+        seen_concepts: set[str] = set()
+        for raw_view in missing_views:
+            folded_view = _fold_market_text(raw_view)
+            concept = next(
+                (
+                    key for key, terms in concept_terms.items()
+                    if any(term in folded_view for term in terms)
+                ),
+                "",
+            )
+            if folded_view in seen_text or (concept and concept in seen_concepts):
+                continue
+            deduplicated_views.append(raw_view)
+            seen_text.add(folded_view)
+            if concept:
+                seen_concepts.add(concept)
+        missing_views = deduplicated_views
         existing = {_fold_market_text(item) for item in missing_views}
         labels = {
             "exterior": ("Exteriér", "Exteriér", "Exterior"),
@@ -2770,7 +2833,12 @@ def _sanitize_vision_claims(
             if str(status or "").lower() != "missing" or key not in labels:
                 continue
             label = labels[key][language_index]
-            if _fold_market_text(label) not in existing:
+            concept_present = any(
+                term in existing_item
+                for existing_item in existing
+                for term in concept_terms.get(key, ())
+            )
+            if not concept_present and _fold_market_text(label) not in existing:
                 missing_views.append(label)
         result["missing_views"] = missing_views
     return result, counts
@@ -5062,6 +5130,7 @@ def _multi_model_analysis_events(
         "odometer_conflict": 0,
         "repair_history": 0,
         "enum_normalization": 0,
+        "service_document": 0,
     }
     try:
         parsed_vision_for_policy = dependencies.safe_model_json(vision_result_json)

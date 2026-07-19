@@ -48,7 +48,7 @@
             "engine_profile": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
             "transmission_profile": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
             "visual_condition": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
-            "service_readiness": { "type": "integer", "minimum": 0, "maximum": 100 }
+            "service_readiness": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 }
           }
         },
         "overall_score": { "type": "integer", "minimum": 0, "maximum": 100 },

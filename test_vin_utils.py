@@ -50,6 +50,13 @@ class VinLightDecodeTests(unittest.TestCase):
         self.assertEqual(decoded["check_digit_policy"], "optional_row")
         self.assertEqual(decoded["check_digit_severity"], "info")
 
+    def test_wau_wmi_is_mapped_to_audi(self):
+        decoded = validate_vin("WAUZZZ8U5DR048617")
+
+        self.assertTrue(decoded["valid"])
+        self.assertEqual(decoded["manufacturer"], "Audi")
+        self.assertIn(2013, decoded["model_year_candidates"])
+
 
 if __name__ == "__main__":
     unittest.main()
