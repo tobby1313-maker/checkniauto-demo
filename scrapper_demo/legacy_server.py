@@ -2498,6 +2498,16 @@ def _description_listing_facts(description, title=""):
             engine = engine_match.group(1).upper().replace(",", ".")
             engine = re.sub(r"SKYACTIVE", "SKYACTIV", engine, flags=re.IGNORECASE)
     folded_transmission_text = _fold_listing_text(text)
+    automatic_marker = re.search(
+        r"\bautomatick\w*\s+prevodovk\w*\b|\bautomatic\s+(?:transmission|gearbox)\b",
+        folded_transmission_text,
+        re.IGNORECASE,
+    )
+    automatic_gears = re.search(
+        r"\b([4-9])\s*[- ]?\s*(?:rychlostnich|rychlostni|rychlosti|stupnov|stupnova|speed)",
+        folded_transmission_text,
+        re.IGNORECASE,
+    )
     manual_marker = re.search(
         r"\bmanualn(?:a|i|ou)\s+prevodovk(?:a|ou)\b|\bmanual\s+\d+\s*(?:rychlost|stupn|speed)",
         folded_transmission_text,
@@ -2508,7 +2518,12 @@ def _description_listing_facts(description, title=""):
         folded_transmission_text,
         re.IGNORECASE,
     )
-    if manual_marker:
+    if automatic_marker:
+        transmission = (
+            f"Automatická {automatic_gears.group(1)}-st."
+            if automatic_gears else "Automatická"
+        )
+    elif manual_marker:
         transmission = (
             f"Manuálna {manual_gears.group(1)}-st."
             if manual_gears else "Manuálna"

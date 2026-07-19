@@ -218,6 +218,23 @@ class BazosScraperTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["Transmission"], "S tronic")
         self.assertEqual(result["parameters"]["Drivetrain"], "4x4")
 
+    def test_preserves_automatic_kind_before_captured_gear_count(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Suzuki Grand Vitara 3,2l V6</h1>
+              <div class="popisdetail">
+                r.v. 2010, 4x4, benzín, automatická prevodovka 5-stupňová
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/grand-vitara.php")
+
+        self.assertEqual(result["parameters"]["Transmission"], "Automatická 5-stupňová")
+
 
 if __name__ == "__main__":
     unittest.main()

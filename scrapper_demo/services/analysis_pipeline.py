@@ -2593,6 +2593,7 @@ def _sanitize_vision_claims(
         "system_functionality": 0,
         "tread_depth": 0,
         "odometer_conflict": 0,
+        "odometer_unverified": 0,
         "repair_history": 0,
         "enum_normalization": 0,
         "service_document": 0,
@@ -2675,6 +2676,20 @@ def _sanitize_vision_claims(
                 item["confidence"] = "MEDIUM"
                 counts["system_functionality"] += 1
 
+            equipment_functionality = any(
+                term in folded
+                for term in ("tazne", "tow hitch", "ochranny ram", "bull bar")
+            ) and any(term in folded for term in ("funkcn", "functional", "working"))
+            if equipment_functionality:
+                item["observation"] = _localized(
+                    output_language,
+                    sk="Prvok výbavy je na fotografii viditeľný a namontovaný; jeho funkciu, upevnenie, elektrické zapojenie a prípadnú homologizáciu treba skontrolovať na mieste.",
+                    cs="Prvek výbavy je na fotografii viditelný a namontovaný; jeho funkci, upevnění, elektrické zapojení a případnou homologaci je třeba zkontrolovat na místě.",
+                    en="The equipment is visible and installed; inspect its operation, mounting, electrics, and any required approval in person.",
+                )
+                item["confidence"] = "MEDIUM"
+                counts["system_functionality"] += 1
+
             tire_claim = any(term in folded for term in ("pneumat", "tire", "tyre"))
             tread_depth_claim = any(
                 term in folded
@@ -2713,6 +2728,16 @@ def _sanitize_vision_claims(
                     item["evidence_category"] = "VISUAL_INDICATION"
                     item["confidence"] = "LOW"
                     counts["odometer_conflict"] += 1
+            elif str(item.get("type") or "").lower() == "odometer" and not listing_mileage_km:
+                item["observation"] = _localized(
+                    output_language,
+                    sk="Počítadlo kilometrov je na fotografii viditeľné, ale presný odpočet nebol potvrdený druhým zdrojom; číslice skontrolujte manuálne na originálnej fotografii a pri obhliadke.",
+                    cs="Počítadlo kilometrů je na fotografii viditelné, ale přesný odečet nebyl potvrzen druhým zdrojem; číslice zkontrolujte ručně na originální fotografii a při prohlídce.",
+                    en="The odometer is visible, but the exact reading lacks a second source; check every digit manually in the original photo and during inspection.",
+                )
+                item["evidence_category"] = "VISUAL_INDICATION"
+                item["confidence"] = "LOW"
+                counts["odometer_unverified"] += 1
 
             relevance = str(item.get("buyer_relevance") or "")
             folded_relevance = _fold_market_text(relevance)
@@ -2750,6 +2775,29 @@ def _sanitize_vision_claims(
                     sk="Fotografie neumožňujú spoľahlivo porovnať opotrebovanie s deklarovaným nájazdom.",
                     cs="Fotografie neumožňují spolehlivě porovnat opotřebení s deklarovaným nájezdem.",
                     en="The photos do not support a reliable comparison between wear and the advertised mileage.",
+                )
+                consistency["confidence"] = "Nízka"
+    elif isinstance(odometer, dict) and not listing_mileage_km:
+        reading = odometer.get("reading_km")
+        if isinstance(reading, (int, float)) and reading > 0:
+            odometer["reading_km"] = None
+            odometer["confidence"] = "LOW"
+            odometer["notes"] = _localized(
+                output_language,
+                sk="Presný odpočet z fotografie nebol potvrdený druhým zdrojom; overte všetky číslice na originálnej fotografii a pri obhliadke.",
+                cs="Přesný odečet z fotografie nebyl potvrzen druhým zdrojem; ověřte všechny číslice na originální fotografii a při prohlídce.",
+                en="The photo reading lacks a second source; verify every digit in the original photo and during inspection.",
+            )
+            if counts["odometer_unverified"] == 0:
+                counts["odometer_unverified"] = 1
+            consistency = result.get("mileage_wear_consistency")
+            if isinstance(consistency, dict):
+                consistency["assessment"] = "cannot_assess"
+                consistency["explanation"] = _localized(
+                    output_language,
+                    sk="Bez nezávisle potvrdeného nájazdu nemožno spoľahlivo hodnotiť súlad opotrebovania s kilometrami.",
+                    cs="Bez nezávisle potvrzeného nájezdu nelze spolehlivě hodnotit soulad opotřebení s kilometry.",
+                    en="Wear cannot be compared reliably with mileage until the odometer reading is independently confirmed.",
                 )
                 consistency["confidence"] = "Nízka"
     consistency = result.get("mileage_wear_consistency")
@@ -5128,6 +5176,7 @@ def _multi_model_analysis_events(
         "system_functionality": 0,
         "tread_depth": 0,
         "odometer_conflict": 0,
+        "odometer_unverified": 0,
         "repair_history": 0,
         "enum_normalization": 0,
         "service_document": 0,

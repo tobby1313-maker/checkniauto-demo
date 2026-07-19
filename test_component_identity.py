@@ -400,6 +400,37 @@ class ComponentIdentityTests(unittest.TestCase):
         self.assertEqual(reconciled["engine"]["resolution"], "AMBIGUOUS")
         self.assertTrue(any("not advertised" in note for note in reconciled["notes"]))
 
+    def test_unreferenced_specification_match_cannot_keep_high_confidence(self):
+        identity = normalize_component_identity({
+            "identification_status": "PROBABLE",
+            "generation": {
+                "name": "Third Generation",
+                "resolution": "PROBABLE",
+                "confidence": "HIGH",
+                "verification_basis": "SPECIFICATION_MATCH",
+                "evidence_refs": [],
+            },
+            "engine": {"marketing_name": "3.2L V6", "resolution": "PROBABLE"},
+            "transmission": {"marketing_name": "5-speed Automatic", "resolution": "PROBABLE"},
+            "drivetrain": {
+                "type": "4x4",
+                "resolution": "PROBABLE",
+                "confidence": "HIGH",
+                "verification_basis": "SPECIFICATION_MATCH",
+                "evidence_refs": [],
+            },
+        })
+
+        reconciled = reconcile_component_identity_with_listing(identity, {
+            "title": "Suzuki Grand Vitara 3.2 V6",
+            "engine": "3.2 L",
+            "transmission": "Automatická 5-stupňová",
+            "drive": "4x4",
+        })
+
+        self.assertEqual(reconciled["generation"]["confidence"], "MEDIUM")
+        self.assertEqual(reconciled["drivetrain"]["confidence"], "MEDIUM")
+
 
 if __name__ == "__main__":
     unittest.main()

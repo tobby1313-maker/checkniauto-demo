@@ -1517,6 +1517,7 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
             "system_functionality": 2,
             "tread_depth": 1,
             "odometer_conflict": 0,
+            "odometer_unverified": 0,
             "repair_history": 0,
             "enum_normalization": 0,
             "service_document": 0,
@@ -1568,6 +1569,40 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(sanitized["missing_views"], ["Motorový priestor", "Podvozok vozidla"])
         self.assertIn("overiť nezávisle", sanitized["mileage_wear_consistency"]["explanation"])
         self.assertEqual(counts["service_document"], 2)
+
+    def test_vision_policy_does_not_publish_unverified_photo_only_odometer(self):
+        payload = {
+            "odometer": {
+                "visible": True,
+                "reading_km": 195178,
+                "confidence": "HIGH",
+                "notes": "Čitateľné.",
+            },
+            "supported_observations": [{
+                "type": "odometer",
+                "observation": "Počítadlo ukazuje 195 178 km.",
+                "evidence_category": "CONFIRMED",
+                "confidence": "HIGH",
+            }],
+            "exterior_observations": [{
+                "observation": "Ťažné zariadenie vyzerá funkčne.",
+                "confidence": "HIGH",
+            }],
+            "mileage_wear_consistency": {
+                "assessment": "consistent",
+                "explanation": "Opotrebovanie zodpovedá odpočtu.",
+                "confidence": "Vysoká",
+            },
+        }
+
+        sanitized, counts = _sanitize_vision_claims(payload, output_language="sk")
+
+        self.assertIsNone(sanitized["odometer"]["reading_km"])
+        self.assertEqual(sanitized["supported_observations"][0]["confidence"], "LOW")
+        self.assertEqual(sanitized["mileage_wear_consistency"]["assessment"], "cannot_assess")
+        self.assertIn("homologizáciu", sanitized["exterior_observations"][0]["observation"])
+        self.assertEqual(counts["odometer_unverified"], 1)
+        self.assertEqual(counts["system_functionality"], 1)
 
     def test_vision_policy_downgrades_odometer_conflict_and_repair_history(self):
         payload = {

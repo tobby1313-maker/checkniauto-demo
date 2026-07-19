@@ -258,6 +258,18 @@ class GroundedResearchTest(unittest.TestCase):
 
         self.assertEqual(context["transmission"], "Manuálna 6-st.")
 
+    def test_listing_context_preserves_automatic_kind_before_gear_count(self):
+        context = web_server._listing_context_object(
+            "# Suzuki Grand Vitara 3,2l V6\n\n"
+            "## Specifications\n\n"
+            "| Parameter | Value |\n|---|---|\n"
+            "| Transmission | 5-stupňová |\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "automatická prevodovka 5-stupňová, pohon 4x4"
+        )
+
+        self.assertEqual(context["transmission"], "Automatická 5-st.")
+
     def test_listing_context_extracts_slovak_front_wheel_nahon(self):
         context = web_server._listing_context_object(
             "# Škoda Kodiaq 2.0 TDI DSG\n\n"

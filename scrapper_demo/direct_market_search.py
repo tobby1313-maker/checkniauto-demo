@@ -154,6 +154,22 @@ def derive_bazos_identity(listing: dict[str, Any]) -> dict[str, str]:
         # before the actual model (for example "VOLVO 4x4 XC40"). Skip only
         # well-known non-model modifiers, then keep the first plausible token.
         remainder = title[match.end() :].lstrip(" -,:/")
+        multiword_models = {
+            ("Suzuki", "grand vitara"): "Grand Vitara",
+            ("Land Rover", "range rover"): "Range Rover",
+            ("Toyota", "land cruiser"): "Land Cruiser",
+        }
+        folded_remainder = _fold(remainder)
+        for (make_name, phrase), canonical_model in multiword_models.items():
+            if canonical_make == make_name and re.match(
+                rf"{re.escape(phrase)}(?![a-z0-9])",
+                folded_remainder,
+            ):
+                return {
+                    "make": canonical_make,
+                    "model": canonical_model,
+                    "query": f"{canonical_make} {canonical_model}",
+                }
         model = ""
         non_model_prefixes = {
             "4x4", "4wd", "awd", "fwd", "rwd", "automat", "automatic",

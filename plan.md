@@ -293,8 +293,8 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 19. 7. 2026:** spracovaných je jedenásť unikátnych prípadov
-(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40, Mercedes-Benz GLK a Audi Q3). Pipeline už pri zlyhaní presného prepojenia
+**Priebežná kalibrácia 19. 7. 2026:** spracovaných je dvanásť unikátnych prípadov
+(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40, Mercedes-Benz GLK, Audi Q3 a Suzuki Grand Vitara). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
 pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
@@ -361,8 +361,21 @@ nepovažuje fotografiu servisnej knižky za potvrdenie jej pravosti, úplnosti
 ani chronológie a semanticky deduplikuje chýbajúce pohľady. Po opätovnom
 prepočte 88 výsledkov neexistoval žiadny kandidát spĺňajúci motor, prevodovku,
 pohon, rok aj nájazd; nulový benchmark je preto správny.
+Suzuki Grand Vitara doplnilo podporu viacslovného modelu, takže market query je
+`Suzuki Grand Vitara`, nie neúplné `Suzuki Grand`. Extrakcia zachová typ
+prevodovky aj pri formulácii „automatická prevodovka 5-stupňová“ a component
+identity už nesmie ponechať `HIGH` confidence bez jediného evidence reference.
+Vision zamenil zostávajúci dojazd 195 km za časť odometra a uviedol 195 178 km,
+hoci fotografia ukazuje 208 178 km. Ak inzerát nemá textový nájazd, presné
+číslo prečítané iba z fotografie sa preto po novom nepovýši na listing fact:
+ostane low-confidence údajom na manuálne overenie a nesmie ovplyvniť benchmark
+ani hodnotenie opotrebovania. Rovnako sa z fotografie ťažného zariadenia nesmie
+odvodiť jeho funkčnosť alebo homologácia. Research bol obsahovo úplný s
+3 findings, 3 risks, 3 costs a 4 zdrojmi bez recovery. Cenový benchmark správne
+nevznikol, pretože inzerát neuvádza nájazd a výsledky neobsahovali dostatočnú
+vzorku presnej motorizácie 3.2 V6.
 Do minimálnej vzorky chýba
-9 ďalších unikátnych
+8 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy

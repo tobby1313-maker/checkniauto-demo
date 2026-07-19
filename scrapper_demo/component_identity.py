@@ -597,6 +597,19 @@ def reconcile_component_identity_with_listing(
         if not _exact_code_has_application_support(result, component_name, listing):
             _move_code_to_candidates(result, component_name)
         _generalize_unverified_code_family(result, component_name, listing)
+    for component_name in ("generation", "engine", "transmission", "drivetrain"):
+        component = result.get(component_name)
+        if not isinstance(component, dict):
+            continue
+        if (
+            component.get("verification_basis") == "SPECIFICATION_MATCH"
+            and not component.get("evidence_refs")
+            and component.get("confidence") == "HIGH"
+        ):
+            component["confidence"] = "MEDIUM"
+            result["notes"] = ([
+                f"{component_name} confidence reduced to MEDIUM because no source reference was attached to the specification match."
+            ] + _string_list(result.get("notes"), limit=5))[:6]
 
     engine = result.get("engine")
     engine = engine if isinstance(engine, dict) else {}

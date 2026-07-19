@@ -305,7 +305,13 @@ def extract_car_info(soup, url):
         )
     elif transmission_match:
         transmission = _without_inventory_alternatives(transmission_match.group(1))
-        info["parameters"]["Transmission"] = transmission.strip()
+        if (
+            not captured_has_kind
+            and re.search(r"automatick\w*\s*$", folded_desc[:transmission_match.start()], re.I)
+        ):
+            info["parameters"]["Transmission"] = f"Automatická {transmission.strip()}"
+        else:
+            info["parameters"]["Transmission"] = transmission.strip()
     elif manual_match:
         info["parameters"]["Transmission"] = (
             f"Manuálna {manual_gears.group(1)}-st."

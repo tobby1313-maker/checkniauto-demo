@@ -64,6 +64,19 @@ class DirectMarketSearchTests(unittest.TestCase):
             {"make": "Volvo", "model": "XC40", "query": "Volvo XC40"},
         )
 
+    def test_identity_preserves_known_multiword_model(self):
+        identity = derive_bazos_identity({"title": "Suzuki Grand Vitara 3,2l V6"})
+
+        self.assertEqual(identity, {
+            "make": "Suzuki",
+            "model": "Grand Vitara",
+            "query": "Suzuki Grand Vitara",
+        })
+        self.assertEqual(
+            bazos_search_url("SK", identity["query"]),
+            "https://auto.bazos.sk/inzeraty/suzuki-grand-vitara/",
+        )
+
     def test_tier_a_requires_visible_matching_power_and_drivetrain(self):
         listing = {
             "title": "Škoda Kodiaq 2.0 TDI 110 kW DSG",
