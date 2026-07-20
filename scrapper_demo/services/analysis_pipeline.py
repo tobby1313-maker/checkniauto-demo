@@ -385,6 +385,7 @@ def _normalize_research_model_output(value: Any) -> Any:
         "MODEL_MAINTENANCE_REQUIREMENT": "MODEL_LEVEL_RISK",
         "MODEL_KNOWLEDGE": "MODEL_LEVEL_RISK",
         "MODEL_GENERAL_RELIABILITY": "MODEL_LEVEL_RISK",
+        "RELIABILITY_STATISTIC": "MODEL_LEVEL_RISK",
         "LISTING_SPECIFICATION": "LISTING_CLAIM",
         "SPECIFICATION_MATCH": "LISTING_CLAIM",
         "OFFICIAL_MAINTENANCE_SCHEDULE": "MODEL_LEVEL_RISK",
@@ -441,6 +442,7 @@ def _normalize_research_model_output(value: Any) -> Any:
     check_aliases = {
         "CONSISTENT": "ok",
         "CONSISTENT_WITH_CLAIM": "ok",
+        "CONSISTENT_WITH_CAVEAT": "ok",
         "KONZISTENTNÉ": "ok",
         "KONZISTENTNE": "ok",
         "PASSED": "ok",
@@ -448,6 +450,8 @@ def _normalize_research_model_output(value: Any) -> Any:
         "POTENTIALLY_INCONSISTENT": "concern",
         "INCONSISTENT": "concern",
         "INCONSISTENT_WITH_CLAIM": "concern",
+        "NESÚLAD": "concern",
+        "NESULAD": "concern",
         "MISMATCH": "concern",
         "NOT_CHECKED": "unknown",
         "UNVERIFIED": "unknown",
@@ -2241,6 +2245,40 @@ def _replace_report_section(
     return report_text
 
 
+def _ensure_report_section(
+    report_text: str,
+    section_terms: tuple[str, ...],
+    heading: str,
+    body_lines: list[str],
+    *,
+    before_terms: tuple[str, ...],
+) -> str:
+    """Insert a backend-rendered required section when the model omitted it."""
+    lines = str(report_text or "").splitlines()
+    for line in lines:
+        if not re.match(r"^\s*##\s+", line):
+            continue
+        key = _fold_market_text(re.sub(r"^\s*##\s+", "", line))
+        if any(term in key for term in section_terms):
+            return report_text
+    insertion = next(
+        (
+            index for index, line in enumerate(lines)
+            if re.match(r"^\s*##\s+", line)
+            and any(
+                term in _fold_market_text(re.sub(r"^\s*##\s+", "", line))
+                for term in before_terms
+            )
+        ),
+        next(
+            (index for index, line in enumerate(lines) if "END_ANALYSIS" in line),
+            len(lines),
+        ),
+    )
+    block = [heading, "", *body_lines, ""]
+    return "\n".join(lines[:insertion] + block + lines[insertion:]).rstrip() + "\n"
+
+
 def _comparable_price_label(item: Mapping[str, Any], *, language: str) -> str:
     """Format a comparable price for customers without leaking source currency."""
     normalized = item.get("normalized_price_eur")
@@ -2585,6 +2623,7 @@ def _sanitize_vision_claims(
     *,
     output_language: str = "sk",
     listing_mileage_km: int | None = None,
+    listing_mileage_is_approximate: bool = False,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """Downgrade photo claims that require measurement, testing, or authentication."""
     result = json.loads(json.dumps(payload if isinstance(payload, dict) else {}))
@@ -2690,14 +2729,25 @@ def _sanitize_vision_claims(
                 item["confidence"] = "MEDIUM"
                 counts["system_functionality"] += 1
 
-            tire_claim = any(term in folded for term in ("pneumat", "tire", "tyre"))
-            tread_depth_claim = any(
+            visible_lighting_functionality = any(
                 term in folded
-                for term in (
-                    "dobra hlbka dezenu", "dobru hlbku dezenu", "dostatocny dezen",
-                    "good tread depth", "deep tread", "sufficient tread",
+                for term in ("ambientn", "ambient light", "interior light")
+            ) and any(term in folded for term in ("funkcn", "functional", "working"))
+            if visible_lighting_functionality:
+                item["observation"] = _localized(
+                    output_language,
+                    sk="Ambientné osvetlenie je na fotografii rozsvietené; jeho nastavenia a úplnú funkčnosť treba vyskúšať na mieste.",
+                    cs="Ambientní osvětlení je na fotografii rozsvícené; jeho nastavení a úplnou funkčnost je třeba vyzkoušet na místě.",
+                    en="The ambient lighting is illuminated in the photo; test its settings and full operation in person.",
                 )
-            )
+                item["confidence"] = "MEDIUM"
+                counts["system_functionality"] += 1
+
+            tire_claim = any(term in folded for term in ("pneumat", "tire", "tyre"))
+            tread_depth_claim = bool(re.search(
+                r"\b(?:dobr\w*\s+hlbk\w*\s+dezenu|dostatocn\w*\s+dezen\w*|good tread depth|deep tread|sufficient tread)\b",
+                folded,
+            ))
             if tire_claim and tread_depth_claim and not re.search(r"\b\d+(?:[.,]\d+)?\s*mm\b", folded):
                 item["observation"] = _localized(
                     output_language,
@@ -2715,7 +2765,21 @@ def _sanitize_vision_claims(
                     )
                 counts["tread_depth"] += 1
 
-            if str(item.get("type") or "").lower() == "odometer" and listing_mileage_km:
+            if (
+                str(item.get("type") or "").lower() == "odometer"
+                and listing_mileage_km
+                and listing_mileage_is_approximate
+            ):
+                item["observation"] = _localized(
+                    output_language,
+                    sk=f"Prístrojový panel zobrazuje nájazd približne na úrovni údaja {listing_mileage_km:,} km z inzerátu; presné číslice treba overiť na originálnej fotografii a pri obhliadke.".replace(",", " "),
+                    cs=f"Přístrojový panel zobrazuje nájezd přibližně na úrovni údaje {listing_mileage_km:,} km z inzerátu; přesné číslice je třeba ověřit na originální fotografii a při prohlídce.".replace(",", " "),
+                    en=f"The dashboard appears broadly consistent with the listing's approximate {listing_mileage_km:,} km; verify every digit in the original photo and during inspection.",
+                )
+                item["evidence_category"] = "VISUAL_INDICATION"
+                item["confidence"] = "LOW"
+                counts["odometer_unverified"] += 1
+            elif str(item.get("type") or "").lower() == "odometer" and listing_mileage_km:
                 shown = re.search(r"(?<!\d)(\d{1,6})\s*km\b", folded)
                 shown_km = int(shown.group(1)) if shown else None
                 if shown_km and max(shown_km, listing_mileage_km) / min(shown_km, listing_mileage_km) >= 10:
@@ -2754,7 +2818,20 @@ def _sanitize_vision_claims(
                 counts["repair_history"] += 1
 
     odometer = result.get("odometer")
-    if isinstance(odometer, dict) and listing_mileage_km:
+    if isinstance(odometer, dict) and listing_mileage_km and listing_mileage_is_approximate:
+        reading = odometer.get("reading_km")
+        if isinstance(reading, (int, float)) and reading > 0:
+            odometer["reading_km"] = None
+            odometer["confidence"] = "LOW"
+            odometer["notes"] = _localized(
+                output_language,
+                sk="Inzerát uvádza iba zaokrúhlený nájazd; presné číslice z fotografie neboli nezávisle potvrdené.",
+                cs="Inzerát uvádí pouze zaokrouhlený nájezd; přesné číslice z fotografie nebyly nezávisle potvrzeny.",
+                en="The listing states only rounded mileage, so the exact digits read from the photo were not independently confirmed.",
+            )
+            if counts["odometer_unverified"] == 0:
+                counts["odometer_unverified"] = 1
+    elif isinstance(odometer, dict) and listing_mileage_km:
         reading = odometer.get("reading_km")
         if isinstance(reading, (int, float)) and reading > 0 and max(reading, listing_mileage_km) / min(reading, listing_mileage_km) >= 10:
             odometer["reading_km"] = None
@@ -2936,6 +3013,32 @@ def _lock_report_evidence_claims(
         ("costs", ("ocakavane naklady", "expected costs")),
     ):
         text = _replace_report_section(text, terms, locked_sections[key])
+    section_headings = {
+        "web": _localized(language, sk="## 🌐 Webové overenie", cs="## 🌐 Webové ověření", en="## 🌐 Web Verification"),
+        "risks": _localized(language, sk="## 🔧 Technické riziká modelu a komponentov", cs="## 🔧 Technická rizika modelu a komponent", en="## 🔧 Technical Risks"),
+        "costs": _localized(language, sk="## 🛠️ Očakávané náklady na najbližších 30 000 km", cs="## 🛠️ Očekávané náklady na nejbližších 30 000 km", en="## 🛠️ Expected Costs Over the Next 30,000 km"),
+    }
+    text = _ensure_report_section(
+        text,
+        ("webove overenie", "web verification"),
+        section_headings["web"],
+        locked_sections["web"],
+        before_terms=("technicke rizika", "technical risks", "cena a vyjednavanie", "price and negotiation"),
+    )
+    text = _ensure_report_section(
+        text,
+        ("technicke rizika", "technical risks"),
+        section_headings["risks"],
+        locked_sections["risks"],
+        before_terms=("cena a vyjednavanie", "price and negotiation"),
+    )
+    text = _ensure_report_section(
+        text,
+        ("ocakavane naklady", "expected costs"),
+        section_headings["costs"],
+        locked_sections["costs"],
+        before_terms=("analyza fotografii", "photo analysis"),
+    )
     authoritative_interval_ids = {
         str(source.get("source_id") or "")
         for source in research.get("sources_used") or []
@@ -5190,6 +5293,9 @@ def _multi_model_analysis_events(
             parsed_vision_for_policy,
             output_language=dependencies.output_language(output_language),
             listing_mileage_km=listing_context_data.get("mileage_km"),
+            listing_mileage_is_approximate=bool(
+                listing_context_data.get("mileage_is_approximate")
+            ),
         )
         vision_result_json = json.dumps(sanitized_vision, indent=2, ensure_ascii=False)
 

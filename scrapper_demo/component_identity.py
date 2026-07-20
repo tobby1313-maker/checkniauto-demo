@@ -648,6 +648,42 @@ def reconcile_component_identity_with_listing(
             result["notes"] = ([
                 f"Specific engine variant {variant_match.group(0)} is not advertised by the seller; generalized until VIN or vehicle documents confirm it."
             ] + _string_list(result.get("notes"), limit=5))[:6]
+    selected_engine_text = _fold_text(" ".join(
+        str(engine.get(key) or "")
+        for key in ("marketing_name", "family")
+    ))
+    selected_displacement = re.search(r"\b(\d[.,]\d)\b", selected_engine_text)
+    advertised_engine_text = _fold_text(" ".join(
+        str(listing.get(key) or "")
+        for key in ("title", "engine")
+    ))
+    advertised_displacements = {
+        value.replace(",", ".")
+        for value in re.findall(r"\b\d[.,]\d\b", advertised_engine_text)
+    }
+    if (
+        selected_displacement
+        and advertised_engine_text.strip()
+        and selected_displacement.group(1).replace(",", ".") not in advertised_displacements
+        and engine.get("verification_basis") not in DIRECT_VERIFICATION_BASES
+    ):
+        selected_name = _text(engine.get("marketing_name"), 160)
+        fuel_family = next(
+            (label for label in ("TDI", "TSI", "TFSI", "EcoBoost", "CRDI")
+             if label.casefold() in advertised_engine_text.casefold()),
+            "",
+        )
+        generic_name = " ".join(
+            part for part in (fuel_family, _text(listing.get("fuel"), 40)) if part
+        ) or "Engine variant to verify"
+        engine["marketing_name"] = generic_name
+        engine["family"] = generic_name
+        engine["resolution"] = "AMBIGUOUS"
+        engine["confidence"] = "LOW"
+        result["identification_status"] = "AMBIGUOUS"
+        result["notes"] = ([
+            f"Engine displacement from {selected_name or 'the selected variant'} is not advertised by the seller; generalized until VIN or vehicle documents confirm it."
+        ] + _string_list(result.get("notes"), limit=5))[:6]
     listing_transmission = _text(listing.get("transmission"), 200)
     listing_kind = _transmission_kind(listing_transmission)
     transmission = result.get("transmission")

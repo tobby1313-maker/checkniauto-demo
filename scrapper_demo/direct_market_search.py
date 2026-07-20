@@ -190,6 +190,25 @@ def derive_bazos_identity(listing: dict[str, Any]) -> dict[str, str]:
             "model": model,
             "query": f"{canonical_make} {model}",
         }
+    # Some private ads use only the model as the title (for example "Rav4")
+    # while naming the make in the opening description. Accept that fallback
+    # only when the same title model immediately follows a known make; this
+    # avoids treating unrelated dealer inventory mentions as the target car.
+    model_match = re.match(r"\s*([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)", title)
+    model_hint = model_match.group(1) if model_match else ""
+    if model_hint and not re.fullmatch(r"(?:19|20)\d{2}", model_hint):
+        folded_model = _fold(model_hint)
+        folded_description = _fold(listing.get("description_excerpt") or "")[:500]
+        for alias, canonical_make in _MAKE_ALIASES:
+            if re.search(
+                rf"(?<![a-z0-9]){re.escape(alias)}\s+{re.escape(folded_model)}(?![a-z0-9])",
+                folded_description,
+            ):
+                return {
+                    "make": canonical_make,
+                    "model": model_hint,
+                    "query": f"{canonical_make} {model_hint}",
+                }
     return {}
 
 
@@ -268,6 +287,19 @@ def _power(value: str) -> str:
         return ""
     factor = 0.73549875 if horsepower.group(2).lower() == "ps" else 0.745699872
     return f"{round(int(horsepower.group(1)) * factor)} KW"
+
+
+def _fuel_family(value: str) -> str:
+    folded = _fold(value)
+    if re.search(r"\b(?:hybrid|phev|mhev)\b", folded):
+        return "HYBRID"
+    if re.search(r"\b(?:elektro|electric|bev|ev)\b", folded):
+        return "ELECTRIC"
+    if re.search(r"\b(?:diesel|nafta|tdi|tid|bitdi|crdi|dci|hdi|bluehdi)\b", folded):
+        return "DIESEL"
+    if re.search(r"\b(?:benzin|benzene|gasoline|petrol|tsi|tfsi|ecoboost|gdi)\b", folded):
+        return "PETROL"
+    return ""
 
 
 def _transmission(value: str) -> str:
@@ -470,8 +502,11 @@ def _similarity(
     missing: list[str] = []
     matches = 0
     expected_count = 0
+    matched_labels: set[str] = set()
+    expected_labels: set[str] = set()
     for label, extractor, structured_key in (
         ("engine", _engine, "engine"),
+        ("fuel", _fuel_family, "fuel"),
         ("power", _power, "power"),
         ("transmission", _transmission, "transmission"),
         ("drive", _drivetrain, "drive"),
@@ -483,6 +518,7 @@ def _similarity(
         if not expected:
             continue
         expected_count += 1
+        expected_labels.add(label)
         if not observed:
             missing.append(f"{label} not visible")
         elif (
@@ -493,11 +529,24 @@ def _similarity(
             ) <= 2
         ):
             matches += 1
+            matched_labels.add(label)
         elif _compact(expected) == _compact(observed):
             matches += 1
+            matched_labels.add(label)
         else:
             differences.append(f"different {label}")
-    if expected_count >= 2 and matches == expected_count:
+    internal_combustion = _fuel_family(
+        str(listing.get("fuel") or "") + " " + fallback_listing_text
+    ) in {"DIESEL", "PETROL", "HYBRID"}
+    required_labels = {"transmission"}
+    if internal_combustion:
+        required_labels.add("engine")
+    if (
+        expected_count >= 2
+        and matches == expected_count
+        and required_labels <= expected_labels
+        and required_labels <= matched_labels
+    ):
         return "A", "same visible engine/power/transmission/drivetrain attributes"
     if differences:
         return "B", ", ".join(differences)

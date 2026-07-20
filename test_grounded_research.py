@@ -334,6 +334,31 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertEqual(context["transmission"], "DSG 7-stupňov")
         self.assertEqual(context["asking_price_gross_eur"], 18990)
 
+    def test_listing_context_removes_inventory_alternative_fuel_and_power(self):
+        context = web_server._listing_context_object(
+            "# Škoda Karoq 2020 TDi\n\n"
+            "## Specifications\n\n"
+            "| Parameter | Value |\n|---|---|\n"
+            "| Mileage | 160000 km |\n| Engine Power | 110 kW |\n"
+            "| Fuel | Benzín |\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "Predám Karoq diesel TDi (máme aj benzín TSi 110kW/150k), "
+            "najazdené 160tis.km."
+        )
+
+        self.assertEqual(context["fuel"], "Diesel")
+        self.assertEqual(context["power"], "")
+        self.assertTrue(context["mileage_is_approximate"])
+
+    def test_listing_context_expands_dot_masked_mileage(self):
+        context = web_server._listing_context_object(
+            "# Rav4\n\n## Seller Note (Poznamka)\n\n"
+            "Predám Toyota rav4 ročník 2015, automat benzín 212.., nové gumy."
+        )
+
+        self.assertEqual(context["mileage_km"], 212000)
+        self.assertTrue(context["mileage_is_approximate"])
+
     def test_final_compaction_preserves_expanded_research_limits(self):
         payload = {
             "knowledge_base_findings": [{"component": "must be omitted"}],

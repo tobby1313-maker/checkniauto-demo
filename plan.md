@@ -293,8 +293,8 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 19. 7. 2026:** spracovaných je dvanásť unikátnych prípadov
-(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40, Mercedes-Benz GLK, Audi Q3 a Suzuki Grand Vitara). Pipeline už pri zlyhaní presného prepojenia
+**Priebežná kalibrácia 20. 7. 2026:** spracovaných je pätnásť unikátnych prípadov
+(Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40, Mercedes-Benz GLK, Audi Q3, Suzuki Grand Vitara, Toyota RAV4, Škoda Karoq a Ford Kuga). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
 pozorované synonymá provider enumov a pri chybnej recovery odpovedi vyberie
@@ -374,8 +374,30 @@ odvodiť jeho funkčnosť alebo homologácia. Research bol obsahovo úplný s
 3 findings, 3 risks, 3 costs a 4 zdrojmi bez recovery. Cenový benchmark správne
 nevznikol, pretože inzerát neuvádza nájazd a výsledky neobsahovali dostatočnú
 vzorku presnej motorizácie 3.2 V6.
+Toyota RAV4 opravila model-only titulok: značka sa môže bezpečne doplniť z
+formulácie `Toyota RAV4` v úvode popisu, takže query je `Toyota Rav4`. Maskovaný
+nájazd `212..` sa normalizuje na približných 212 000 km. Keďže inzerát stále
+neuvádza objem ani výkon motora, spaľovacie vozidlo bez viditeľnej motorizácie
+nemôže vytvoriť Tier A benchmark. Vision už nepotvrdí „nové pneumatiky“ ani
+dostatočný dezén bez DOT a merania. Provider aliasy `nesúlad` a
+`RELIABILITY_STATISTIC` sa normalizujú, aby použiteľný research nezlyhal iba na
+enum kontrakte.
+Škoda Karoq odhalila kontamináciu dealer alternatívami: benzín TSI 110 kW v
+zátvorke `máme aj` nesmie prepísať palivo ani výkon predávaného diesla TDI.
+Konkrétny objem `2.0 TDI` sa bez údaja v inzeráte zovšeobecní na neoverený TDI
+variant. Hrubá cena 15 990 EUR ostáva správnym základom namiesto netto 13 000
+EUR. Fotografia palubného prístroja ukazuje 163 428 km, kým vision skopíroval
+zaokrúhlených 160 000 km z inzerátu; pri nájazde typu `160tis.` sa preto presné
+OCR číslo nepublikuje ako potvrdené. Fotografia zapnutého ambientného osvetlenia
+potvrdzuje iba jeho viditeľné rozsvietenie, nie úplnú funkčnosť režimov.
+Ford Kuga potvrdil správny nulový benchmark: jediný presný 1.6 EcoBoost manuál
+bol mimo povoleného pásma nájazdu. Limited research zachoval 3 findings,
+3 risks a 3 costs, ale final model vynechal povinnú nákladovú sekciu. Backend ju
+teraz pri absencii deterministicky vloží z validovaného research payloadu pred
+fotoanalýzu. Alias `consistent_with_caveat` sa normalizuje bez plateného
+recovery.
 Do minimálnej vzorky chýba
-8 ďalších unikátnych
+5 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy

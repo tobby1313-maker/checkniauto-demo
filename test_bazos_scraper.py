@@ -218,6 +218,23 @@ class BazosScraperTests(unittest.TestCase):
         self.assertEqual(result["parameters"]["Transmission"], "S tronic")
         self.assertEqual(result["parameters"]["Drivetrain"], "4x4")
 
+    def test_expands_dot_masked_mileage(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Rav4</h1>
+              <div class="popisdetail">
+                Predám Toyota RAV4 ročník 2015, automat benzín 212.., nové gumy.
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/rav4.php")
+
+        self.assertEqual(result["parameters"]["Mileage"], "212000 km")
+
     def test_preserves_automatic_kind_before_captured_gear_count(self):
         soup = BeautifulSoup(
             """
@@ -234,6 +251,25 @@ class BazosScraperTests(unittest.TestCase):
         result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/grand-vitara.php")
 
         self.assertEqual(result["parameters"]["Transmission"], "Automatická 5-stupňová")
+
+    def test_inventory_alternative_does_not_override_primary_fuel_or_power(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>Škoda Karoq 2020 TDi</h1>
+              <div class="popisdetail">
+                Predám Škodu Karoq, diesel TDi (máme aj benzín TSi 110kW/150k),
+                automat DSG 7-stupňov.
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/karoq.php")
+
+        self.assertEqual(result["parameters"]["Fuel"], "Diesel")
+        self.assertNotIn("Engine Power", result["parameters"])
 
 
 if __name__ == "__main__":

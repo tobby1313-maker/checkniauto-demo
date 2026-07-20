@@ -431,6 +431,33 @@ class ComponentIdentityTests(unittest.TestCase):
         self.assertEqual(reconciled["generation"]["confidence"], "MEDIUM")
         self.assertEqual(reconciled["drivetrain"]["confidence"], "MEDIUM")
 
+    def test_unadvertised_engine_displacement_is_not_selected(self):
+        identity = normalize_component_identity({
+            "identification_status": "PROBABLE",
+            "generation": {"name": "Karoq NU7", "resolution": "PROBABLE"},
+            "engine": {
+                "marketing_name": "2.0 TDI", "family": "2.0 TDI",
+                "resolution": "PROBABLE", "confidence": "MEDIUM",
+                "verification_basis": "SPECIFICATION_MATCH",
+                "evidence_refs": ["src_engine"],
+            },
+            "transmission": {"marketing_name": "DSG", "resolution": "PROBABLE"},
+            "sources": [{
+                "source_id": "src_engine", "source_name": "Karoq engine range",
+                "source_url": "https://example.test/karoq", "source_type": "OFFICIAL",
+                "used_for": "engine",
+            }],
+        })
+
+        reconciled = reconcile_component_identity_with_listing(identity, {
+            "title": "Škoda Karoq 2020 TDi", "engine": "", "fuel": "Diesel",
+            "transmission": "DSG",
+        })
+
+        self.assertEqual(reconciled["identification_status"], "AMBIGUOUS")
+        self.assertEqual(reconciled["engine"]["resolution"], "AMBIGUOUS")
+        self.assertNotIn("2.0", reconciled["engine"]["marketing_name"])
+
 
 if __name__ == "__main__":
     unittest.main()

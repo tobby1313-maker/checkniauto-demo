@@ -77,6 +77,16 @@ class DirectMarketSearchTests(unittest.TestCase):
             "https://auto.bazos.sk/inzeraty/suzuki-grand-vitara/",
         )
 
+    def test_identity_recovers_make_from_description_for_model_only_title(self):
+        identity = derive_bazos_identity({
+            "title": "Rav4",
+            "description_excerpt": "Predám Toyota rav4 ročník 2015, automat 4x4.",
+        })
+
+        self.assertEqual(identity, {
+            "make": "Toyota", "model": "Rav4", "query": "Toyota Rav4",
+        })
+
     def test_tier_a_requires_visible_matching_power_and_drivetrain(self):
         listing = {
             "title": "Škoda Kodiaq 2.0 TDI 110 kW DSG",
@@ -105,6 +115,22 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertIn("different power", different[1])
         self.assertIn("different drive", different[1])
         self.assertEqual(missing_drive, ("B", "drive not visible"))
+
+    def test_tier_a_requires_engine_and_rejects_opposite_fuel_family(self):
+        listing = {
+            "title": "Škoda Karoq 2020 TDi",
+            "fuel": "Diesel",
+            "transmission": "DSG",
+            "drive": "FWD",
+            "description_excerpt": "diesel TDI, DSG, FWD",
+        }
+
+        self.assertEqual(
+            _similarity(listing, "Škoda Karoq 1.5 TSI DSG FWD")[0], "B"
+        )
+        self.assertEqual(
+            _similarity(listing, "Škoda Karoq TDI DSG FWD")[0], "B"
+        )
 
     def test_tier_a_normalizes_ps_to_kw_with_rounding_tolerance(self):
         listing = {

@@ -2430,6 +2430,12 @@ def _description_capture(description, patterns):
 def _description_listing_facts(description, title=""):
     text = str(description or "")
     folded_text = _fold_listing_text(text)
+    primary_text = re.sub(
+        r"\([^)]*\)",
+        lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
+        text,
+    )
+    mileage_is_approximate = False
     abbreviated_mileage = re.search(
         r"(?:najazd(?:ene|enych)?(?:\s*km)?[^\d]{0,20})?(\d{2,3})\s*tis(?:\.|ic)?\s*\.?\s*km\b",
         folded_text,
@@ -2438,6 +2444,7 @@ def _description_listing_facts(description, title=""):
     if abbreviated_mileage:
         mileage_km = int(abbreviated_mileage.group(1)) * 1000
         mileage = f"{mileage_km} km"
+        mileage_is_approximate = True
     else:
         masked_mileage = re.search(
             r"(?:najazd(?:ene|enych)?(?:\s*km)?[^\d]{0,20})?(\d{2,3})\s*x{3}\s*(?:km|kilometrov?)\b",
@@ -2447,16 +2454,27 @@ def _description_listing_facts(description, title=""):
         if masked_mileage:
             mileage_km = int(masked_mileage.group(1)) * 1000
             mileage = f"{mileage_km} km"
+            mileage_is_approximate = True
         else:
-            mileage = _description_capture(
-                text,
-                (
-                    r"(?:najazden(?:e|é|ých)?(?:\s*km)?|najazd|mileage)\s*:?\s*(?:len\s*)?([\d\s.]+)(?:\s*km)?",
-                    r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
-                    r"\b(\d{4,6})\s*km\b",
-                ),
+            dotted_mileage = re.search(
+                r"(?<!\d)(\d{2,3})\s*\.{2,3}(?!\d)",
+                folded_text,
+                re.IGNORECASE,
             )
-            mileage_km = _mileage_km_value(mileage)
+            if dotted_mileage and 20 <= int(dotted_mileage.group(1)) <= 500:
+                mileage_km = int(dotted_mileage.group(1)) * 1000
+                mileage = f"{mileage_km} km"
+                mileage_is_approximate = True
+            else:
+                mileage = _description_capture(
+                    text,
+                    (
+                        r"(?:najazden(?:e|é|ých)?(?:\s*km)?|najazd|mileage)\s*:?\s*(?:len\s*)?([\d\s.]+)(?:\s*km)?",
+                        r"\b(\d{2,3}(?:[\s.]\d{3})+)\s*km\b",
+                        r"\b(\d{4,6})\s*km\b",
+                    ),
+                )
+                mileage_km = _mileage_km_value(mileage)
     if mileage_km:
         mileage = f"{mileage_km} km"
 
@@ -2469,16 +2487,31 @@ def _description_listing_facts(description, title=""):
         ),
     )
     engine = _description_capture(
-        text,
+        primary_text,
         (
             r"(?:typ\s+motora|\bmotor\b|\bengine\b)\s*:?\s*([^\r\n,;/•]{2,80})",
             r"\b(\d(?:[.,]\d)\s*(?:l|lit(?:er|re|ra|rov)?))\b",
         ),
     )
     fuel = _description_capture(
-        text,
+        primary_text,
         (r"(?:palivo|fuel)\s*:?\s*([^\r\n,;]{2,40})",),
     )
+    if not fuel:
+        fuel_source = _fold_listing_text(f"{title}\n{primary_text}")
+        fuel_patterns = (
+            ("Diesel", r"\b(?:diesel|nafta|tdi|tid|bitdi)\b"),
+            ("Benzín", r"\b(?:benzin|benzene|gasoline|tsi|tfsi)\b"),
+            ("Hybrid", r"\bhybrid\w*\b"),
+            ("Elektro", r"\b(?:elektro|electric|ev|elektromobil)\b"),
+        )
+        fuel_matches = [
+            (match.start(), name)
+            for name, pattern in fuel_patterns
+            if (match := re.search(pattern, fuel_source, re.IGNORECASE))
+        ]
+        if fuel_matches:
+            fuel = min(fuel_matches)[1]
     transmission = _description_capture(
         text,
         (
@@ -2540,14 +2573,14 @@ def _description_listing_facts(description, title=""):
         transmission,
     ).strip()
     power = _description_capture(
-        text,
+        primary_text,
         (
             r"(?:v[ýy]kon|power)\s*:?\s*(\d{2,4}\s*kW)",
             r"\b(\d{2,4}\s*kW)\b",
         ),
     )
     if not power:
-        ps_match = re.search(r"\b(\d{2,3})\s*(PS|HP)\b", text, re.IGNORECASE)
+        ps_match = re.search(r"\b(\d{2,3})\s*(PS|HP)\b", primary_text, re.IGNORECASE)
         if ps_match:
             power_value = int(ps_match.group(1))
             factor = 0.73549875 if ps_match.group(2).lower() == "ps" else 0.745699872
@@ -2588,6 +2621,7 @@ def _description_listing_facts(description, title=""):
     return {
         "mileage": mileage,
         "mileage_km": mileage_km,
+        "mileage_is_approximate": mileage_is_approximate,
         "year": year,
         "engine": engine,
         "fuel": fuel,
@@ -2643,7 +2677,20 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
         lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
         str(transmission),
     ).strip()
-    fuel = specs.get("Fuel") or specs.get("Palivo") or description_facts["fuel"] or ""
+    fuel = description_facts["fuel"] or specs.get("Fuel") or specs.get("Palivo") or ""
+    structured_power = specs.get("Engine Power") or specs.get("Výkon") or ""
+    if structured_power:
+        power_digits = re.search(r"\b(\d{2,4})\s*kW\b", str(structured_power), re.IGNORECASE)
+        inventory_blocks = [
+            match.group(0)
+            for match in re.finditer(r"\([^)]*\)", str(parsed.get("description") or ""))
+            if "mame aj" in _fold_listing_text(match.group(0))
+        ]
+        if power_digits and any(
+            re.search(rf"\b{re.escape(power_digits.group(1))}\s*kW\b", block, re.IGNORECASE)
+            for block in inventory_blocks
+        ) and not description_facts["power"]:
+            structured_power = ""
     color = specs.get("Color") or specs.get("Farba") or ""
     gross_price_eur = _explicit_gross_price_eur(parsed.get("description"))
     return {
@@ -2654,9 +2701,13 @@ def _listing_context_object(car_info_text, description_chars=FINAL_LISTING_DESCR
         "vin": parsed.get("vin"),
         "mileage": mileage,
         "mileage_km": _mileage_km_value(mileage),
+        "mileage_is_approximate": bool(
+            description_facts.get("mileage_is_approximate")
+            and _mileage_km_value(mileage) == description_facts.get("mileage_km")
+        ),
         "year": specs.get("Year") or specs.get("Rok") or description_facts["year"] or "",
         "engine": structured_engine or description_facts["engine"] or "",
-        "power": specs.get("Engine Power") or specs.get("Výkon") or description_facts["power"] or "",
+        "power": description_facts["power"] or structured_power,
         "fuel": fuel,
         "color": color,
         "transmission": transmission,

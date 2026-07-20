@@ -63,6 +63,9 @@ def _bazos_mileage_km(value):
     )
     if masked_thousands:
         return int(masked_thousands.group(1)) * 1000
+    dotted_thousands = re.search(r"(?<!\d)(\d{2,3})\s*\.{2,3}(?!\d)", folded)
+    if dotted_thousands and 20 <= int(dotted_thousands.group(1)) <= 500:
+        return int(dotted_thousands.group(1)) * 1000
     labelled = re.search(
         r"(?:najazd(?:ene|enych)?\s*km|najazd|mileage)\s*:?\s*([\d\s.]+)(?:\s*km)?",
         folded,
@@ -198,6 +201,7 @@ def extract_car_info(soup, url):
     # --- Parameters from structured data ---
     # Try to extract mileage, year, engine etc from description or structured elements
     desc_text = info.get("description", "")
+    primary_desc_text = _without_inventory_alternatives(desc_text)
     
     # Mileage: Bazos descriptions commonly use either "Najazdene km: 161949"
     # or the conventional "161 949 km" order.
@@ -216,11 +220,11 @@ def extract_car_info(soup, url):
 
     # Engine power. Private ads often publish metric horsepower only, while
     # market comparison uses kW as its canonical value.
-    power_match = re.search(r'\b(\d{2,3})\s*kW\b', desc_text, re.I)
+    power_match = re.search(r'\b(\d{2,3})\s*kW\b', primary_desc_text, re.I)
     if power_match:
         info["parameters"]["Engine Power"] = f"{power_match.group(1)} kW"
     else:
-        ps_match = re.search(r'\b(\d{2,3})\s*(PS|HP)\b', desc_text, re.I)
+        ps_match = re.search(r'\b(\d{2,3})\s*(PS|HP)\b', primary_desc_text, re.I)
         if ps_match:
             power_value = int(ps_match.group(1))
             factor = 0.73549875 if ps_match.group(2).lower() == "ps" else 0.745699872
@@ -250,8 +254,8 @@ def extract_car_info(soup, url):
         )
 
     # Engine capacity
-    capacity_cm3 = re.search(r'\b(\d{1,2}(?:[\s\u00a0]\d{3})|\d{3,4})\s*cm3\b', desc_text, re.I)
-    capacity_litres = re.search(r'\b(\d+[.,]\d+)\s*l\b', desc_text, re.I)
+    capacity_cm3 = re.search(r'\b(\d{1,2}(?:[\s\u00a0]\d{3})|\d{3,4})\s*cm3\b', primary_desc_text, re.I)
+    capacity_litres = re.search(r'\b(\d+[.,]\d+)\s*l\b', primary_desc_text, re.I)
     if capacity_cm3:
         capacity_digits = re.sub(r'\D', '', capacity_cm3.group(1))
         info["parameters"]["Engine Capacity"] = f"{capacity_digits} cm3"
@@ -265,10 +269,14 @@ def extract_car_info(soup, url):
         "Hybrid": r'\b(?:hybrid|hybridný)\b',
         "Elektro": r'\b(?:elektro|electric|ev|elektromobil)\b',
     }
-    for fuel_name, pattern in fuel_keywords.items():
-        if re.search(pattern, desc_text, re.I):
-            info["parameters"]["Fuel"] = fuel_name
-            break
+    fuel_source = f"{info.get('title', '')}\n{primary_desc_text}"
+    fuel_matches = [
+        (match.start(), fuel_name)
+        for fuel_name, pattern in fuel_keywords.items()
+        if (match := re.search(pattern, fuel_source, re.I))
+    ]
+    if fuel_matches:
+        info["parameters"]["Fuel"] = min(fuel_matches)[1]
 
     # Transmission. Preserve an explicit labelled value because the gear count
     # and DCT/DSG/CVT family materially improve component identification.

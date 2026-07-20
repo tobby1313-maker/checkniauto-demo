@@ -84,6 +84,30 @@ def _dependencies(repository, prompt_dir):
 
 
 class AnalysisPipelineBoundaryTests(unittest.TestCase):
+    def test_normalizes_research_aliases_from_rav4_and_kuga_runs(self):
+        packet = _unavailable_research_model_output("fixture")
+        packet["web_research_findings"] = [{
+            "claim": "Reliability observation",
+            "evidence_category": "RELIABILITY_STATISTIC",
+            "buyer_impact": "Inspect the vehicle.",
+            "confidence": "MEDIUM",
+            "source_ids": [],
+        }]
+        packet["consistency_checks"] = [
+            {"check": "A", "result": "nesúlad", "explanation": "Conflict."},
+            {"check": "B", "result": "consistent_with_caveat", "explanation": "Caveat."},
+        ]
+
+        normalized = _normalize_research_model_output(packet)
+
+        self.assertEqual(
+            normalized["web_research_findings"][0]["evidence_category"],
+            "MODEL_LEVEL_RISK",
+        )
+        self.assertEqual(normalized["consistency_checks"][0]["result"], "concern")
+        self.assertEqual(normalized["consistency_checks"][1]["result"], "ok")
+        self.assertTrue(_valid_research_model_output(normalized))
+
     def test_normalization_removes_unverified_seller_claim_from_strongest_evidence(self):
         packet = {
             "evidence_summary": {
@@ -1604,6 +1628,46 @@ class AnalysisPipelineBoundaryTests(unittest.TestCase):
         self.assertEqual(counts["odometer_unverified"], 1)
         self.assertEqual(counts["system_functionality"], 1)
 
+    def test_vision_policy_does_not_confirm_rounded_odometer_tires_or_ambient_lighting(self):
+        payload = {
+            "odometer": {
+                "visible": True, "reading_km": 160000,
+                "confidence": "HIGH", "notes": "Clearly visible.",
+            },
+            "supported_observations": [
+                {
+                    "type": "odometer",
+                    "observation": "Na prístrojovej doske je viditeľný stav 160000 km.",
+                    "confidence": "HIGH", "evidence_category": "CONFIRMED",
+                },
+                {
+                    "type": "tires",
+                    "observation": "Pneumatiky sú v dobrom stave s dostatočným dezénom.",
+                    "confidence": "HIGH", "evidence_category": "CONFIRMED",
+                },
+                {
+                    "type": "equipment",
+                    "observation": "Ambientné osvetlenie je funkčné.",
+                    "confidence": "HIGH", "evidence_category": "CONFIRMED",
+                },
+            ],
+        }
+
+        sanitized, counts = _sanitize_vision_claims(
+            payload,
+            output_language="sk",
+            listing_mileage_km=160000,
+            listing_mileage_is_approximate=True,
+        )
+
+        self.assertIsNone(sanitized["odometer"]["reading_km"])
+        self.assertEqual(sanitized["supported_observations"][0]["confidence"], "LOW")
+        self.assertIn("bez merania", sanitized["supported_observations"][1]["observation"])
+        self.assertIn("vyskúšať", sanitized["supported_observations"][2]["observation"])
+        self.assertEqual(counts["odometer_unverified"], 1)
+        self.assertEqual(counts["tread_depth"], 1)
+        self.assertEqual(counts["system_functionality"], 1)
+
     def test_vision_policy_downgrades_odometer_conflict_and_repair_history(self):
         payload = {
             "odometer": {
@@ -1948,6 +2012,39 @@ Vo\u013En\u00fd text z modelu.
         self.assertIn("Žiadne modelové technické riziko", locked)
         self.assertIn("Nie je dostupný dostatočne podložený odhad", locked)
         self.assertNotIn("Timing chain", locked)
+
+    def test_report_inserts_required_cost_section_when_final_model_omits_it(self):
+        report = """# Report
+
+## 🌐 Webové overenie
+Text.
+
+## 💰 Cena a vyjednávanie
+Text.
+
+## 📸 Analýza fotografií
+Text.
+
+<!-- END_ANALYSIS -->
+"""
+        research = _unavailable_research_model_output("fixture")
+        research["research_status"] = "limited"
+        research["expected_costs"] = [{
+            "item": "Diagnostika vozidla",
+            "why": "Overenie stavu pred kúpou.",
+            "estimated_cost_eur_low": None,
+            "estimated_cost_eur_high": None,
+            "urgency": "high",
+            "source_ids": [],
+        }]
+
+        locked = _lock_report_evidence_claims(
+            report, research, {}, output_language="sk"
+        )
+
+        self.assertIn("## 🛠️ Očakávané náklady na najbližších 30 000 km", locked)
+        self.assertIn("Diagnostika vozidla", locked)
+        self.assertLess(locked.index("Očakávané náklady"), locked.index("Analýza fotografií"))
 
     def test_report_repairs_ordered_list_gaps_after_evidence_filtering(self):
         report = """# Report
