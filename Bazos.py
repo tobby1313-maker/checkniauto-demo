@@ -331,6 +331,18 @@ def extract_car_info(soup, url):
     # Then check for explicit automatic transmission mentions
     elif re.search(r'\bs[ -]?tronic\b', folded_transmission_source, re.I):
         info["parameters"]["Transmission"] = "S tronic"
+    elif shorthand_manual := re.search(
+        r"(?:\b\d{2,3}\s*kw[\s,;/]{1,12}|[,;/]\s*)m([4-9])\b",
+        folded_transmission_source,
+        re.I,
+    ):
+        info["parameters"]["Transmission"] = f"Manuálna {shorthand_manual.group(1)}-st."
+    elif shorthand_automatic := re.search(
+        r"(?:\b\d{2,3}\s*kw[\s,;/]{1,12}|[,;/]\s*)a([4-9])\b",
+        folded_transmission_source,
+        re.I,
+    ):
+        info["parameters"]["Transmission"] = f"Automatická {shorthand_automatic.group(1)}-st."
     elif re.search(r'(?:automatická\s+prevodovka|automatickou\s+prevodovkou|tiptronic|dsg|cvt)', desc_text, re.I) or re.search(r'\ba\s*/\s*t\b', folded_transmission_source, re.I):
         info["parameters"]["Transmission"] = "Automatická"
     # Fallback: standalone "automat" vs "manuál/manual" - check which one appears (but "automat" also matches "automatická klimatizácia")

@@ -609,5 +609,15 @@ class GroundedResearchTest(unittest.TestCase):
         self.assertNotIn("|---|---|", section)
 
 
+    def test_listing_context_extracts_delimited_m6_transmission_shorthand(self):
+        context = web_server._listing_context_object(
+            "# KIA SPORTAGE 1.6 T-GDI\n\n"
+            "## Seller Note (Poznamka)\n\n"
+            "R.V.: 8/2022, 1598CM3, 110KW (150PS), P, M6, BENZIN, 88436 KM"
+        )
+
+        self.assertEqual(context["transmission"], "Manuálna 6-st.")
+
+
 if __name__ == "__main__":
     unittest.main()

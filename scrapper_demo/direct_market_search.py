@@ -308,6 +308,10 @@ def _transmission(value: str) -> str:
         return "AUTOMATIC"
     if re.search(r"\bm\s*/\s*t\b", folded):
         return "MANUAL"
+    if re.search(r"(?:\b\d{2,3}\s*kw[\s,;/]{1,12}|[,;/]\s*)m[4-9]\b", folded):
+        return "MANUAL"
+    if re.search(r"(?:\b\d{2,3}\s*kw[\s,;/]{1,12}|[,;/]\s*)a[4-9]\b", folded):
+        return "AUTOMATIC"
     if re.search(r"\b(?:dsg|s[ -]?tronic)\b", folded):
         return "DSG"
     if re.search(r"\b(?:dct|edc)\b", folded):

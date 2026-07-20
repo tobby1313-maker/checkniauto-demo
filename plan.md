@@ -293,7 +293,7 @@ budgetmi; default a zákaz dvojitého účtovania sa nemenia. Na uzavretie fázy
 stále treba zostaviť a nezávisle označiť minimálne 20-case dataset a vyhodnotiť
 tuning/holdout výsledky.
 
-**Priebežná kalibrácia 20. 7. 2026:** spracovaných je pätnásť unikátnych prípadov
+**Priebežná kalibrácia 20. 7. 2026:** spracovaných je šestnásť unikátnych prípadov
 (Honda HR-V, Seat Arona, Audi A5, BMW X3, Škoda Kodiaq, Mazda CX-5, Hyundai Santa Fe, Mazda CX-60, Volvo XC40, Mercedes-Benz GLK, Audi Q3, Suzuki Grand Vitara, Toyota RAV4, Škoda Karoq a Ford Kuga). Pipeline už pri zlyhaní presného prepojenia
 zdrojov zachováva použiteľné modelové kontrolné body ako explicitne obmedzený
 low-confidence fallback namiesto prázdnych sekcií. Zároveň normalizuje doteraz
@@ -396,8 +396,20 @@ bol mimo povoleného pásma nájazdu. Limited research zachoval 3 findings,
 teraz pri absencii deterministicky vloží z validovaného research payloadu pred
 fotoanalýzu. Alias `consistent_with_caveat` sa normalizuje bez plateného
 recovery.
+Kia Sportage preverila zavádzajúci URL/job slug `Kia Rio`: identita aj market
+query správne vychádzajú z titulku a obsahu inzerátu, nie zo slugu. Technický
+zápis `M6` sa po novom rozpozná ako 6-stupňový manuál, ale iba v ohraničenom
+technickom kontexte, aby sa model BMW M6 nepovažoval za prevodovku. Všeobecné
+označenie `Fifth generation` už zbytočne nemení market titulok. VIN prečítaný z
+fotografie po vision fáze obnoví aj `listing_facts.json`; WMI `U5Y` sa mapuje na
+Kia Motors Slovakia. Nájazd 88 436 km bol manuálne potvrdený na fotografii.
+Research bol kompletný na prvý pokus s 2 findings, 2 risks, 2 nákladovými
+kontrolami a 4 zdrojmi. Nulový benchmark ostáva správny: po započítaní manuálnej
+prevodovky stále nie sú aspoň tri ponuky rovnakej konfigurácie v povolenom
+pásme roku a nájazdu. Run použil 8 API volaní, dve provider fallback volania a
+stál približne 0,140 EUR.
 Do minimálnej vzorky chýba
-5 ďalších unikátnych
+4 ďalších unikátnych
 prípadov; nezávislé označenie treba dokončiť pre celú 20-case vzorku.
 
 Kalibračná stratégia začína obsahovo tolerantnejšie: známe provider enum aliasy

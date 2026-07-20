@@ -543,5 +543,28 @@ class DirectMarketSearchTests(unittest.TestCase):
         self.assertEqual(result["source_attempts"][0]["http_status"], 403)
 
 
+    def test_tier_a_recognizes_delimited_m6_as_manual(self):
+        listing = {
+            "title": "Kia Sportage 1.6 T-GDI 110 kW",
+            "engine": "1.6 T-GDI",
+            "power": "110 kW",
+            "fuel": "Benzin",
+            "transmission": "Manuálna 6-st.",
+            "drive": "FWD",
+        }
+
+        self.assertEqual(
+            _similarity(
+                listing,
+                "Kia Sportage 1.6 T-GDI 110 kW, M6, benzin, FWD",
+            )[0],
+            "A",
+        )
+        self.assertNotEqual(
+            _similarity(listing, "BMW M6 Gran Coupe 412 kW benzin FWD")[0],
+            "A",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

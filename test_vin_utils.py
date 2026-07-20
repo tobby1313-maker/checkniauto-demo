@@ -58,5 +58,15 @@ class VinLightDecodeTests(unittest.TestCase):
         self.assertIn(2013, decoded["model_year_candidates"])
 
 
+    def test_u5y_wmi_is_mapped_to_kia_slovakia(self):
+        decoded = validate_vin("U5YPU81BANL072136")
+
+        self.assertTrue(decoded["valid"])
+        self.assertEqual(decoded["manufacturer"], "Kia Motors Slovakia")
+        self.assertEqual(decoded["region"], "Slovakia")
+        self.assertIn(2022, decoded["model_year_candidates"])
+        self.assertEqual(decoded["check_digit_severity"], "info")
+
+
 if __name__ == "__main__":
     unittest.main()

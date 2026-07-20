@@ -2656,5 +2656,17 @@ Text.
             self.assertIn('"done": true', events[-1])
 
 
+    def test_market_search_context_does_not_add_generic_fifth_generation(self):
+        listing = {"title": "Kia Sportage 1.6 T-GDI"}
+
+        result = _market_search_listing_context(
+            listing,
+            {"generation": {"name": "Fifth generation"}},
+        )
+
+        self.assertEqual(result["title"], listing["title"])
+        self.assertFalse(result.get("market_identity_augmented", False))
+
+
 if __name__ == "__main__":
     unittest.main()

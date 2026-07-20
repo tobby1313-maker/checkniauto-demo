@@ -2166,6 +2166,7 @@ def _market_search_listing_context(
         # search identity value.
         useful_tokens = generation_tokens - {
             "first", "second", "third", "fourth", "generation", "generacia",
+            "fifth", "sixth", "seventh", "eighth", "ninth", "tenth",
             "gen", "model", "series", "facelift", "i", "ii", "iii", "iv", "v",
         }
         if useful_tokens - title_tokens:
@@ -5341,6 +5342,12 @@ def _multi_model_analysis_events(
     )
     if injected_vin_note:
         car_info_text = repository.read_text(slug, "car_info.md", default="") or ""
+        refreshed_listing_context = parse_first_json_object(
+            dependencies.listing_context_text(car_info_text)
+        )
+        if isinstance(refreshed_listing_context, dict) and refreshed_listing_context:
+            listing_context_data = refreshed_listing_context
+            repository.write_json(slug, "listing_facts.json", listing_context_data)
         text_research_data = dependencies.safe_model_json(text_research_json_text)
         vision_parsed_for_vin = dependencies.safe_model_json(vision_result_json)
         photo_vin = str(vision_parsed_for_vin.get("visible_vin") or "").strip().upper()

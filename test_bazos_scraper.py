@@ -272,5 +272,38 @@ class BazosScraperTests(unittest.TestCase):
         self.assertNotIn("Engine Power", result["parameters"])
 
 
+    def test_extracts_delimited_m6_transmission_shorthand(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>KIA SPORTAGE 1.6 T-GDI</h1>
+              <div class="popisdetail">
+                R.V.: 8/2022, 1598CM3, 110KW (150PS), P, M6, BENZIN, 88436 KM
+              </div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/sportage.php")
+
+        self.assertEqual(result["parameters"]["Transmission"], "Manuálna 6-st.")
+
+    def test_does_not_treat_bmw_m6_model_name_as_transmission(self):
+        soup = BeautifulSoup(
+            """
+            <html><body>
+              <h1>BMW M6 Gran Coupe</h1>
+              <div class="popisdetail">Benzin, 412 kW, krasny stav.</div>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/bmw-m6.php")
+
+        self.assertNotIn("Transmission", result["parameters"])
+
+
 if __name__ == "__main__":
     unittest.main()

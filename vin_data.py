@@ -32,6 +32,7 @@ WMI_MAP = {
     # Spain/Czech/Sweden/UK
     "VSS": "Seat", "VS1": "Seat",
     "TMA": "Hyundai Motor Manufacturing Czech",
+    "U5Y": "Kia Motors Slovakia",
     "TMB": "Skoda", "TMP": "Skoda", "TM9": "Skoda",
     "VX1": "Skoda", "VXK": "Skoda",
     "YV1": "Volvo", "YV4": "Volvo", "YVK": "Volvo",
@@ -136,6 +137,7 @@ WMI_REGION_MAP = {
     "TMP": "Czech Republic",
     "TM9": "Czech Republic",
     "TRU": "Hungary",
+    "U5Y": "Slovakia",
 }
 
 PLANT_MAP = {

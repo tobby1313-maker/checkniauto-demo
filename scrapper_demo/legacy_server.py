@@ -2567,6 +2567,18 @@ def _description_listing_facts(description, title=""):
         transmission = "Manuálna"
     elif re.search(r"\bs[ -]?tronic\b", _fold_listing_text(f"{title}\n{text}"), re.IGNORECASE):
         transmission = "S tronic"
+    elif shorthand_manual := re.search(
+        r"(?:\b\d{2,3}\s*kw[\s,;/]{1,12}|[,;/]\s*)m([4-9])\b",
+        _fold_listing_text(f"{title}\n{primary_text}"),
+        re.IGNORECASE,
+    ):
+        transmission = f"Manuálna {shorthand_manual.group(1)}-st."
+    elif shorthand_automatic := re.search(
+        r"(?:\b\d{2,3}\s*kw[\s,;/]{1,12}|[,;/]\s*)a([4-9])\b",
+        _fold_listing_text(f"{title}\n{primary_text}"),
+        re.IGNORECASE,
+    ):
+        transmission = f"Automatická {shorthand_automatic.group(1)}-st."
     transmission = re.sub(
         r"\([^)]*\)",
         lambda match: "" if "mame aj" in _fold_listing_text(match.group(0)) else match.group(0),
