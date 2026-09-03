@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import statistics
 from typing import Any
+from urllib.parse import urlparse
 
 from v2_ai_client import call_generate_content_json, call_interaction_json
 from v2_config import (
@@ -10,6 +12,7 @@ from v2_config import (
     VISION_FALLBACK_MODELS,
     VISION_MODEL,
     _model_candidates,
+    _unique,
 )
 from v2_normalize import _number
 from v2_schemas import FINAL_SCHEMA, PHOTO_SCHEMA, RESEARCH_SCHEMA
@@ -27,12 +30,8 @@ def analyze_photos(
             "summary": "Fotografie neboli dostupné na analýzu.",
             "findings": [],
             "positive_signals": [],
-            "coverage_gaps": [
-                "Nie je možné vizuálne preveriť karosériu, interiér ani pneumatiky."
-            ],
-            "limitations": [
-                "Bez fotografií nemožno posúdiť viditeľné poškodenia ani opotrebenie."
-            ],
+            "coverage_gaps": ["Nie je možné vizuálne preveriť karosériu, interiér ani pneumatiky."],
+            "limitations": ["Bez fotografií nemožno posúdiť viditeľné poškodenia ani opotrebenie."],
         }
 
     language_name = "češtine" if language == "cs" else "slovenčine"
@@ -99,23 +98,105 @@ Dáta inzerátu:
         _model_candidates(TEXT_MODEL, TEXT_FALLBACK_MODELS),
         use_search=True,
     )
-    existing_sources = _list_of_dicts(result.get("sources"))
-    seen = {str(item.get("url") or "") for item in existing_sources}
-    for citation in citations:
-        if citation["url"] not in seen:
-            existing_sources.append(
-                {
-                    "title": citation["title"],
-                    "url": citation["url"],
-                    "supports": "Zdroj použitý vo webovom overení.",
-                }
-            )
-            seen.add(citation["url"])
-    result["sources"] = existing_sources[:12]
-    result["known_risks"] = _list_of_dicts(result.get("known_risks"))[:6]
+    citation_map = {
+        citation["url"]: citation["title"]
+        for citation in citations
+        if _safe_http_url(citation.get("url"))
+    }
+    declared_support = {
+        str(item.get("url") or ""): str(item.get("supports") or "")
+        for item in _list_of_dicts(result.get("sources"))
+    }
+    result["sources"] = [
+        {
+            "title": title or url,
+            "url": url,
+            "supports": declared_support.get(url) or "Zdroj použitý vo webovom overení.",
+        }
+        for url, title in list(citation_map.items())[:12]
+    ]
+
+    verified_risks = []
+    for risk in _list_of_dicts(result.get("known_risks"))[:6]:
+        risk["source_urls"] = [
+            url for url in _list_of_strings(risk.get("source_urls")) if url in citation_map
+        ]
+        if not risk["source_urls"]:
+            risk["confidence"] = "low"
+        verified_risks.append(risk)
+    result["known_risks"] = verified_risks
+
     market = result.get("market") if isinstance(result.get("market"), dict) else {}
-    market["comparables"] = _list_of_dicts(market.get("comparables"))[:5]
+    listing_currency = str(listing.get("price", {}).get("currency") or "EUR")
+    verified_comparables = []
+    for comparable in _list_of_dicts(market.get("comparables")):
+        url = str(comparable.get("url") or "")
+        price = _clamp_amount(comparable.get("price"))
+        currency = str(comparable.get("currency") or listing_currency).upper()
+        if url not in citation_map or price <= 0 or currency != listing_currency:
+            continue
+        comparable["price"] = price
+        comparable["currency"] = currency
+        comparable["year"] = _clamp_amount(comparable.get("year"), 1950, 2100)
+        comparable["mileage_km"] = _clamp_amount(comparable.get("mileage_km"), 0, 2_000_000)
+        verified_comparables.append(comparable)
+        if len(verified_comparables) >= 5:
+            break
+
+    prices = [item["price"] for item in verified_comparables]
+    listing_price = _clamp_amount(listing.get("price", {}).get("amount"))
+    market["comparables"] = verified_comparables
+    market["comparable_count"] = len(verified_comparables)
+    market["currency"] = listing_currency
+    if len(prices) >= 3:
+        median = int(statistics.median(prices))
+        market.update(
+            {
+                "status": "supported",
+                "range_min": min(prices),
+                "range_max": max(prices),
+                "median": median,
+                "recommended_max": median,
+                "position": (
+                    "unknown"
+                    if listing_price <= 0
+                    else "low"
+                    if listing_price < median * 0.9
+                    else "high"
+                    if listing_price > median * 1.1
+                    else "fair"
+                ),
+            }
+        )
+    elif prices:
+        market.update(
+            {
+                "status": "limited",
+                "range_min": min(prices),
+                "range_max": max(prices),
+                "median": int(statistics.median(prices)),
+                "recommended_max": 0,
+                "position": "unknown",
+            }
+        )
+    else:
+        market.update(
+            {
+                "status": "unavailable",
+                "range_min": 0,
+                "range_max": 0,
+                "median": 0,
+                "recommended_max": 0,
+                "comparable_count": 0,
+                "comparables": [],
+                "position": "unknown",
+            }
+        )
     result["market"] = market
+    if citation_map and (verified_risks or verified_comparables):
+        result["status"] = "supported" if len(prices) >= 3 else "limited"
+    else:
+        result["status"] = "unavailable"
     return result
 
 
@@ -127,9 +208,7 @@ def synthesize_report(
 ) -> dict[str, Any]:
     language_name = "češtine" if language == "cs" else "slovenčine"
     prompt_payload = {
-        "listing": {
-            key: value for key, value in listing.items() if key != "raw_listing"
-        },
+        "listing": {key: value for key, value in listing.items() if key != "raw_listing"},
         "photo_analysis": photo,
         "web_research": research,
     }
@@ -161,6 +240,18 @@ Vstupné moduly:
         use_search=False,
     )
     return report
+
+
+def _safe_http_url(value: Any) -> bool:
+    try:
+        parsed = urlparse(str(value or ""))
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _clamp_amount(value: Any, minimum: int = 0, maximum: int = 100_000_000) -> int:
+    return max(minimum, min(maximum, _number(value)))
 
 
 def unavailable_research(reason: str) -> dict[str, Any]:
