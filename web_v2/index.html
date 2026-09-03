@@ -8,7 +8,9 @@
   <title>Checkni Auto V2 — kontrola auta pred obhliadkou</title>
   <link rel="icon" href="/assets/checkni-auto-logo.png">
   <link rel="stylesheet" href="/v2-static/styles.css">
+  <link rel="stylesheet" href="/v2-static/gallery.css">
   <script src="/v2-static/app.js" defer></script>
+  <script src="/v2-static/gallery.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#analyzer">Preskočiť na analýzu</a>
@@ -65,7 +67,7 @@
             </div>
             <label><span data-i18n="sourceUrl">Zdrojový odkaz (voliteľné)</span><input name="source_url" type="url" placeholder="https://..."></label>
             <label><span data-i18n="listingText">Text inzerátu a servisné údaje</span><textarea name="manual_text" rows="6" data-i18n-placeholder="listingPlaceholder" placeholder="Skopírujte popis, výbavu, VIN a servisnú históriu..."></textarea></label>
-            <label class="upload" id="uploadZone"><input id="manualImages" name="images" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple><strong data-i18n="uploadTitle">Pridať fotografie</strong><span id="uploadHelp" data-i18n="uploadHelp">Maximálne 10 obrázkov</span></label>
+            <label class="upload" id="uploadZone"><input id="manualImages" name="images" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple><strong data-i18n="uploadTitle">Pridať fotografie</strong><span id="uploadHelp" data-i18n="uploadHelp">Maximálne 80 obrázkov</span></label>
             <div id="fileList" class="file-list" aria-live="polite"></div>
             <button class="button button-primary" type="submit" data-i18n="startManual">Analyzovať vlastné údaje</button>
           </form>
