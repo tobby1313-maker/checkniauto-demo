@@ -65,6 +65,23 @@ Pravidelne servisované vozidlo, servisná knižka a faktúry. Predný náhon.
         self.assertTrue(listing["service_history_claimed"])
         self.assertGreaterEqual(listing["data_quality"]["score"], 70)
 
+    def test_bazos_cz_source_forces_czk_currency(self):
+        markdown = """# Škoda Octavia 2018
+
+**Source:** https://auto.bazos.cz/inzerat/123/test.php
+
+## Price
+- **Price:** 249 000 EUR
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            listing_dir = Path(tmp)
+            (listing_dir / "car_info.md").write_text(markdown, encoding="utf-8")
+            listing = normalize_listing(listing_dir)
+
+        self.assertEqual(listing["price"]["amount"], 249000)
+        self.assertEqual(listing["price"]["currency"], "CZK")
+        self.assertEqual(listing["source_host"], "auto.bazos.cz")
+
     def test_quality_flags_critical_missing_fields(self):
         quality = calculate_data_quality(
             {
