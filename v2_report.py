@@ -27,45 +27,55 @@ def sanitize_report(
 
     verdict = result.get("verdict") if isinstance(result.get("verdict"), dict) else {}
     fallback_verdict = fallback["verdict"]
-    level = (
-        verdict.get("level")
-        if verdict.get("level") in {"green", "yellow", "orange", "red", "stop"}
-        else fallback_verdict["level"]
-    )
+    level = verdict.get("level") if verdict.get("level") in {"green", "yellow", "orange", "red", "stop"} else fallback_verdict["level"]
     quality_score = int(listing.get("data_quality", {}).get("score", 0))
     confidence_cap = min(96, max(35, quality_score + 20))
     verdict.update(
         {
             "level": level,
-            "safety_score": _clamp(
-                verdict.get("safety_score", fallback_verdict["safety_score"])
-            ),
-            "confidence": min(
-                confidence_cap,
-                _clamp(verdict.get("confidence", fallback_verdict["confidence"])),
-            ),
-            "one_sentence": str(
-                verdict.get("one_sentence") or fallback_verdict["one_sentence"]
-            ),
-            "recommendation": str(
-                verdict.get("recommendation") or fallback_verdict["recommendation"]
-            ),
+            "safety_score": _clamp(verdict.get("safety_score", fallback_verdict["safety_score"])),
+            "confidence": min(confidence_cap, _clamp(verdict.get("confidence", fallback_verdict["confidence"]))),
+            "one_sentence": str(verdict.get("one_sentence") or fallback_verdict["one_sentence"]),
+            "recommendation": str(verdict.get("recommendation") or fallback_verdict["recommendation"]),
         }
     )
     result["verdict"] = verdict
 
-    result["top_findings"] = (
-        _list_of_dicts(result.get("top_findings"))[:8] or fallback["top_findings"]
-    )
+    findings = _list_of_dicts(result.get("top_findings"))[:8] or fallback["top_findings"]
+    safe_findings = []
+    for finding in findings:
+        evidence_refs = _list_of_strings(finding.get("evidence_refs"))[:8]
+        evidence_type = finding.get("evidence_type")
+        if evidence_type == "web" and not evidence_refs:
+            evidence_type = "manual_check"
+            finding["confidence"] = "low"
+        if evidence_type == "photo" and not evidence_refs:
+            finding["confidence"] = "low"
+        minimum = _number(finding.get("cost_min_eur"))
+        maximum = max(minimum, _number(finding.get("cost_max_eur")))
+        finding.update(
+            {
+                "evidence_type": evidence_type
+                if evidence_type
+                in {
+                    "listing",
+                    "photo",
+                    "web",
+                    "general_knowledge",
+                    "estimate",
+                    "manual_check",
+                }
+                else "manual_check",
+                "evidence_refs": evidence_refs,
+                "cost_min_eur": minimum,
+                "cost_max_eur": maximum,
+            }
+        )
+        safe_findings.append(finding)
+    result["top_findings"] = safe_findings
     result["positives"] = _list_of_strings(result.get("positives"))[:6]
-    result["seller_questions"] = (
-        _list_of_dicts(result.get("seller_questions"))[:8]
-        or fallback["seller_questions"]
-    )
-    result["inspection_checklist"] = (
-        _list_of_dicts(result.get("inspection_checklist"))[:6]
-        or fallback["inspection_checklist"]
-    )
+    result["seller_questions"] = _list_of_dicts(result.get("seller_questions"))[:8] or fallback["seller_questions"]
+    result["inspection_checklist"] = _list_of_dicts(result.get("inspection_checklist"))[:6] or fallback["inspection_checklist"]
     result["limitations"] = _unique(
         [
             *_list_of_strings(result.get("limitations")),
@@ -75,11 +85,7 @@ def sanitize_report(
     )[:12]
 
     market = research.get("market") if isinstance(research.get("market"), dict) else {}
-    price = (
-        result.get("price_assessment")
-        if isinstance(result.get("price_assessment"), dict)
-        else fallback["price_assessment"]
-    )
+    price = result.get("price_assessment") if isinstance(result.get("price_assessment"), dict) else fallback["price_assessment"]
     if market.get("status") != "supported" and price.get("evidence_quality") == "high":
         price["evidence_quality"] = "low"
     if market.get("status") == "unavailable":
@@ -92,21 +98,13 @@ def sanitize_report(
                 "recommended_max": 0,
             }
         )
-    price["currency"] = price.get("currency") or listing.get("price", {}).get(
-        "currency", "EUR"
-    )
+    price["currency"] = price.get("currency") or listing.get("price", {}).get("currency", "EUR")
     result["price_assessment"] = price
 
-    costs = (
-        result.get("ownership_costs")
-        if isinstance(result.get("ownership_costs"), dict)
-        else fallback["ownership_costs"]
-    )
+    costs = result.get("ownership_costs") if isinstance(result.get("ownership_costs"), dict) else fallback["ownership_costs"]
     costs["items"] = _list_of_dicts(costs.get("items"))[:10]
     costs["total_min_eur"] = _number(costs.get("total_min_eur"))
-    costs["total_max_eur"] = max(
-        costs["total_min_eur"], _number(costs.get("total_max_eur"))
-    )
+    costs["total_max_eur"] = max(costs["total_min_eur"], _number(costs.get("total_max_eur")))
     result["ownership_costs"] = costs
 
     level_labels = {
