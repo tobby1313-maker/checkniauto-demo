@@ -13,12 +13,14 @@
 ### Analysis pipeline
 
 - Added deterministic normalization over Markdown and raw scraper JSON.
+- Added a V2 Bazoš SK/CZ scraper with correct CZK handling, domain-aware image URLs and parallel downloads.
 - Added weighted listing-completeness scoring and explicit missing-data findings.
 - Runs visual analysis and grounded web research in parallel.
 - Uses structured JSON output for every AI stage.
 - Uses current configurable stable model identifiers instead of retired Gemini 2.0 fallbacks.
 - Adds provider/model/key retry paths and a deterministic final-report fallback.
 - Prevents unsupported market data from being presented with high confidence.
+- Verifies market comparables and web-risk URLs against actual Google Search citation annotations; three verified comparables are required for a supported market range.
 
 ### Reliability and security
 
