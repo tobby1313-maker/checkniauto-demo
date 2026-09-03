@@ -14,6 +14,8 @@ V2 mení pôvodné technické demo na rozhodovací report pre kupujúceho ojazde
 - dôkaz, istota, akcia a finančný dopad pri každom významnom zistení,
 - bezpečný záložný report, ak zlyhá finálny AI syntetizačný krok,
 - SK/CZ výstup, mobilné rozhranie, tlač do PDF a export JSON,
+- kompletná galéria inzerátu vo finálnom reporte,
+- dvojúrovňová vision kontrola: 2×2 prehľadové koláže a selektívny detail,
 - SSRF allowlist, validácia uploadov, bezpečnostné hlavičky a denný beta limit.
 
 ## Architektúra
@@ -21,12 +23,18 @@ V2 mení pôvodné technické demo na rozhodovací report pre kupujúceho ojazde
 ```text
 URL / manuálny vstup
         │
-        ├── existujúci scraper → car_info.md + raw_data.json + fotografie
+        ├── scraper → car_info.md + raw_data.json + celá galéria
         │
         ├── normalizácia + deterministická kontrola úplnosti
         │
+        ├── fotografia pipeline:
+        │     ├── inventár všetkých fotiek (`Foto NN`)
+        │     ├── konzervatívne skupiny takmer rovnakých záberov
+        │     ├── reprezentanti všetkých odlišných záberov → 2×2 koláže
+        │     └── vybrané riziká + rozložená vzorka → detailná vision kontrola
+        │
         ├── paralelne:
-        │     ├── Gemini vision → photo_analysis.json
+        │     ├── dvojúrovňová vision analýza → photo_analysis.json
         │     └── Gemini + Google Search → web_research.json
         │
         └── Gemini structured output → report.json
@@ -34,7 +42,20 @@ URL / manuálny vstup
                   └── validácia / bezpečný fallback → zákaznícky report
 ```
 
-Backend beží cez `v2_app:app`. Pôvodný `web_server.py` a `web/` zostávajú v repozitári ako rollback a referenčná implementácia.
+Backend beží cez `v2_entry:app`. Modul registruje bezpečný endpoint galérie nad aplikáciou `v2_app:app`. Pôvodný `web_server.py` a `web/` zostávajú v repozitári ako rollback a referenčná implementácia.
+
+## Fotografie: úplná galéria, nie všetko detailne
+
+Finálny report eviduje každú stiahnutú fotografiu z inzerátu až po konfigurovateľný bezpečnostný limit. Fotografie sa pri podobnosti nezahadzujú. Každá má vlastné `Foto NN`, stabilné ID a stav kontroly:
+
+- `inventory` — fotografia je v reporte, ale vision ju nevyhodnotilo,
+- `overview` — reprezentatívny záber prešiel prehľadovou kontrolou v 2×2 koláži,
+- `detail` — fotografia prešla aj individuálnou detailnou kontrolou,
+- `duplicate_reference` — takmer rovnaká fotografia je spojená s reprezentantom skupiny.
+
+Prvý vision krok vidí všetky odlišné reprezentatívne zábery v označených 2×2 kolážach. Druhý krok dostane iba zábery označené ako možné riziko a minimálnu rozloženú vzorku z celej galérie. Tak sa zachová pokrytie bez zbytočného posielania každej podobnej fotografie vo vysokom rozlíšení.
+
+Používateľská časť reportu obsahuje rozbaľovaciu galériu všetkých fotografií s označením úrovne kontroly. Technický popis je v `V2_PHOTO_PIPELINE.md`.
 
 ## Lokálne spustenie
 
@@ -42,13 +63,13 @@ Backend beží cez `v2_app:app`. Pôvodný `web_server.py` a `web/` zostávajú 
 python -m pip install -r requirements.txt
 $env:GEMINI_PRIMARY_API_KEY="..."
 $env:FLASK_SECRET_KEY="change-me"
-python v2_app.py
+python v2_entry.py
 ```
 
-Pri priamom lokálnom spustení cez Flask použite napríklad:
+Alebo cez Flask:
 
 ```powershell
-$env:FLASK_APP="v2_app:app"
+$env:FLASK_APP="v2_entry:app"
 flask run --port 5000
 ```
 
@@ -66,12 +87,18 @@ Produkčný príkaz je uvedený v `Procfile`.
 | Premenná | Predvolená hodnota | Poznámka |
 |---|---:|---|
 | `CHECKNI_TEXT_MODEL` | `gemini-3.8-flash` | Finálny report a web research |
-| `CHECKNI_VISION_MODEL` | `gemini-2.5-flash` | Analýza fotografií cez generateContent |
+| `CHECKNI_VISION_MODEL` | `gemini-2.5-flash` | Prehľadová aj detailná fotografická kontrola |
 | `CHECKNI_MAX_CONCURRENT_JOBS` | `2` | Počet súčasne spracovávaných reportov |
 | `CHECKNI_MAX_PENDING_JOBS` | `6` | Horný limit rozpracovaných a čakajúcich úloh |
 | `CHECKNI_AI_TIMEOUT_SECONDS` | `90` | Timeout jedného AI modulu |
 | `CHECKNI_SCRAPE_TIMEOUT_SECONDS` | `90` | Timeout scrapera |
-| `CHECKNI_MAX_VISION_IMAGES` | `10` | Reprezentatívne fotografie pre vision modul |
+| `CHECKNI_MAX_GALLERY_IMAGES` | `80` | Bezpečnostný limit fotiek uchovaných v reporte |
+| `CHECKNI_MAX_OVERVIEW_IMAGES` | `80` | Odlišné zábery zaradené do 2×2 koláží |
+| `CHECKNI_MAX_DETAIL_IMAGES` | `8` | Maximum individuálne kontrolovaných záberov |
+| `CHECKNI_MIN_DETAIL_IMAGES` | `4` | Rozložená detailná vzorka aj bez zjavného rizika |
+| `CHECKNI_OVERVIEW_COLLAGE_SIDE` | `1536` | Strana štvorcovej 2×2 koláže v px |
+| `CHECKNI_IMAGE_MAX_SIDE` | `1600` | Maximum strany individuálneho detailu v px |
+| `CHECKNI_IMAGE_QUALITY` | `72` | JPEG kvalita optimalizovaných vstupov |
 | `CHECKNI_MAX_UPLOAD_MB` | `30` | Maximálna veľkosť manuálneho requestu |
 | `CHECKNI_RATE_LIMIT_PER_IP` | `5` | Denný beta limit na IP |
 | `CHECKNI_JOB_TTL_HOURS` | `24` | Uchovanie lokálneho jobu |
@@ -105,13 +132,16 @@ Content-Type: multipart/form-data
 
 Polia: `title`, `price`, `currency`, `source_url`, `manual_text`, `images`, `language`.
 
-### Stav a výsledok
+### Stav, report a galéria
 
 - `GET /api/v2/jobs/{job_id}`
 - `GET /api/v2/jobs/{job_id}/events` — SSE
 - `GET /api/v2/jobs/{job_id}/report` — finálny JSON
+- `GET /api/v2/jobs/{job_id}/photos/{photo_id}` — fotografia deklarovaná v dokončenom reporte
 - `GET /api/v2/config`
 - `GET /healthz`
+
+Endpoint fotografie povoľuje iba ID uvedené v dokončenom reporte. Nepoužíva cestu ani názov súboru dodaný klientom.
 
 ## Platby
 
@@ -128,10 +158,13 @@ Nespájajte platbu iba s existenciou HTTP 200 odpovede. Úspech je až job v sta
 ## Testy
 
 ```bash
-PYTHONPATH=. python -m unittest discover -s tests -v  # aktuálne 12 testov
-python -m py_compile v2_app.py v2_pipeline.py
+PYTHONPATH=. python -m unittest discover -s tests -v
+python -m py_compile v2_entry.py v2_app.py v2_pipeline.py v2_photo_pipeline.py v2_images.py
 node --check web_v2/app.js
+node --check web_v2/gallery.js
 ```
+
+Testy zahŕňajú normalizáciu, Flask joby, SSE, perzistenciu reportu, Bazoš SK/CZ, ochranu roku vozidla, zachovanie celej galérie, konzervatívne skupiny podobných fotiek, selektívnu detailnú kontrolu a bezpečný endpoint obrázkov.
 
 ## Prevádzkové limity
 
@@ -139,13 +172,14 @@ node --check web_v2/app.js
 - Rozpracované joby sa po reštarte označia ako prerušené; nesmú spotrebovať platený kredit.
 - Denný limit je zatiaľ in-memory ochrana beta prevádzky, nie produkčný billing ledger.
 - Trhové porovnanie závisí od dostupnosti dôveryhodných, aktuálnych a indexovaných ponúk. Ak podklady nestačia, report musí cenu označiť ako neoverenú.
+- „Celá galéria“ znamená všetky úspešne stiahnuté fotografie do hodnoty `CHECKNI_MAX_GALLERY_IMAGES`. Limit chráni server pred extrémnymi alebo škodlivými vstupmi a možno ho zvýšiť po meraní reálnej prevádzky.
 
 ## Rollback
 
 Na návrat k pôvodnému demu zmeňte poslednú časť `Procfile` z:
 
 ```text
-v2_app:app
+v2_entry:app
 ```
 
 na:
