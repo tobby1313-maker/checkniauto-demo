@@ -8,6 +8,7 @@ V2 mení pôvodné technické demo na rozhodovací report pre kupujúceho ojazde
 - asynchrónne úlohy s `job_id`; stav a výsledok prežijú refresh prehliadača,
 - deterministické skóre úplnosti inzerátu,
 - normalizácia údajov z `car_info.md` aj `raw_data.json`,
+- nový doménovo správny a paralelný scraper pre Bazoš.sk/Bazoš.cz,
 - paralelná analýza fotografií a webové overenie,
 - štruktúrovaný JSON report namiesto surového Markdownu,
 - dôkaz, istota, akcia a finančný dopad pri každom významnom zistení,
@@ -127,7 +128,7 @@ Nespájajte platbu iba s existenciou HTTP 200 odpovede. Úspech je až job v sta
 ## Testy
 
 ```bash
-PYTHONPATH=. python -m unittest discover -s tests -v
+PYTHONPATH=. python -m unittest discover -s tests -v  # aktuálne 8 testov
 python -m py_compile v2_app.py v2_pipeline.py
 node --check web_v2/app.js
 ```
