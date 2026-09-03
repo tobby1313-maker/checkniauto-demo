@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -32,11 +33,15 @@ def job_photo(job_id: str, photo_id: str) -> Response:
         else {}
     )
     gallery = photo_analysis.get("gallery")
-    allowed_ids = {
-        str(item.get("id") or "")
-        for item in gallery
-        if isinstance(gallery, list) and isinstance(item, dict)
-    } if isinstance(gallery, list) else set()
+    allowed_ids = (
+        {
+            str(item.get("id") or "")
+            for item in gallery
+            if isinstance(item, dict)
+        }
+        if isinstance(gallery, list)
+        else set()
+    )
     if photo_id not in allowed_ids:
         return jsonify({"error": "Fotografia nebola nájdená.", "code": "not_found"}), 404
 
@@ -62,3 +67,12 @@ def job_photo(job_id: str, photo_id: str) -> Response:
 
 
 __all__ = ["app"]
+
+
+if __name__ == "__main__":
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "5000")),
+        debug=False,
+        threaded=True,
+    )
