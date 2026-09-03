@@ -128,7 +128,7 @@ Nespájajte platbu iba s existenciou HTTP 200 odpovede. Úspech je až job v sta
 ## Testy
 
 ```bash
-PYTHONPATH=. python -m unittest discover -s tests -v  # aktuálne 8 testov
+PYTHONPATH=. python -m unittest discover -s tests -v  # aktuálne 10 testov
 python -m py_compile v2_app.py v2_pipeline.py
 node --check web_v2/app.js
 ```
