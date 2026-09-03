@@ -37,9 +37,56 @@ VISION_FALLBACK_MODELS = tuple(
 REQUEST_TIMEOUT_SECONDS = max(20, int(os.environ.get("CHECKNI_AI_TIMEOUT_SECONDS", "90")))
 SCRAPE_TIMEOUT_SECONDS = max(30, int(os.environ.get("CHECKNI_SCRAPE_TIMEOUT_SECONDS", "90")))
 MAX_LISTING_CHARS = max(8_000, int(os.environ.get("CHECKNI_MAX_LISTING_CHARS", "30000")))
-MAX_VISION_IMAGES = max(1, min(16, int(os.environ.get("CHECKNI_MAX_VISION_IMAGES", "10"))))
-IMAGE_MAX_SIDE = max(640, min(1600, int(os.environ.get("CHECKNI_IMAGE_MAX_SIDE", "1024"))))
-IMAGE_QUALITY = max(45, min(90, int(os.environ.get("CHECKNI_IMAGE_QUALITY", "65"))))
+
+# The gallery, overview and detail limits are intentionally separate.
+# Every downloaded listing image remains in the final gallery manifest. Near duplicates
+# are grouped, unique views are shown in 2x2 overview sheets, and only selected photos
+# are sent as individual high-resolution detail inputs.
+MAX_GALLERY_IMAGES = max(
+    4,
+    min(120, int(os.environ.get("CHECKNI_MAX_GALLERY_IMAGES", "80"))),
+)
+MAX_OVERVIEW_IMAGES = max(
+    4,
+    min(
+        MAX_GALLERY_IMAGES,
+        int(os.environ.get("CHECKNI_MAX_OVERVIEW_IMAGES", str(MAX_GALLERY_IMAGES))),
+    ),
+)
+MAX_DETAIL_IMAGES = max(
+    1,
+    min(16, int(os.environ.get("CHECKNI_MAX_DETAIL_IMAGES", "8"))),
+)
+MIN_DETAIL_IMAGES = max(
+    0,
+    min(
+        MAX_DETAIL_IMAGES,
+        int(os.environ.get("CHECKNI_MIN_DETAIL_IMAGES", "4")),
+    ),
+)
+OVERVIEW_COLLAGE_SIDE = max(
+    1024,
+    min(2048, int(os.environ.get("CHECKNI_OVERVIEW_COLLAGE_SIDE", "1536"))),
+)
+OVERVIEW_COLLAGE_COLUMNS = 2
+OVERVIEW_COLLAGE_ROWS = 2
+OVERVIEW_COLLAGE_CAPACITY = OVERVIEW_COLLAGE_COLUMNS * OVERVIEW_COLLAGE_ROWS
+
+# Backward-compatible name used by the upload route and frontend config. It now means
+# "maximum photos accepted into the gallery", not "photos sent individually to vision".
+MAX_VISION_IMAGES = MAX_GALLERY_IMAGES
+
+IMAGE_MAX_SIDE = max(640, min(2000, int(os.environ.get("CHECKNI_IMAGE_MAX_SIDE", "1600"))))
+IMAGE_QUALITY = max(45, min(92, int(os.environ.get("CHECKNI_IMAGE_QUALITY", "72"))))
+DUPLICATE_AHASH_DISTANCE = max(
+    0, min(12, int(os.environ.get("CHECKNI_DUPLICATE_AHASH_DISTANCE", "3")))
+)
+DUPLICATE_DHASH_DISTANCE = max(
+    0, min(16, int(os.environ.get("CHECKNI_DUPLICATE_DHASH_DISTANCE", "5")))
+)
+DUPLICATE_COLOR_DISTANCE = max(
+    0.0, min(80.0, float(os.environ.get("CHECKNI_DUPLICATE_COLOR_DISTANCE", "22")))
+)
 
 ProgressCallback = Callable[[str, int, str, dict[str, Any] | None], None]
 
@@ -151,10 +198,12 @@ def scrape_listing(
 
     env = os.environ.copy()
     env["SCRAPPER_AUTA_DIR"] = str(listing_root)
-    env["DEMO_MAX_SCRAPED_IMAGES"] = str(MAX_VISION_IMAGES + 2)
+    # Preserve the full gallery (within the explicit safety cap); vision selection
+    # happens later and no longer controls how many listing photos are downloaded.
+    env["DEMO_MAX_SCRAPED_IMAGES"] = str(MAX_GALLERY_IMAGES)
     env.setdefault("DEMO_IMAGE_REQUEST_TIMEOUT", "8")
 
-    _emit(callback, "scraping", 12, "Načítavam údaje a fotografie z inzerátu.")
+    _emit(callback, "scraping", 12, "Načítavam údaje a celú galériu inzerátu.")
     try:
         completed = subprocess.run(
             [sys.executable, str(scraper_entry), url],
@@ -189,14 +238,14 @@ def scrape_listing(
         else:
             raise PipelineError("Scraper nedodal použiteľné údaje z inzerátu.")
 
-    _emit(callback, "scraping", 28, "Inzerát je načítaný.")
+    _emit(callback, "scraping", 28, "Inzerát a galéria sú načítané.")
     return expected_dir
 
 
 def _last_useful_line(text: str) -> str:
     for line in reversed(text.splitlines()):
         cleaned = line.strip()
-        if cleaned and not cleaned.lower().startswith(("traceback", "file \"")):
+        if cleaned and not cleaned.lower().startswith(("traceback", 'file "')):
             return cleaned[:240]
     return ""
 
