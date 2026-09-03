@@ -27,7 +27,8 @@ from v2_config import (
     utc_now,
 )
 from v2_images import prepare_images
-from v2_normalize import calculate_data_quality, normalize_listing
+from v2_normalize import calculate_data_quality
+from v2_normalize_guard import normalize_listing
 from v2_report import build_fallback_report, sanitize_report
 
 
