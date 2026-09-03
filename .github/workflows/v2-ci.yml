@@ -31,11 +31,13 @@ jobs:
         run: >-
           python -m py_compile
           Bazos_v2.py
+          v2_entry.py
           v2_app.py
           v2_config.py
           v2_normalize.py
           v2_normalize_guard.py
           v2_images.py
+          v2_photo_pipeline.py
           v2_schema_photo.py
           v2_schema_research.py
           v2_schema_report.py
@@ -58,9 +60,11 @@ jobs:
           node-version: "22"
 
       - name: Validate frontend JavaScript
-        run: node --check web_v2/app.js
+        run: |
+          node --check web_v2/app.js
+          node --check web_v2/gallery.js
 
-      - name: Validate frontend references and translations
+      - name: Validate frontend references, translations and gallery assets
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -82,12 +86,27 @@ jobs:
           missing_sk = sorted(html_keys - sk_keys)
           missing_cs = sorted(html_keys - cs_keys)
 
-          if missing_ids or missing_sk or missing_cs:
+          expected_assets = {
+              "/v2-static/styles.css": Path("web_v2/styles.css"),
+              "/v2-static/gallery.css": Path("web_v2/gallery.css"),
+              "/v2-static/app.js": Path("web_v2/app.js"),
+              "/v2-static/gallery.js": Path("web_v2/gallery.js"),
+          }
+          missing_assets = sorted(
+              url
+              for url, path in expected_assets.items()
+              if url not in html or not path.is_file()
+          )
+
+          if missing_ids or missing_sk or missing_cs or missing_assets:
               raise SystemExit(
-                  f"Missing DOM IDs={missing_ids}; SK keys={missing_sk}; CS keys={missing_cs}"
+                  "Missing DOM IDs="
+                  f"{missing_ids}; SK keys={missing_sk}; CS keys={missing_cs}; "
+                  f"assets={missing_assets}"
               )
 
           print(
-              f"Validated {len(refs)} DOM references and {len(html_keys)} translated UI keys."
+              f"Validated {len(refs)} DOM references, {len(html_keys)} translated UI keys "
+              f"and {len(expected_assets)} frontend assets."
           )
           PY
