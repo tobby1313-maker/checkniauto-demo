@@ -142,9 +142,12 @@ def scrape_listing(
     listing_root.mkdir(parents=True, exist_ok=True)
     slug = derive_slug(url)
     expected_dir = listing_root / slug
-    main_py = ROOT_DIR / "main.py"
-    if not main_py.exists():
-        raise PipelineError("Chýba scraper main.py.")
+    host = normalized_host(url)
+    scraper_entry = ROOT_DIR / (
+        "Bazos_v2.py" if host.endswith(("bazos.sk", "bazos.cz")) else "main.py"
+    )
+    if not scraper_entry.exists():
+        raise PipelineError(f"Chýba scraper {scraper_entry.name}.")
 
     env = os.environ.copy()
     env["SCRAPPER_AUTA_DIR"] = str(listing_root)
@@ -154,7 +157,7 @@ def scrape_listing(
     _emit(callback, "scraping", 12, "Načítavam údaje a fotografie z inzerátu.")
     try:
         completed = subprocess.run(
-            [sys.executable, str(main_py), url],
+            [sys.executable, str(scraper_entry), url],
             cwd=str(ROOT_DIR),
             env=env,
             capture_output=True,
