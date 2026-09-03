@@ -1,0 +1,93 @@
+name: Checkni Auto V2 CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, v2-product-rebuild]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Compile V2 Python modules
+        run: >-
+          python -m py_compile
+          Bazos_v2.py
+          v2_app.py
+          v2_config.py
+          v2_normalize.py
+          v2_normalize_guard.py
+          v2_images.py
+          v2_schema_photo.py
+          v2_schema_research.py
+          v2_schema_report.py
+          v2_schemas.py
+          v2_ai_client.py
+          v2_ai_tasks.py
+          v2_ai.py
+          v2_fallback.py
+          v2_report.py
+          v2_pipeline.py
+
+      - name: Run unit tests
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -v
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate frontend JavaScript
+        run: node --check web_v2/app.js
+
+      - name: Validate frontend references and translations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          html = Path("web_v2/index.html").read_text(encoding="utf-8")
+          js = Path("web_v2/app.js").read_text(encoding="utf-8")
+
+          ids = set(re.findall(r'id="([^"]+)"', html))
+          refs = set(re.findall(r'\$\("#([A-Za-z0-9_-]+)"\)', js))
+          missing_ids = sorted(refs - ids)
+
+          html_keys = set(re.findall(r'data-i18n="([^"]+)"', html))
+          html_keys |= set(re.findall(r'data-i18n-placeholder="([^"]+)"', html))
+          sk_block = js.split("sk: {", 1)[1].split("\n    },\n    cs: {", 1)[0]
+          cs_block = js.split("cs: {", 1)[1].split("\n    }\n  };", 1)[0]
+          sk_keys = set(re.findall(r"^\s{6}([A-Za-z0-9_]+):", sk_block, re.M))
+          cs_keys = set(re.findall(r"^\s{6}([A-Za-z0-9_]+):", cs_block, re.M))
+          missing_sk = sorted(html_keys - sk_keys)
+          missing_cs = sorted(html_keys - cs_keys)
+
+          if missing_ids or missing_sk or missing_cs:
+              raise SystemExit(
+                  f"Missing DOM IDs={missing_ids}; SK keys={missing_sk}; CS keys={missing_cs}"
+              )
+
+          print(
+              f"Validated {len(refs)} DOM references and {len(html_keys)} translated UI keys."
+          )
+          PY
