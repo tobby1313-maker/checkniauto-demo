@@ -115,9 +115,7 @@ def _raw_parameter(raw: dict[str, Any], aliases: Iterable[str]) -> Any:
     for container in containers:
         for key, value in container.items():
             normalized = _clean_markdown_label(str(key))
-            if normalized in alias_keys or any(
-                alias in normalized or normalized in alias for alias in alias_keys
-            ):
+            if normalized in alias_keys or any(alias in normalized or normalized in alias for alias in alias_keys):
                 if value not in (None, "", 0, [], {}):
                     return value
     return ""
@@ -133,15 +131,15 @@ def normalize_listing(listing_dir: Path, source_url: str = "") -> dict[str, Any]
     raw = _load_raw_listing(listing_dir)
     title = str(raw.get("title") or _title_from_markdown(text))
 
-    source = source_url or str(
-        raw.get("url") or _pick(pairs, ["source", "url", "zdroj", "source url"])
-    )
+    source = source_url or str(raw.get("url") or _pick(pairs, ["source", "url", "zdroj", "source url"]))
     raw_price = raw.get("priceCurrent") or raw.get("price") or raw.get("listPrice") or 0
     price_text = str(raw_price or _pick(pairs, ["current price", "price", "cena"]))
     raw_currency = str(raw.get("currency") or raw.get("priceCurrency") or "")
+    source_host = normalized_host(source) if source else ""
     currency = (
         "CZK"
-        if re.search(r"\b(?:czk|kč)\b", f"{raw_currency} {price_text}", re.I)
+        if source_host.endswith("bazos.cz")
+        or re.search(r"\b(?:czk|kč)\b", f"{raw_currency} {price_text}", re.I)
         else "EUR"
     )
     if not price_text:
@@ -151,85 +149,32 @@ def normalize_listing(listing_dir: Path, source_url: str = "") -> dict[str, Any]
         if re.search(r"\b(?:czk|kč)\b", price_text, re.I):
             currency = "CZK"
 
-    mileage_text = str(
-        _raw_parameter(
-            raw,
-            [
-                "mileage",
-                "mileage_km",
-                "najazdené km",
-                "najazd",
-                "kilometre",
-                "stav tachometra",
-            ],
-        )
-        or _pick(
-            pairs,
-            ["mileage", "najazdené km", "najazd", "kilometre", "stav tachometra"],
-        )
-    )
+    mileage_text = str(_raw_parameter(raw, ["mileage", "mileage_km", "najazdené km", "najazd", "kilometre", "stav tachometra"]) or _pick(
+        pairs,
+        ["mileage", "najazdené km", "najazd", "kilometre", "stav tachometra"],
+    ))
     if not mileage_text:
         mileage_text = _first_regex([r"\b([\d\s.]{3,})\s*km\b"], text)
 
-    year_text = str(
-        _raw_parameter(
-            raw,
-            ["yearValue", "year", "rok", "rok výroby", "v prevádzke od", "model year"],
-        )
-        or _pick(
-            pairs,
-            ["year", "rok", "rok výroby", "v prevádzke od", "model year"],
-        )
-    )
-    vin = str(
-        _raw_parameter(raw, ["vin", "vin number", "vin číslo"])
-        or _pick(pairs, ["vin", "vin number", "vin číslo"])
-    )
+    year_text = str(_raw_parameter(raw, ["yearValue", "year", "rok", "rok výroby", "v prevádzke od", "model year"]) or _pick(
+        pairs,
+        ["year", "rok", "rok výroby", "v prevádzke od", "model year"],
+    ))
+    vin = str(_raw_parameter(raw, ["vin", "vin number", "vin číslo"]) or _pick(pairs, ["vin", "vin number", "vin číslo"]))
     vin_match = re.search(r"\b[A-HJ-NPR-Z0-9]{17}\b", vin or text, re.I)
     vin = vin_match.group(0).upper() if vin_match else ""
 
-    engine = str(
-        _raw_parameter(
-            raw,
-            [
-                "engineCapacity",
-                "engine_capacity_cc",
-                "engine",
-                "motor",
-                "engine capacity",
-                "objem motora",
-                "zdvihový objem",
-            ],
-        )
-        or _pick(
-            pairs,
-            ["engine", "motor", "engine capacity", "objem motora", "zdvihový objem"],
-        )
-    )
-    power = str(
-        _raw_parameter(raw, ["enginePower", "engine_power_kw", "engine power", "výkon", "power"])
-        or _pick(pairs, ["engine power", "výkon", "power"])
-    )
-    fuel = str(
-        _raw_parameter(raw, ["fuelValue", "fuel", "palivo"])
-        or _pick(pairs, ["fuel", "palivo"])
-    )
-    transmission = str(
-        _raw_parameter(raw, ["gearboxValue", "transmission", "prevodovka", "gearbox"])
-        or _pick(pairs, ["transmission", "prevodovka", "gearbox"])
-    )
-    drivetrain = str(
-        _raw_parameter(raw, ["driveValue", "drivetrain", "pohon", "drive"])
-        or _pick(pairs, ["drivetrain", "pohon", "drive"])
-    )
+    engine = str(_raw_parameter(raw, ["engineCapacity", "engine_capacity_cc", "engine", "motor", "engine capacity", "objem motora", "zdvihový objem"]) or _pick(
+        pairs,
+        ["engine", "motor", "engine capacity", "objem motora", "zdvihový objem"],
+    ))
+    power = str(_raw_parameter(raw, ["enginePower", "engine_power_kw", "engine power", "výkon", "power"]) or _pick(pairs, ["engine power", "výkon", "power"]))
+    fuel = str(_raw_parameter(raw, ["fuelValue", "fuel", "palivo"]) or _pick(pairs, ["fuel", "palivo"]))
+    transmission = str(_raw_parameter(raw, ["gearboxValue", "transmission", "prevodovka", "gearbox"]) or _pick(pairs, ["transmission", "prevodovka", "gearbox"]))
+    drivetrain = str(_raw_parameter(raw, ["driveValue", "drivetrain", "pohon", "drive"]) or _pick(pairs, ["drivetrain", "pohon", "drive"]))
     seller_raw = raw.get("seller") or raw.get("user") or {}
     if isinstance(seller_raw, dict):
-        seller_raw = (
-            seller_raw.get("name")
-            or seller_raw.get("displayName")
-            or seller_raw.get("Meno")
-            or ""
-        )
+        seller_raw = seller_raw.get("name") or seller_raw.get("displayName") or seller_raw.get("Meno") or ""
     seller = str(seller_raw or _pick(pairs, ["name", "meno", "seller", "predajca"]))
     location_raw = raw.get("location") or ""
     if isinstance(location_raw, dict):
@@ -253,10 +198,9 @@ def normalize_listing(listing_dir: Path, source_url: str = "") -> dict[str, Any]
         elif re.search(r"\b(manu[aá]l)\b", lower):
             transmission = "Manuálna"
 
-    if not drivetrain and re.search(
-        r"\b(4x4|awd|4wd|quattro|xdrive|4matic)\b", lower
-    ):
-        drivetrain = "4x4 / AWD"
+    if not drivetrain:
+        if re.search(r"\b(4x4|awd|4wd|quattro|xdrive|4matic)\b", lower):
+            drivetrain = "4x4 / AWD"
 
     description = str(raw.get("description") or raw.get("poznamka") or "")
     section_match = re.search(
@@ -275,9 +219,7 @@ def normalize_listing(listing_dir: Path, source_url: str = "") -> dict[str, Any]
     )
 
     images_dir = listing_dir / "images"
-    photo_files = (
-        [p for p in images_dir.iterdir() if p.is_file()] if images_dir.exists() else []
-    )
+    photo_files = [p for p in images_dir.iterdir() if p.is_file()] if images_dir.exists() else []
     photos_count = max(
         len(photo_files),
         _number(raw.get("photos_count")),
@@ -287,7 +229,7 @@ def normalize_listing(listing_dir: Path, source_url: str = "") -> dict[str, Any]
     normalized = {
         "title": title,
         "source_url": source,
-        "source_host": normalized_host(source) if source else "",
+        "source_host": source_host,
         "price": {"amount": _number(price_text), "currency": currency},
         "year": _year(year_text, f"{title}\n{text[:4000]}"),
         "mileage_km": _number(mileage_text),
@@ -310,12 +252,7 @@ def normalize_listing(listing_dir: Path, source_url: str = "") -> dict[str, Any]
 
 def calculate_data_quality(listing: dict[str, Any]) -> dict[str, Any]:
     checks: list[tuple[str, bool, int, bool]] = [
-        (
-            "názov a model",
-            bool(listing.get("title") and listing.get("title") != "Neznáme vozidlo"),
-            10,
-            True,
-        ),
+        ("názov a model", bool(listing.get("title") and listing.get("title") != "Neznáme vozidlo"), 10, True),
         ("cena", bool(listing.get("price", {}).get("amount")), 10, True),
         ("rok výroby", bool(listing.get("year")), 10, True),
         ("najazdené kilometre", bool(listing.get("mileage_km")), 10, True),
