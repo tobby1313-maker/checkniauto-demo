@@ -26,10 +26,34 @@ from v2_config import (
     scrape_listing,
     utc_now,
 )
-from v2_images import prepare_images
+from v2_images import prepare_gallery, public_gallery, reset_review_levels
 from v2_normalize import calculate_data_quality
 from v2_normalize_guard import normalize_listing
 from v2_report import build_fallback_report, sanitize_report
+
+
+def _unavailable_photo_with_gallery(
+    reason: str,
+    image_package: dict[str, Any],
+) -> dict[str, Any]:
+    reset_review_levels(image_package)
+    manifest = public_gallery(image_package)
+    result = unavailable_photo(reason, 0)
+    result.update(
+        {
+            "gallery_total": manifest["gallery_total"],
+            "gallery_unique": manifest["gallery_unique"],
+            "duplicate_count": manifest["duplicate_count"],
+            "overview_unique_count": 0,
+            "overview_sheet_count": manifest["overview_sheet_count"],
+            "detail_count": 0,
+            "visual_coverage_count": 0,
+            "visual_coverage_percent": 0,
+            "clusters": manifest["clusters"],
+            "gallery": manifest["gallery"],
+        }
+    )
+    return result
 
 
 def run_analysis_pipeline(
@@ -48,7 +72,7 @@ def run_analysis_pipeline(
         listing_dir = scrape_listing(source_url, job_dir, callback)
     else:
         listing_dir = existing_listing_dir
-        _emit(callback, "scraping", 28, "Manuálne údaje sú pripravené.")
+        _emit(callback, "scraping", 28, "Manuálne údaje a fotografie sú pripravené.")
 
     _emit(callback, "normalizing", 34, "Kontrolujem úplnosť a konzistenciu údajov.")
     listing = normalize_listing(listing_dir, source_url=source_url)
@@ -69,20 +93,31 @@ def run_analysis_pipeline(
         },
     )
 
-    images = prepare_images(listing_dir, job_dir)
+    image_package = prepare_gallery(listing_dir, job_dir)
+    total = int(image_package.get("gallery_total", 0) or 0)
+    unique = int(image_package.get("gallery_unique", 0) or 0)
+    duplicates = int(image_package.get("duplicate_count", 0) or 0)
+    sheets = int(image_package.get("overview_sheet_count", 0) or 0)
     _emit(
         callback,
         "analysis",
         48,
-        f"Spúšťam paralelnú kontrolu fotografií a webové overenie ({len(images)} fotiek).",
+        (
+            f"Galéria: {total} fotiek, {unique} odlišných záberov, "
+            f"{duplicates} podobných. Spúšťam {sheets} prehľadových koláží "
+            "a webové overenie paralelne."
+        ),
     )
 
-    photo: dict[str, Any] = unavailable_photo("Fotografická analýza sa nespustila.")
+    photo: dict[str, Any] = _unavailable_photo_with_gallery(
+        "Fotografická analýza sa nespustila.",
+        image_package,
+    )
     research: dict[str, Any] = unavailable_research("Webové overenie sa nespustilo.")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         futures = {
-            pool.submit(analyze_photos, listing, images, language): "photos",
+            pool.submit(analyze_photos, listing, image_package, language): "photos",
             pool.submit(research_vehicle, listing, language): "research",
         }
         completed_count = 0
@@ -93,14 +128,20 @@ def run_analysis_pipeline(
                 value = future.result()
                 if module == "photos":
                     photo = value
-                    message = "Fotografie sú vyhodnotené."
+                    message = (
+                        f"Fotogaléria je pokrytá na {photo.get('visual_coverage_percent', 0)} %; "
+                        f"{photo.get('detail_count', 0)} záberov prešlo detailnou kontrolou."
+                    )
                 else:
                     research = value
                     message = "Technické a trhové podklady sú pripravené."
             except Exception as exc:
                 if module == "photos":
-                    photo = unavailable_photo(str(exc), len(images))
-                    message = "Fotografický modul nebol dostupný; pokračujem bez neho."
+                    photo = _unavailable_photo_with_gallery(str(exc), image_package)
+                    message = (
+                        "Fotografický modul nebol dostupný; všetky fotky zostali "
+                        "v inventári reportu bez vizuálnych tvrdení."
+                    )
                 else:
                     research = unavailable_research(str(exc))
                     message = "Webové overenie nebolo dostupné; pokračujem s údajmi inzerátu."
