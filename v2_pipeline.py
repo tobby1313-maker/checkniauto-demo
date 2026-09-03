@@ -13,7 +13,7 @@ from v2_ai import (
     unavailable_photo,
     unavailable_research,
 )
-from v2_core import (
+from v2_config import (
     MAX_VISION_IMAGES,
     SUPPORTED_HOSTS,
     TEXT_MODEL,
@@ -21,14 +21,13 @@ from v2_core import (
     PipelineError,
     ProgressCallback,
     _emit,
-    calculate_data_quality,
     is_supported_url,
     normalize_language,
-    normalize_listing,
-    prepare_images,
     scrape_listing,
     utc_now,
 )
+from v2_images import prepare_images
+from v2_normalize import calculate_data_quality, normalize_listing
 from v2_report import build_fallback_report, sanitize_report
 
 
