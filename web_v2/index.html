@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Checkni Auto preverí inzerát, fotografie, technické riziká a cenu ojazdeného auta pred obhliadkou.">
+  <meta name="theme-color" content="#111827">
+  <title>Checkni Auto V2 — kontrola auta pred obhliadkou</title>
+  <link rel="icon" href="/assets/checkni-auto-logo.png">
+  <link rel="stylesheet" href="/v2-static/styles.css">
+  <script src="/v2-static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#analyzer">Preskočiť na analýzu</a>
+  <header class="header">
+    <div class="container nav">
+      <a class="brand" href="#top" aria-label="Checkni Auto domov">
+        <img src="/assets/checkni-auto-logo.png" alt="" width="42" height="42">
+        <span><strong>Checkni Auto</strong><small>V2 beta</small></span>
+      </a>
+      <div class="nav-actions">
+        <a href="#what" data-i18n="navReport">Obsah reportu</a>
+        <label class="language"><span class="sr-only">Jazyk</span><select id="languageSelect"><option value="sk">SK</option><option value="cs">CZ</option></select></label>
+        <a class="button button-dark button-small" href="#analyzer" data-i18n="navCta">Preveriť auto</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow" data-i18n="eyebrow">Rozhodovací report pred obhliadkou</p>
+          <h1 data-i18n="heroTitle">Zistite, či sa oplatí ísť auto pozrieť.</h1>
+          <p class="lead" data-i18n="heroLead">Jedna analýza spojí údaje z inzerátu, fotografie, typické technické riziká a dostupné trhové podklady do jasného verdiktu.</p>
+          <ul class="hero-list">
+            <li><strong>01</strong><span data-i18n="heroPoint1">Konkrétne zistenia z fotografií</span></li>
+            <li><strong>02</strong><span data-i18n="heroPoint2">Dôkaz a istota pri každom riziku</span></li>
+            <li><strong>03</strong><span data-i18n="heroPoint3">Otázky predajcovi a checklist obhliadky</span></li>
+          </ul>
+          <div class="target"><strong>30–90 s</strong><span data-i18n="targetText">cieľový čas; výsledok prežije obnovenie stránky</span></div>
+        </div>
+
+        <section class="analyzer" id="analyzer" aria-labelledby="analyzerTitle">
+          <div class="analyzer-head">
+            <div><p class="kicker">Checkni Auto V2</p><h2 id="analyzerTitle" data-i18n="analyzerTitle">Preverte inzerát</h2></div>
+            <div class="price"><strong id="priceLabel">1,99 €</strong><span id="accessLabel" data-i18n="betaFree">beta zdarma</span></div>
+          </div>
+          <div class="tabs" role="tablist">
+            <button class="tab active" id="urlTab" type="button" aria-selected="true" data-i18n="urlTab">Odkaz</button>
+            <button class="tab" id="manualTab" type="button" aria-selected="false" data-i18n="manualTab">Vlastné údaje</button>
+          </div>
+
+          <form id="urlForm" class="form" novalidate>
+            <label for="listingUrl" data-i18n="urlLabel">Odkaz na inzerát</label>
+            <input id="listingUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://auto.bazos.sk/inzerat/..." required>
+            <p class="help" data-i18n="supported">Autobazar.eu, Autobazar.sk, Bazoš.sk a Bazoš.cz</p>
+            <button class="button button-primary" type="submit" data-i18n="start">Spustiť analýzu</button>
+          </form>
+
+          <form id="manualForm" class="form hidden" enctype="multipart/form-data" novalidate>
+            <div class="form-grid">
+              <label><span data-i18n="carTitle">Názov auta</span><input name="title" placeholder="Škoda Octavia 2.0 TDI"></label>
+              <label><span data-i18n="priceForm">Cena</span><span class="price-input"><input name="price" inputmode="numeric" placeholder="12900"><select name="currency"><option>EUR</option><option>CZK</option></select></span></label>
+            </div>
+            <label><span data-i18n="sourceUrl">Zdrojový odkaz (voliteľné)</span><input name="source_url" type="url" placeholder="https://..."></label>
+            <label><span data-i18n="listingText">Text inzerátu a servisné údaje</span><textarea name="manual_text" rows="6" data-i18n-placeholder="listingPlaceholder" placeholder="Skopírujte popis, výbavu, VIN a servisnú históriu..."></textarea></label>
+            <label class="upload" id="uploadZone"><input id="manualImages" name="images" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple><strong data-i18n="uploadTitle">Pridať fotografie</strong><span id="uploadHelp" data-i18n="uploadHelp">Maximálne 10 obrázkov</span></label>
+            <div id="fileList" class="file-list" aria-live="polite"></div>
+            <button class="button button-primary" type="submit" data-i18n="startManual">Analyzovať vlastné údaje</button>
+          </form>
+          <p class="privacy" data-i18n="privacy">API kľúče zostávajú na serveri. Report nenahrádza VIN databázu ani fyzickú kontrolu.</p>
+          <div class="error hidden" id="formError" role="alert"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="progress-section hidden" id="progressSection" aria-live="polite">
+      <div class="container progress-card">
+        <div class="progress-copy">
+          <p class="kicker" data-i18n="progressKicker">Prebieha kontrola</p>
+          <div class="progress-title"><h2 data-i18n="progressTitle">Analyzujeme vozidlo</h2><strong id="progressPercent">0 %</strong></div>
+          <div class="progress-track"><span id="progressBar"></span></div>
+          <p id="progressMessage">Analýza je zaradená.</p>
+          <ol class="stages">
+            <li data-stage="scraping"><i></i><span data-i18n="stage1">Načítanie inzerátu</span></li>
+            <li data-stage="normalizing"><i></i><span data-i18n="stage2">Kontrola úplnosti údajov</span></li>
+            <li data-stage="photos"><i></i><span data-i18n="stage3">Analýza fotografií</span></li>
+            <li data-stage="research"><i></i><span data-i18n="stage4">Technické a trhové overenie</span></li>
+            <li data-stage="synthesis"><i></i><span data-i18n="stage5">Zostavenie reportu</span></li>
+          </ol>
+        </div>
+        <aside class="preview">
+          <p class="kicker" data-i18n="preview">Načítané vozidlo</p><h3 id="previewTitle" data-i18n="waiting">Čakám na údaje</h3>
+          <dl><div><dt data-i18n="priceWord">Cena</dt><dd id="previewPrice">—</dd></div><div><dt data-i18n="yearWord">Rok</dt><dd id="previewYear">—</dd></div><div><dt data-i18n="mileageWord">Najazdené</dt><dd id="previewMileage">—</dd></div><div><dt data-i18n="qualityWord">Úplnosť</dt><dd id="previewCompleteness">—</dd></div></dl>
+          <small data-i18n="refreshSafe">Stránku môžete obnoviť. Stav sa priebežne ukladá.</small>
+        </aside>
+      </div>
+    </section>
+
+    <section class="report-section hidden" id="reportSection">
+      <div class="container report">
+        <div class="report-toolbar"><div><p class="kicker" data-i18n="result">Výsledok kontroly</p><h2 id="reportTitle">Report vozidla</h2></div><div><button class="button button-light" id="downloadJsonButton" type="button" data-i18n="download">Dáta JSON</button><button class="button button-light" id="printButton" type="button" data-i18n="pdf">Uložiť PDF</button><button class="button button-dark" id="newAnalysisButton" type="button" data-i18n="new">Nová analýza</button></div></div>
+
+        <article class="verdict" id="verdictCard" data-level="yellow">
+          <div><span id="verdictLabel">—</span><h3 id="verdictSentence">—</h3><p id="verdictRecommendation">—</p></div>
+          <div class="score" id="scoreRing" style="--score:0"><strong id="safetyScore">0</strong><small>/ 100</small></div>
+        </article>
+        <div class="vehicle-facts" id="vehicleStrip"></div>
+        <div class="metrics"><article><span data-i18n="confidence">Istota</span><strong id="confidenceMetric">—</strong><small data-i18n="confidenceHelp">podľa kvality podkladov</small></article><article><span data-i18n="completeness">Úplnosť inzerátu</span><strong id="completenessMetric">—</strong><small id="completenessText">—</small></article><article><span data-i18n="reserve">Rezerva na 30 000 km</span><strong id="costMetric">—</strong><small data-i18n="estimate">orientačný odhad</small></article><article><span data-i18n="photos">Fotografie</span><strong id="photosMetric">—</strong><small id="photosText">—</small></article></div>
+
+        <article class="panel summary"><p class="kicker" data-i18n="summary">Rozhodnutie za 30 sekúnd</p><p id="executiveSummary">—</p></article>
+
+        <section class="block"><div class="block-head"><div><p class="kicker" data-i18n="priority">Priorita</p><h3 data-i18n="findings">Najdôležitejšie zistenia</h3></div><span id="findingsCount">0</span></div><div class="finding-grid" id="findingsGrid"></div></section>
+
+        <div class="two-cols">
+          <article class="panel"><p class="kicker" data-i18n="priceNegotiation">Cena a vyjednávanie</p><h3 id="priceStatus">—</h3><p id="priceSummary">—</p><div class="price-range" id="priceRange"></div><h4 data-i18n="negotiation">Argumenty na vyjednávanie</h4><ul id="negotiationList"></ul></article>
+          <article class="panel"><p class="kicker" data-i18n="transparency">Transparentnosť</p><h3 data-i18n="missing">Čo v inzeráte chýba</h3><div class="quality-track"><span id="qualityMeter"></span></div><ul id="missingList"></ul></article>
+        </div>
+
+        <section class="block" id="photoBlock"><div class="block-head"><div><p class="kicker" data-i18n="visual">Vizuálna kontrola</p><h3 data-i18n="photoTitle">Čo ukázali fotografie</h3></div></div><p id="photoSummary">—</p><div class="photo-grid" id="photoFindings"></div><div class="coverage" id="coverageBox"><h4 data-i18n="notShown">Čo na fotkách chýba</h4><ul id="coverageList"></ul></div></section>
+
+        <section class="block"><div class="block-head"><div><p class="kicker" data-i18n="buffer">Finančný vankúš</p><h3 data-i18n="costs">Odhad nákladov na 30 000 km</h3></div><strong id="costsTotal">—</strong></div><p id="costsSummary">—</p><div class="table-wrap"><table><thead><tr><th data-i18n="item">Položka</th><th data-i18n="reason">Prečo</th><th data-i18n="when">Kedy</th><th data-i18n="amount">Odhad</th></tr></thead><tbody id="costTableBody"></tbody></table></div></section>
+
+        <div class="two-cols">
+          <section class="panel"><div class="panel-head"><div><p class="kicker" data-i18n="beforeCall">Pred telefonátom</p><h3 data-i18n="questions">Otázky pre predajcu</h3></div><button class="link-button" id="copyQuestionsButton" type="button" data-i18n="copy">Kopírovať</button></div><ol id="questionList" class="questions"></ol></section>
+          <section class="panel"><p class="kicker" data-i18n="inspection">Na obhliadke</p><h3 data-i18n="checklist">Kontrolný zoznam</h3><div id="checklistGroups"></div></section>
+        </div>
+
+        <section class="panel sources"><p class="kicker" data-i18n="evidence">Dôkazy</p><h3 data-i18n="sourcesLimits">Webové zdroje a limity</h3><div class="two-cols"><div><h4 data-i18n="sources">Použité zdroje</h4><ul id="sourceList"></ul></div><div><h4 data-i18n="limits">Limity analýzy</h4><ul id="limitationsList"></ul></div></div><p class="disclaimer" id="disclaimer">—</p></section>
+      </div>
+    </section>
+
+    <section class="what" id="what"><div class="container"><p class="eyebrow" data-i18n="whatKicker">Nie generický AI text</p><h2 data-i18n="whatTitle">Každé zistenie vedie ku konkrétnemu kroku.</h2><div class="feature-grid"><article><strong>01</strong><h3 data-i18n="f1">Fotografie</h3><p data-i18n="f1t">Viditeľné poškodenia, opotrebenie a chýbajúce zábery.</p></article><article><strong>02</strong><h3 data-i18n="f2">Technika</h3><p data-i18n="f2t">Riziká konkrétnej generácie, motora a prevodovky.</p></article><article><strong>03</strong><h3 data-i18n="f3">Cena</h3><p data-i18n="f3t">Porovnania len vtedy, keď existujú použiteľné zdroje.</p></article><article><strong>04</strong><h3 data-i18n="f4">Akčný plán</h3><p data-i18n="f4t">Otázky, červené odpovede a checklist obhliadky.</p></article></div></div></section>
+  </main>
+
+  <footer><div class="container"><span>Checkni Auto V2</span><p data-i18n="footer">Orientačný prvý filter. Pred kúpou využite nezávislú fyzickú kontrolu.</p><a href="#top" data-i18n="top">Hore</a></div></footer>
+</body>
+</html>
