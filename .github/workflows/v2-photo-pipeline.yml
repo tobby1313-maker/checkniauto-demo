@@ -1,0 +1,41 @@
+name: V2 photo pipeline
+
+on:
+  push:
+    branches: [v2]
+    paths:
+      - "scrapper_demo/services/image_*.py"
+      - "scrapper_demo/services/adaptive_image_service.py"
+      - "test_image_service.py"
+      - ".github/workflows/v2-photo-pipeline.yml"
+  pull_request:
+    branches: [test2]
+    paths:
+      - "scrapper_demo/services/image_*.py"
+      - "scrapper_demo/services/adaptive_image_service.py"
+      - "test_image_service.py"
+
+permissions:
+  contents: read
+
+jobs:
+  test-photo-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install test dependency
+        run: python -m pip install --upgrade Pillow
+      - name: Compile image pipeline
+        run: >-
+          python -m py_compile
+          scrapper_demo/services/image_catalog.py
+          scrapper_demo/services/image_collages.py
+          scrapper_demo/services/adaptive_image_service.py
+          scrapper_demo/services/image_service.py
+      - name: Run image regression tests
+        run: python -m unittest -v test_image_service.py
