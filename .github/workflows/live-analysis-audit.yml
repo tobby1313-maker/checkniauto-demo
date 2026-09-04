@@ -1,4 +1,4 @@
-name: Temporary live storage audit
+name: Temporary authenticated analysis audit
 
 on:
   push:
@@ -10,36 +10,239 @@ permissions:
   contents: read
 
 jobs:
-  fetch-health:
+  fetch-admin-artifacts:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
+    env:
+      ADMIN_DASHBOARD_TOKEN: ${{ secrets.ADMIN_DASHBOARD_TOKEN }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      CHECKNIAUTO_ADMIN_TOKEN: ${{ secrets.CHECKNIAUTO_ADMIN_TOKEN }}
     steps:
-      - name: Fetch live health and listing state
+      - name: Authenticate and fetch live analysis internals
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p audit
-          base="https://checkniauto.onrender.com"
-          slug="predam-chrysler-300c-35-v6-2006-lpg"
-          for item in \
-            "healthz:$base/healthz" \
-            "listings:$base/api/demo/listings" \
-            "presentation:$base/api/demo/listings/$slug/presentation"; do
-            name="${item%%:*}"
-            url="${item#*:}"
-            curl --silent --show-error --location --retry 4 --retry-all-errors \
-              --connect-timeout 20 --max-time 180 \
-              --dump-header "audit/${name}-headers.txt" \
-              --output "audit/${name}.txt" \
-              --write-out '%{http_code}\n' "$url" > "audit/${name}-status.txt"
-            printf '%s status=' "$name"
-            cat "audit/${name}-status.txt"
-            printf '%s body=' "$name"
-            cat "audit/${name}.txt"
-            printf '\n'
-          done
-      - uses: actions/upload-artifact@v4
+          mkdir -p audit/artifacts
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from http.cookiejar import CookieJar
+          from pathlib import Path
+
+          BASE = "https://checkniauto.onrender.com"
+          TARGET_SLUG = "predam-chrysler-300c-35-v6-2006-lpg"
+          OUT = Path("audit")
+          token = next(
+              (
+                  value
+                  for value in (
+                      os.environ.get("ADMIN_DASHBOARD_TOKEN", ""),
+                      os.environ.get("DASHBOARD_TOKEN", ""),
+                      os.environ.get("CHECKNIAUTO_ADMIN_TOKEN", ""),
+                  )
+                  if value
+              ),
+              "",
+          )
+          if not token:
+              raise SystemExit(
+                  "No dashboard token is configured as an Actions secret. "
+                  "Expected ADMIN_DASHBOARD_TOKEN, DASHBOARD_TOKEN, or CHECKNIAUTO_ADMIN_TOKEN."
+              )
+
+          jar = CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          user_agent = "Mozilla/5.0 CheckniAutoAuthenticatedAudit/1.0"
+
+          def request(path: str, *, data: bytes | None = None, retries: int = 5) -> tuple[bytes, str, int]:
+              url = path if path.startswith("http") else BASE + path
+              last_error: Exception | None = None
+              for attempt in range(1, retries + 1):
+                  req = urllib.request.Request(
+                      url,
+                      data=data,
+                      headers={"User-Agent": user_agent, "Accept": "application/json,text/html,*/*"},
+                  )
+                  try:
+                      with opener.open(req, timeout=180) as response:
+                          return response.read(), response.geturl(), int(response.status)
+                  except (urllib.error.URLError, TimeoutError) as exc:
+                      last_error = exc
+                      if attempt == retries:
+                          raise
+                      time.sleep(min(3 * attempt, 12))
+              raise RuntimeError(str(last_error))
+
+          login_data = urllib.parse.urlencode({"token": token}).encode("utf-8")
+          login_body, login_url, login_status = request("/admin/login", data=login_data)
+          login_text = login_body.decode("utf-8", errors="replace")
+          if "Invalid administrator token" in login_text or not any(True for _ in jar):
+              raise SystemExit(f"Dashboard authentication failed; status={login_status}, final_url={login_url}")
+          print(f"dashboard authentication: success ({login_status}, {login_url})")
+
+          def fetch_json(path: str, filename: str):
+              body, final_url, status = request(path)
+              target = OUT / filename
+              target.write_bytes(body)
+              try:
+                  payload = json.loads(body.decode("utf-8"))
+              except Exception as exc:
+                  raise RuntimeError(f"{path} did not return JSON: status={status}, final={final_url}, error={exc}")
+              return payload
+
+          listings = fetch_json("/api/admin/listings", "admin-listings.json")
+          usage = fetch_json("/api/token-usage?limit=250", "token-usage.json")
+          print(f"admin listings: {len(listings) if isinstance(listings, list) else 'unexpected payload'}")
+
+          listing = None
+          if isinstance(listings, list):
+              listing = next((item for item in listings if item.get("slug") == TARGET_SLUG), None)
+              if listing is None:
+                  listing = next(
+                      (
+                          item
+                          for item in listings
+                          if "chrysler" in str(item.get("title", "")).lower()
+                          and "300" in str(item.get("title", "")).lower()
+                      ),
+                      None,
+                  )
+          selected_slug = str((listing or {}).get("slug") or TARGET_SLUG)
+          print(f"selected listing: {selected_slug}; metadata={json.dumps(listing, ensure_ascii=False)}")
+
+          artifact_payload = fetch_json(
+              f"/api/admin/listings/{urllib.parse.quote(selected_slug)}/artifacts",
+              "artifact-index.json",
+          )
+          artifacts = artifact_payload.get("artifacts", []) if isinstance(artifact_payload, dict) else []
+          print(f"artifact count: {len(artifacts)}")
+
+          downloaded: list[dict[str, object]] = []
+          for item in artifacts:
+              filename = str(item.get("filename") or "").strip()
+              artifact_url = str(item.get("url") or "").strip()
+              if not filename or not artifact_url:
+                  continue
+              body, final_url, status = request(artifact_url)
+              target = OUT / "artifacts" / Path(filename).name
+              target.write_bytes(body)
+              downloaded.append(
+                  {
+                      "filename": target.name,
+                      "label": item.get("label"),
+                      "bytes": len(body),
+                      "status": status,
+                      "url": final_url,
+                  }
+              )
+          (OUT / "downloaded-artifacts.json").write_text(
+              json.dumps(downloaded, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+
+          for bundle_name, bundle_path in (
+              ("debugging-bundle.zip", f"/api/admin/debugging-bundles/{urllib.parse.quote(selected_slug)}"),
+              ("calibration-bundle.zip", f"/api/admin/calibration-bundles/{urllib.parse.quote(selected_slug)}"),
+          ):
+              try:
+                  body, final_url, status = request(bundle_path, retries=2)
+                  (OUT / bundle_name).write_bytes(body)
+                  print(f"{bundle_name}: {status}, {len(body)} bytes, {final_url}")
+              except Exception as exc:
+                  print(f"{bundle_name}: unavailable ({exc})")
+
+          def read_json_artifact(name: str):
+              path = OUT / "artifacts" / name
+              if not path.exists():
+                  return None
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  return None
+
+          def compact(value, limit: int = 6000) -> str:
+              text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
+              return text if len(text) <= limit else text[:limit] + "\n…[truncated]"
+
+          lines: list[str] = []
+          lines.append("AUTHENTICATED CHECKNI AUTO AUDIT")
+          lines.append(f"Selected slug: {selected_slug}")
+          lines.append(f"Listing metadata: {compact(listing, 2500)}")
+          lines.append("\nARTIFACT FILES")
+          for item in downloaded:
+              lines.append(f"- {item['filename']}: {item['bytes']} bytes")
+
+          for name in (
+              "raw_data.json",
+              "listing_facts.json",
+              "vin_decoded.json",
+              "component_identity.json",
+              "market_search_diagnostics.json",
+              "market_search_results.json",
+              "market_benchmark.json",
+              "grok_research.json",
+              "gemini_vision.json",
+              "gemini_vision_attempts_sanitized.json",
+              "risk_score.json",
+              "validation_warnings.json",
+              "analysis_diagnostics.json",
+          ):
+              payload = read_json_artifact(name)
+              if payload is not None:
+                  lines.append(f"\n===== {name} =====\n{compact(payload)}")
+
+          for name in (
+              "car_info.md",
+              "component_identity_research.md",
+              "reliability_research.md",
+              "market_research_sk_cz.md",
+              "market_research_mobile_de.md",
+              "market_research.md",
+              "web_research.md",
+              "analysis_result_raw.md",
+              "analysis_result.md",
+          ):
+              path = OUT / "artifacts" / name
+              if path.exists():
+                  text = path.read_text(encoding="utf-8", errors="replace")
+                  lines.append(f"\n===== {name} ({len(text)} chars) =====\n{text[:9000]}")
+                  if len(text) > 9000:
+                      lines.append("…[truncated]")
+
+          recent = usage.get("recent", []) if isinstance(usage, dict) else []
+          matched_calls = [
+              item
+              for item in recent
+              if selected_slug in str(item.get("listing_slug") or item.get("listing") or "")
+              or "chrysler" in str(item.get("listing_title") or item.get("listing") or "").lower()
+          ]
+          lines.append("\n===== TOKEN USAGE FOR LISTING =====")
+          lines.append(compact(matched_calls, 12000))
+          lines.append("\n===== TOKEN USAGE TOTALS =====")
+          lines.append(compact({
+              "today": usage.get("today") if isinstance(usage, dict) else None,
+              "totals": usage.get("totals") if isinstance(usage, dict) else None,
+              "by_listing": (usage.get("by_listing") or {}).get(selected_slug) if isinstance(usage, dict) else None,
+              "by_model": usage.get("by_model") if isinstance(usage, dict) else None,
+              "cost_currency": usage.get("cost_currency") if isinstance(usage, dict) else None,
+              "cost_note": usage.get("cost_note") if isinstance(usage, dict) else None,
+          }, 12000))
+
+          summary = "\n".join(lines)
+          (OUT / "audit-summary.txt").write_text(summary, encoding="utf-8")
+          print(summary)
+          PY
+
+      - name: Upload authenticated audit
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: checkniauto-live-storage-audit
+          name: checkniauto-authenticated-analysis-audit
           path: audit
+          if-no-files-found: warn
           retention-days: 1
