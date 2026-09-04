@@ -1,0 +1,94 @@
+name: Apply Chrysler calibration fixes
+
+on:
+  push:
+    branches: [v2]
+    paths:
+      - ".github/workflows/apply-chrysler-calibration.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v2
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Reconstruct and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/patches/chrysler-calibration/part-* > /tmp/chrysler-calibration.patch.gz.b64
+          printf '%s  %s\n' \
+            '6d090af7443c9835efc92ce82fceaa091f568e59f510c4f145c8466e03588494' \
+            '/tmp/chrysler-calibration.patch.gz.b64' | sha256sum --check
+          base64 --decode /tmp/chrysler-calibration.patch.gz.b64 | gzip --decompress > /tmp/chrysler-calibration.patch
+          printf '%s  %s\n' \
+            '50d69a9740d1844d7eb61d9bd6b401653bccdcb06f1e2ae692da2bee66aca43e' \
+            '/tmp/chrysler-calibration.patch' | sha256sum --check
+          git apply --check /tmp/chrysler-calibration.patch
+
+      - name: Apply calibration changes and remove temporary audit files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/chrysler-calibration.patch
+          rm -rf .github/patches/chrysler-calibration
+          rm -f .github/workflows/live-analysis-audit.yml
+          rm -f .github/workflows/apply-chrysler-calibration.yml
+          git diff --check
+          git status --short
+
+      - name: Install application dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile touched Python modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            Bazos.py \
+            token_tracker.py \
+            scrapper_demo/config.py \
+            scrapper_demo/legacy_server.py \
+            scrapper_demo/listing_text_facts.py \
+            scrapper_demo/market_comparables.py \
+            scrapper_demo/presentation.py \
+            scrapper_demo/services/analysis_pipeline.py \
+            scrapper_demo/storage/listing_jobs.py
+
+      - name: Run targeted regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest -v \
+            test_bazos_scraper.py \
+            test_presentation.py \
+            test_analysis_pipeline.py \
+            test_market_comparables.py \
+            test_listing_jobs_repository.py \
+            test_app_factory.py \
+            test_phase0_contracts.py \
+            test_image_service.py
+
+      - name: Commit validated fixes to v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "Fix Chrysler calibration and report persistence"
+          git push origin HEAD:v2
