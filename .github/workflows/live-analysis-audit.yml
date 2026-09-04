@@ -12,56 +12,101 @@ permissions:
 jobs:
   fetch-public-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
-      - name: Fetch public report endpoints
+      - name: Fetch public report, dashboard, APIs and photos
         shell: bash
         run: |
           set -euo pipefail
           base="https://checkniauto.onrender.com"
           slug="predam-chrysler-300c-35-v6-2006-lpg"
-          mkdir -p audit
-          curl --location --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 \
-            --dump-header audit/page-headers.txt \
-            --output audit/analysis-page.html \
-            "$base/analysis/$slug"
-          curl --location --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 \
-            --dump-header audit/presentation-headers.txt \
-            --output audit/presentation.json \
-            "$base/api/demo/listings/$slug/presentation"
-          curl --location --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 \
-            --dump-header audit/artifacts-headers.txt \
-            --output audit/artifacts.json \
-            "$base/api/demo/listings/$slug/artifacts"
+          mkdir -p audit/images audit/screenshots
+
+          fetch() {
+            local name="$1"
+            local url="$2"
+            curl --silent --show-error --location --retry 4 --retry-all-errors \
+              --connect-timeout 20 --max-time 180 \
+              --dump-header "audit/${name}-headers.txt" \
+              --output "audit/${name}" \
+              --write-out '%{http_code}\n' \
+              "$url" > "audit/${name}-status.txt"
+          }
+
+          fetch analysis-page.html "$base/analysis/$slug"
+          fetch presentation.json "$base/api/demo/listings/$slug/presentation"
+          fetch token-dashboard.html "$base/token-dashboard.html"
+          fetch token-usage.json "$base/api/token-usage"
+          fetch listings.json "$base/api/demo/listings"
+          fetch listing-detail.json "$base/api/demo/listings/$slug"
+          fetch artifacts.json "$base/api/demo/listings/$slug/artifacts"
+          fetch analysis-result-raw.txt "$base/api/demo/listings/$slug/analysis-result/raw"
+
           python - <<'PY'
           from pathlib import Path
+          from urllib.request import Request, urlopen
           import json
 
-          for name in ("presentation.json", "artifacts.json"):
-              path = Path("audit") / name
-              print(f"{name}: {path.stat().st_size} bytes")
-              try:
-                  data = json.loads(path.read_text(encoding="utf-8"))
-              except Exception as exc:
-                  print(f"  invalid JSON: {exc}")
+          audit = Path("audit")
+          base = "https://checkniauto.onrender.com"
+          presentation = json.loads((audit / "presentation.json").read_text(encoding="utf-8"))
+          images = (presentation.get("listing") or {}).get("images") or []
+          for index, image in enumerate(images, start=1):
+              relative = str(image.get("url") or "")
+              if not relative:
                   continue
-              if isinstance(data, dict):
-                  print("  keys:", ", ".join(sorted(data)[:30]))
-                  if name == "presentation.json":
-                      listing = data.get("listing") or {}
-                      verdict = data.get("verdict") or {}
-                      vision = data.get("vision") or {}
-                      market = data.get("market") or {}
-                      print("  title:", listing.get("title"))
-                      print("  verdict:", verdict.get("label"), verdict.get("evidence_quality"))
-                      print("  photos:", len(listing.get("images") or []))
-                      print("  visual verdict:", vision.get("visual_verdict"))
-                      print("  market available:", market.get("available"), "comparables:", len(market.get("comparables") or []))
+              url = relative if relative.startswith("http") else base + relative
+              suffix = Path(str(image.get("filename") or "image.jpg")).suffix or ".jpg"
+              target = audit / "images" / f"{index:02d}{suffix}"
+              request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+              with urlopen(request, timeout=120) as response:
+                  target.write_bytes(response.read())
+              print("downloaded", target, target.stat().st_size)
+
+          summary = {
+              "listing": presentation.get("listing"),
+              "verdict": presentation.get("verdict"),
+              "identity": presentation.get("identity"),
+              "market": presentation.get("market"),
+              "costs": presentation.get("costs"),
+              "priority_findings": presentation.get("priority_findings"),
+              "technical_risks": presentation.get("technical_risks"),
+              "vision": presentation.get("vision"),
+              "sources": presentation.get("sources"),
+              "buyer_actions": presentation.get("buyer_actions"),
+          }
+          (audit / "presentation-summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
           PY
+
+          chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -n "$chrome" ]; then
+            "$chrome" --headless=new --disable-gpu --no-sandbox --hide-scrollbars \
+              --window-size=1440,2600 --virtual-time-budget=12000 \
+              --screenshot=audit/screenshots/analysis-desktop.png \
+              "$base/analysis/$slug" || true
+            "$chrome" --headless=new --disable-gpu --no-sandbox --hide-scrollbars \
+              --window-size=1440,2600 --virtual-time-budget=12000 \
+              --screenshot=audit/screenshots/dashboard-desktop.png \
+              "$base/token-dashboard.html" || true
+            "$chrome" --headless=new --disable-gpu --no-sandbox --hide-scrollbars \
+              --window-size=390,2500 --virtual-time-budget=12000 \
+              --screenshot=audit/screenshots/analysis-mobile.png \
+              "$base/analysis/$slug" || true
+          else
+            echo "No Chromium-compatible browser found" > audit/screenshots/browser-unavailable.txt
+          fi
+
+          for status in audit/*-status.txt; do
+            printf '%s: ' "$(basename "$status")"
+            cat "$status"
+          done
+
       - name: Upload fetched public report
         uses: actions/upload-artifact@v4
         with:
-          name: chrysler-live-analysis-audit
+          name: chrysler-live-analysis-audit-expanded
           path: audit
           if-no-files-found: error
           retention-days: 1
