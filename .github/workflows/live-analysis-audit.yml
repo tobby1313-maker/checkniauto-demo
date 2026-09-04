@@ -1,248 +1,925 @@
-name: Temporary authenticated analysis audit
+name: Apply V2 durability and listing-facts fix
 
 on:
   push:
-    branches: [v2]
+    branches: [tmp-auth-audit-20260904]
     paths:
       - ".github/workflows/live-analysis-audit.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  fetch-admin-artifacts:
+  patch-test-and-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    env:
-      ADMIN_DASHBOARD_TOKEN: ${{ secrets.ADMIN_DASHBOARD_TOKEN }}
-      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
-      CHECKNIAUTO_ADMIN_TOKEN: ${{ secrets.CHECKNIAUTO_ADMIN_TOKEN }}
+    timeout-minutes: 30
     steps:
-      - name: Authenticate and fetch live analysis internals
+      - uses: actions/checkout@v4
+        with:
+          ref: v2
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Apply durability, mileage and observability update
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p audit/artifacts
           python - <<'PY'
-          from __future__ import annotations
-
-          import json
-          import os
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-          from http.cookiejar import CookieJar
           from pathlib import Path
+          from textwrap import dedent
 
-          BASE = "https://checkniauto.onrender.com"
-          TARGET_SLUG = "predam-chrysler-300c-35-v6-2006-lpg"
-          OUT = Path("audit")
-          token = next(
-              (
-                  value
-                  for value in (
-                      os.environ.get("ADMIN_DASHBOARD_TOKEN", ""),
-                      os.environ.get("DASHBOARD_TOKEN", ""),
-                      os.environ.get("CHECKNIAUTO_ADMIN_TOKEN", ""),
-                  )
-                  if value
-              ),
-              "",
-          )
-          if not token:
-              raise SystemExit(
-                  "No dashboard token is configured as an Actions secret. "
-                  "Expected ADMIN_DASHBOARD_TOKEN, DASHBOARD_TOKEN, or CHECKNIAUTO_ADMIN_TOKEN."
+          def write(path: str, content: str) -> None:
+              target = Path(path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(dedent(content).lstrip("\n"), encoding="utf-8")
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected one occurrence in {path}, found {count}: {old[:120]!r}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def replace_between(path: str, start_marker: str, end_marker: str, replacement: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              target.write_text(
+                  text[:start] + dedent(replacement).lstrip("\n") + text[end:],
+                  encoding="utf-8",
               )
 
-          jar = CookieJar()
-          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          user_agent = "Mozilla/5.0 CheckniAutoAuthenticatedAudit/1.0"
+          write(
+              "scrapper_demo/config.py",
+              r'''
+              """Typed server configuration for the public demo Flask application."""
 
-          def request(path: str, *, data: bytes | None = None, retries: int = 5) -> tuple[bytes, str, int]:
-              url = path if path.startswith("http") else BASE + path
-              last_error: Exception | None = None
-              for attempt in range(1, retries + 1):
-                  req = urllib.request.Request(
-                      url,
-                      data=data,
-                      headers={"User-Agent": user_agent, "Accept": "application/json,text/html,*/*"},
-                  )
+              from __future__ import annotations
+
+              import os
+              import tempfile
+              from dataclasses import dataclass
+              from pathlib import Path
+              from typing import Mapping
+
+
+              TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+              def _as_bool(value: str | None, default: bool) -> bool:
+                  if value is None:
+                      return default
+                  return value.strip().lower() in TRUE_VALUES
+
+
+              def _as_int(
+                  values: Mapping[str, str],
+                  name: str,
+                  default: int,
+                  *,
+                  minimum: int | None = None,
+              ) -> int:
+                  raw_value = values.get(name, str(default))
                   try:
-                      with opener.open(req, timeout=180) as response:
-                          return response.read(), response.geturl(), int(response.status)
-                  except (urllib.error.URLError, TimeoutError) as exc:
-                      last_error = exc
-                      if attempt == retries:
-                          raise
-                      time.sleep(min(3 * attempt, 12))
-              raise RuntimeError(str(last_error))
+                      parsed = int(raw_value)
+                  except (TypeError, ValueError) as exc:
+                      raise ValueError(f"{name} must be an integer, got {raw_value!r}.") from exc
+                  if minimum is not None:
+                      parsed = max(minimum, parsed)
+                  return parsed
 
-          login_data = urllib.parse.urlencode({"token": token}).encode("utf-8")
-          login_body, login_url, login_status = request("/admin/login", data=login_data)
-          login_text = login_body.decode("utf-8", errors="replace")
-          if "Invalid administrator token" in login_text or not any(True for _ in jar):
-              raise SystemExit(f"Dashboard authentication failed; status={login_status}, final_url={login_url}")
-          print(f"dashboard authentication: success ({login_status}, {login_url})")
 
-          def fetch_json(path: str, filename: str):
-              body, final_url, status = request(path)
-              target = OUT / filename
-              target.write_bytes(body)
-              try:
-                  payload = json.loads(body.decode("utf-8"))
-              except Exception as exc:
-                  raise RuntimeError(f"{path} did not return JSON: status={status}, final={final_url}, error={exc}")
-              return payload
+              @dataclass(frozen=True, slots=True)
+              class DemoServerConfig:
+                  """Validated configuration owned by the Flask/server layer."""
 
-          listings = fetch_json("/api/admin/listings", "admin-listings.json")
-          usage = fetch_json("/api/token-usage?limit=250", "token-usage.json")
-          print(f"admin listings: {len(listings) if isinstance(listings, list) else 'unexpected payload'}")
+                  script_dir: str
+                  data_dir: str
+                  auta_dir: str
+                  knowledge_base_dir: str
+                  web_dir: str
+                  demo_mode: bool
+                  demo_prompt_file: str
+                  demo_rate_limit_per_ip: str
+                  demo_max_concurrent_jobs: int
+                  demo_job_ttl_minutes: int
+                  demo_max_manual_images: int
+                  demo_max_scraped_images: int
+                  demo_skip_kb: bool
+                  demo_analysis_profile: str
+                  demo_max_upload_mb: int
+                  flask_secret_key: str
+                  admin_dashboard_token: str
+                  risk_scorer_v2_active: bool
+                  require_persistent_storage: bool
+                  storage_persistent_hint: bool
+                  render_environment: bool
+                  gemini_primary_api_key: str
+                  gemini_backup_api_key: str
+                  gemini_second_backup_api_key: str
+                  grok_api_key: str
+                  openrouter_api_key: str
 
-          listing = None
-          if isinstance(listings, list):
-              listing = next((item for item in listings if item.get("slug") == TARGET_SLUG), None)
-              if listing is None:
-                  listing = next(
-                      (
-                          item
-                          for item in listings
-                          if "chrysler" in str(item.get("title", "")).lower()
-                          and "300" in str(item.get("title", "")).lower()
-                      ),
-                      None,
+                  @classmethod
+                  def from_env(
+                      cls,
+                      script_dir: str | os.PathLike[str],
+                      environ: Mapping[str, str] | None = None,
+                  ) -> "DemoServerConfig":
+                      values = os.environ if environ is None else environ
+                      resolved_script_dir = str(Path(script_dir).resolve())
+                      explicit_data_dir = str(values.get("SCRAPPER_DATA_DIR") or "").strip()
+                      data_dir = explicit_data_dir or os.path.join(
+                          tempfile.gettempdir(), "scrapper-demo"
+                      )
+                      auta_dir = values.get("SCRAPPER_AUTA_DIR") or os.path.join(data_dir, "Auta")
+
+                      return cls(
+                          script_dir=resolved_script_dir,
+                          data_dir=data_dir,
+                          auta_dir=auta_dir,
+                          knowledge_base_dir=os.path.join(resolved_script_dir, "knowledge_base"),
+                          web_dir=os.path.join(resolved_script_dir, "web"),
+                          demo_mode=_as_bool(values.get("DEMO_MODE"), True),
+                          demo_prompt_file=values.get("DEMO_PROMPT_FILE", "analyze_prompt_v4_koyeb.txt"),
+                          demo_rate_limit_per_ip=values.get("DEMO_RATE_LIMIT_PER_IP", "3/day"),
+                          demo_max_concurrent_jobs=_as_int(
+                              values, "DEMO_MAX_CONCURRENT_JOBS", 1, minimum=1
+                          ),
+                          demo_job_ttl_minutes=_as_int(
+                              values, "DEMO_JOB_TTL_MINUTES", 43_200, minimum=0
+                          ),
+                          demo_max_manual_images=_as_int(
+                              values, "DEMO_MAX_MANUAL_IMAGES", 12, minimum=0
+                          ),
+                          demo_max_scraped_images=_as_int(
+                              values, "DEMO_MAX_SCRAPED_IMAGES", 0, minimum=0
+                          ),
+                          demo_skip_kb=_as_bool(values.get("DEMO_SKIP_KB"), True),
+                          demo_analysis_profile=(
+                              values.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+                              if values.get("DEMO_ANALYSIS_PROFILE", "quality_optimized").strip().lower()
+                              in {"legacy", "quality_optimized", "cost_optimized"}
+                              else "quality_optimized"
+                          ),
+                          demo_max_upload_mb=_as_int(
+                              values, "DEMO_MAX_UPLOAD_MB", 24, minimum=1
+                          ),
+                          flask_secret_key=values.get(
+                              "FLASK_SECRET_KEY", "dev-demo-secret-change-me"
+                          ),
+                          admin_dashboard_token=values.get("ADMIN_DASHBOARD_TOKEN", "").strip(),
+                          risk_scorer_v2_active=_as_bool(
+                              values.get("RISK_SCORER_V2_ACTIVE"), False
+                          ),
+                          require_persistent_storage=_as_bool(
+                              values.get("REQUIRE_PERSISTENT_STORAGE"), False
+                          ),
+                          storage_persistent_hint=_as_bool(
+                              values.get("SCRAPPER_STORAGE_PERSISTENT"), False
+                          ),
+                          render_environment=_as_bool(values.get("RENDER"), False),
+                          gemini_primary_api_key=values.get("GEMINI_PRIMARY_API_KEY", "").strip(),
+                          gemini_backup_api_key=values.get("GEMINI_BACKUP_API_KEY", "").strip(),
+                          gemini_second_backup_api_key=values.get(
+                              "GEMINI_SECOND_BACKUP_API_KEY", ""
+                          ).strip(),
+                          grok_api_key=values.get("GROK_API_KEY", "").strip(),
+                          openrouter_api_key=values.get("OPENROUTER_API_KEY", "").strip(),
+                      )
+
+                  @property
+                  def max_upload_bytes(self) -> int:
+                      return self.demo_max_upload_mb * 1024 * 1024
+
+                  def as_flask_mapping(self) -> dict[str, object]:
+                      return {
+                          "SECRET_KEY": self.flask_secret_key,
+                          "MAX_CONTENT_LENGTH": self.max_upload_bytes,
+                          "DEMO_MODE": self.demo_mode,
+                          "DEMO_PROMPT_FILE": self.demo_prompt_file,
+                          "DEMO_RATE_LIMIT_PER_IP": self.demo_rate_limit_per_ip,
+                          "DEMO_MAX_CONCURRENT_JOBS": self.demo_max_concurrent_jobs,
+                          "DEMO_JOB_TTL_MINUTES": self.demo_job_ttl_minutes,
+                          "DEMO_MAX_MANUAL_IMAGES": self.demo_max_manual_images,
+                          "DEMO_MAX_SCRAPED_IMAGES": self.demo_max_scraped_images,
+                          "DEMO_SKIP_KB": self.demo_skip_kb,
+                          "DEMO_ANALYSIS_PROFILE": self.demo_analysis_profile,
+                          "DEMO_MAX_UPLOAD_MB": self.demo_max_upload_mb,
+                          "SCRAPPER_DATA_DIR": self.data_dir,
+                          "SCRAPPER_AUTA_DIR": self.auta_dir,
+                          "SCRAPPER_KB_DIR": self.knowledge_base_dir,
+                          "SCRAPPER_WEB_DIR": self.web_dir,
+                          "ADMIN_DASHBOARD_TOKEN": self.admin_dashboard_token,
+                          "RISK_SCORER_V2_ACTIVE": self.risk_scorer_v2_active,
+                          "REQUIRE_PERSISTENT_STORAGE": self.require_persistent_storage,
+                          "SCRAPPER_STORAGE_PERSISTENT": self.storage_persistent_hint,
+                          "RENDER_ENVIRONMENT": self.render_environment,
+                          "GEMINI_PRIMARY_API_KEY": self.gemini_primary_api_key,
+                          "GEMINI_BACKUP_API_KEY": self.gemini_backup_api_key,
+                          "GEMINI_SECOND_BACKUP_API_KEY": self.gemini_second_backup_api_key,
+                          "GROK_API_KEY": self.grok_api_key,
+                          "OPENROUTER_API_KEY": self.openrouter_api_key,
+                      }
+              ''',
+          )
+
+          write(
+              "scrapper_demo/storage/runtime.py",
+              r'''
+              """Runtime durability and writeability checks for analysis storage."""
+
+              from __future__ import annotations
+
+              import os
+              import shutil
+              import tempfile
+              import uuid
+              from dataclasses import dataclass
+              from pathlib import Path
+
+
+              RUNTIME_STORAGE_KEY = "checkniauto.runtime_storage"
+
+
+              def _inside(path: Path, root: Path) -> bool:
+                  try:
+                      return os.path.commonpath([str(path), str(root)]) == str(root)
+                  except ValueError:
+                      return False
+
+
+              @dataclass(frozen=True, slots=True)
+              class RuntimeStorageStatus:
+                  data_dir: str
+                  jobs_dir: str
+                  writable: bool
+                  persistent: bool
+                  required: bool
+                  classification: str
+                  free_bytes: int | None
+                  message: str
+                  probe_error: str = ""
+
+                  @property
+                  def ready(self) -> bool:
+                      return self.writable and (self.persistent or not self.required)
+
+                  def as_dict(self) -> dict[str, object]:
+                      return {
+                          "ready": self.ready,
+                          "writable": self.writable,
+                          "persistent": self.persistent,
+                          "required": self.required,
+                          "classification": self.classification,
+                          "data_dir": self.data_dir,
+                          "jobs_dir": self.jobs_dir,
+                          "free_bytes": self.free_bytes,
+                          "message": self.message,
+                          "probe_error": self.probe_error,
+                      }
+
+
+              def inspect_runtime_storage(
+                  data_dir: str | os.PathLike[str],
+                  jobs_dir: str | os.PathLike[str],
+                  *,
+                  persistent_required: bool = False,
+                  persistent_hint: bool = False,
+                  render_environment: bool = False,
+                  temp_root: str | os.PathLike[str] | None = None,
+              ) -> RuntimeStorageStatus:
+                  """Inspect the exact paths used for reports, images and token telemetry.
+
+                  Render's normal filesystem is ephemeral. A production deployment must
+                  both place ``SCRAPPER_DATA_DIR`` on the mounted disk and set
+                  ``SCRAPPER_STORAGE_PERSISTENT=true``. The explicit hint prevents a
+                  writable-but-ephemeral directory from being mistaken for durable storage.
+                  """
+
+                  data_path = Path(data_dir).expanduser().resolve()
+                  jobs_path = Path(jobs_dir).expanduser().resolve()
+                  temp_path = Path(temp_root or tempfile.gettempdir()).expanduser().resolve()
+                  writable = False
+                  probe_error = ""
+                  free_bytes: int | None = None
+
+                  try:
+                      data_path.mkdir(parents=True, exist_ok=True)
+                      jobs_path.mkdir(parents=True, exist_ok=True)
+                      probe = data_path / f".checkniauto-storage-probe-{uuid.uuid4().hex}"
+                      with probe.open("w", encoding="utf-8") as handle:
+                          handle.write("ok")
+                          handle.flush()
+                          os.fsync(handle.fileno())
+                      probe.unlink()
+                      writable = True
+                      free_bytes = int(shutil.disk_usage(data_path).free)
+                  except OSError as exc:
+                      probe_error = f"{type(exc).__name__}: {exc}"
+
+                  if persistent_hint:
+                      persistent = True
+                      classification = "configured_persistent"
+                  elif render_environment:
+                      persistent = False
+                      classification = "render_ephemeral_or_unverified"
+                  elif _inside(jobs_path, temp_path) or _inside(data_path, temp_path):
+                      persistent = False
+                      classification = "temporary_directory"
+                  else:
+                      persistent = True
+                      classification = "local_filesystem"
+
+                  if not writable:
+                      message = "Storage is not writable; no analysis can be safely saved."
+                  elif persistent:
+                      message = "Analysis reports, photos and token telemetry use persistent storage."
+                  elif persistent_required:
+                      message = (
+                          "Persistent storage is required but not configured; analysis submission is blocked."
+                      )
+                  elif render_environment:
+                      message = (
+                          "Render storage is ephemeral or unverified; reports and token history can disappear "
+                          "after a restart or deploy."
+                      )
+                  else:
+                      message = (
+                          "Storage is writable but temporary; suitable for tests, not paid analyses."
+                      )
+
+                  return RuntimeStorageStatus(
+                      data_dir=str(data_path),
+                      jobs_dir=str(jobs_path),
+                      writable=writable,
+                      persistent=persistent,
+                      required=bool(persistent_required),
+                      classification=classification,
+                      free_bytes=free_bytes,
+                      message=message,
+                      probe_error=probe_error,
                   )
-          selected_slug = str((listing or {}).get("slug") or TARGET_SLUG)
-          print(f"selected listing: {selected_slug}; metadata={json.dumps(listing, ensure_ascii=False)}")
-
-          artifact_payload = fetch_json(
-              f"/api/admin/listings/{urllib.parse.quote(selected_slug)}/artifacts",
-              "artifact-index.json",
+              ''',
           )
-          artifacts = artifact_payload.get("artifacts", []) if isinstance(artifact_payload, dict) else []
-          print(f"artifact count: {len(artifacts)}")
 
-          downloaded: list[dict[str, object]] = []
-          for item in artifacts:
-              filename = str(item.get("filename") or "").strip()
-              artifact_url = str(item.get("url") or "").strip()
-              if not filename or not artifact_url:
-                  continue
-              body, final_url, status = request(artifact_url)
-              target = OUT / "artifacts" / Path(filename).name
-              target.write_bytes(body)
-              downloaded.append(
-                  {
-                      "filename": target.name,
-                      "label": item.get("label"),
-                      "bytes": len(body),
-                      "status": status,
-                      "url": final_url,
-                  }
+          write(
+              "scrapper_demo/app.py",
+              r'''
+              """Flask application factory and mode-aware blueprint registration."""
+
+              from __future__ import annotations
+
+              import importlib
+              import os
+              from collections.abc import Mapping
+              from pathlib import Path
+              from typing import Any
+
+              from flask import Flask, jsonify, request
+
+              from .config import DemoServerConfig
+              from .progress import RUNTIME_STATE_KEY, DemoRuntimeState
+              from .routes import create_private_blueprint, create_public_blueprint
+              from .routes._registration import register_app_request_hooks
+              from .storage.runtime import (
+                  RUNTIME_STORAGE_KEY,
+                  RuntimeStorageStatus,
+                  inspect_runtime_storage,
               )
-          (OUT / "downloaded-artifacts.json").write_text(
-              json.dumps(downloaded, ensure_ascii=False, indent=2), encoding="utf-8"
+
+
+              def _apply_config_overrides(app: Flask, overrides: Mapping[str, Any]) -> None:
+                  app.config.update(overrides)
+                  if "SCRAPPER_DATA_DIR" in overrides and "SCRAPPER_AUTA_DIR" not in overrides:
+                      app.config["SCRAPPER_AUTA_DIR"] = os.path.join(
+                          str(app.config["SCRAPPER_DATA_DIR"]), "Auta"
+                      )
+                  if "DEMO_MAX_UPLOAD_MB" in overrides and "MAX_CONTENT_LENGTH" not in overrides:
+                      app.config["MAX_CONTENT_LENGTH"] = (
+                          int(app.config["DEMO_MAX_UPLOAD_MB"]) * 1024 * 1024
+                      )
+
+
+              def _install_storage_guard(app: Flask, status: RuntimeStorageStatus) -> None:
+                  app.extensions[RUNTIME_STORAGE_KEY] = status
+
+                  def runtime_storage_guard():
+                      if request.path.rstrip("/") == "/healthz":
+                          payload = {
+                              "status": "ok" if status.ready else "degraded",
+                              "demo_mode": bool(app.config["DEMO_MODE"]),
+                              "storage": status.as_dict(),
+                          }
+                          return jsonify(payload), 200 if status.ready else 503
+
+                      guarded_paths = {"/api/demo/analyze", "/api/demo/analyze-manual"}
+                      if (
+                          request.method == "POST"
+                          and request.path.rstrip("/") in guarded_paths
+                          and not status.ready
+                      ):
+                          return (
+                              jsonify(
+                                  {
+                                      "error": (
+                                          "Analýza je dočasne nedostupná, pretože úložisko "
+                                          "výsledkov nie je trvalé. Analýza nebola spustená "
+                                          "ani spoplatnená."
+                                      ),
+                                      "code": "persistent_storage_unavailable",
+                                      "storage": status.as_dict(),
+                                  }
+                              ),
+                              503,
+                          )
+                      return None
+
+                  runtime_storage_guard._checkniauto_request_local_hook = True  # type: ignore[attr-defined]
+                  app.before_request(runtime_storage_guard)
+
+
+              def create_app(
+                  config: Mapping[str, Any] | None = None,
+                  *,
+                  register_legacy_routes: bool = True,
+                  import_name: str | None = None,
+              ) -> Flask:
+                  """Create an independently configured Flask application instance."""
+                  script_dir = Path(__file__).resolve().parent.parent
+                  server_config = DemoServerConfig.from_env(script_dir)
+                  static_folder = (
+                      str(config["SCRAPPER_WEB_DIR"])
+                      if config and "SCRAPPER_WEB_DIR" in config
+                      else server_config.web_dir
+                  )
+                  app = Flask(
+                      import_name or __name__,
+                      static_folder=static_folder,
+                      static_url_path="",
+                  )
+                  app.config.from_mapping(server_config.as_flask_mapping())
+                  if config:
+                      _apply_config_overrides(app, config)
+
+                  storage_status = inspect_runtime_storage(
+                      str(app.config["SCRAPPER_DATA_DIR"]),
+                      str(app.config["SCRAPPER_AUTA_DIR"]),
+                      persistent_required=bool(app.config["REQUIRE_PERSISTENT_STORAGE"]),
+                      persistent_hint=bool(app.config["SCRAPPER_STORAGE_PERSISTENT"]),
+                      render_environment=bool(app.config["RENDER_ENVIRONMENT"]),
+                  )
+                  _install_storage_guard(app, storage_status)
+                  app.extensions[RUNTIME_STATE_KEY] = DemoRuntimeState(
+                      int(app.config["DEMO_MAX_CONCURRENT_JOBS"])
+                  )
+
+                  if register_legacy_routes:
+                      legacy_server = importlib.import_module("web_server")
+                      handlers = vars(legacy_server)
+                      app.register_blueprint(create_public_blueprint(handlers))
+                      if not app.config["DEMO_MODE"]:
+                          app.register_blueprint(create_private_blueprint(handlers))
+                      register_app_request_hooks(legacy_server.app, app)
+
+                  return app
+              ''',
           )
 
-          for bundle_name, bundle_path in (
-              ("debugging-bundle.zip", f"/api/admin/debugging-bundles/{urllib.parse.quote(selected_slug)}"),
-              ("calibration-bundle.zip", f"/api/admin/calibration-bundles/{urllib.parse.quote(selected_slug)}"),
-          ):
-              try:
-                  body, final_url, status = request(bundle_path, retries=2)
-                  (OUT / bundle_name).write_bytes(body)
-                  print(f"{bundle_name}: {status}, {len(body)} bytes, {final_url}")
-              except Exception as exc:
-                  print(f"{bundle_name}: unavailable ({exc})")
+          replace_once(
+              "scrapper_demo/routes/_registration.py",
+              """    for function in source.before_request_funcs.get(None, ()):\n        target.before_request(function)\n""",
+              """    for function in source.before_request_funcs.get(None, ()):\n        if getattr(function, \"_checkniauto_request_local_hook\", False):\n            continue\n        target.before_request(function)\n""",
+          )
 
-          def read_json_artifact(name: str):
-              path = OUT / "artifacts" / name
-              if not path.exists():
-                  return None
-              try:
-                  return json.loads(path.read_text(encoding="utf-8"))
-              except Exception:
-                  return None
+          replace_once(
+              "scrapper_demo/storage/listing_jobs.py",
+              """    def cleanup_expired(self, ttl_minutes: int, *, now: float | None = None) -> list[str]:\n        cutoff = (time.time() if now is None else now) - (int(ttl_minutes) * 60)\n""",
+              """    def cleanup_expired(self, ttl_minutes: int, *, now: float | None = None) -> list[str]:\n        ttl_minutes = int(ttl_minutes)\n        if ttl_minutes <= 0:\n            return []\n        cutoff = (time.time() if now is None else now) - (ttl_minutes * 60)\n""",
+          )
 
-          def compact(value, limit: int = 6000) -> str:
-              text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
-              return text if len(text) <= limit else text[:limit] + "\n…[truncated]"
+          replace_between(
+              "Bazos.py",
+              "def _bazos_mileage_km(value):",
+              "\n\ndef _advertised_drivetrain",
+              r'''
+              def _bazos_mileage_km(value):
+                  """Choose the current odometer reading, not a service-history mileage."""
+                  text = str(value or "").replace("\u00a0", " ")
+                  folded = _fold_text(text)
+                  candidates = {}
 
-          lines: list[str] = []
-          lines.append("AUTHENTICATED CHECKNI AUTO AUDIT")
-          lines.append(f"Selected slug: {selected_slug}")
-          lines.append(f"Listing metadata: {compact(listing, 2500)}")
-          lines.append("\nARTIFACT FILES")
-          for item in downloaded:
-              lines.append(f"- {item['filename']}: {item['bytes']} bytes")
+                  number_pattern = (
+                      r"(?:\d{2,3}\s*(?:tis(?:\.|ic)?\.?|x{3}|\.{2,3})"
+                      r"|\d{1,3}(?:[\s.]\d{3}){1,2}|\d{5,7})"
+                  )
+                  current_marker = re.compile(
+                      r"(?:aktualn\w*\s+)?(?:najazd\w*|stav\s+(?:tachometra|km)|"
+                      r"celkov\w*\s+najazd|mileage)\W{0,24}$",
+                      re.IGNORECASE,
+                  )
+                  trailing_current_marker = re.compile(
+                      r"^\W{0,16}(?:km|kilometrov?)?\W{0,16}"
+                      r"(?:aktualn\w*|momentaln\w*|teraz|sucasn\w*)\b",
+                      re.IGNORECASE,
+                  )
+                  service_marker = re.compile(
+                      r"\b(?:lpg|autoplyn|plyn\w*\s+nadrz|montovan\w*|menen\w*|"
+                      r"vymen\w*|servis\w*|opraven\w*|repas\w*|rozvod\w*|"
+                      r"spojk\w*|olej\w*|prevodovk\w*|turbo\w*|brzd\w*|"
+                      r"tlmic\w*|stk|ek)\b",
+                      re.IGNORECASE,
+                  )
+                  interval_marker = re.compile(
+                      r"(?:kazd\w*|interval\w*|po\s+kazd\w*)\W{0,18}$",
+                      re.IGNORECASE,
+                  )
 
-          for name in (
-              "raw_data.json",
-              "listing_facts.json",
-              "vin_decoded.json",
-              "component_identity.json",
-              "market_search_diagnostics.json",
-              "market_search_results.json",
-              "market_benchmark.json",
-              "grok_research.json",
-              "gemini_vision.json",
-              "gemini_vision_attempts_sanitized.json",
-              "risk_score.json",
-              "validation_warnings.json",
-              "analysis_diagnostics.json",
-          ):
-              payload = read_json_artifact(name)
-              if payload is not None:
-                  lines.append(f"\n===== {name} =====\n{compact(payload)}")
+                  def parse_km(raw_value):
+                      folded_value = _fold_text(raw_value).strip()
+                      first_number = re.search(r"\d{2,3}", folded_value)
+                      if (
+                          "tis" in folded_value
+                          or "xxx" in folded_value
+                          or re.fullmatch(r"\d{2,3}\s*\.{2,3}", folded_value)
+                      ):
+                          return int(first_number.group(0)) * 1000 if first_number else None
+                      digits = re.sub(r"\D", "", folded_value)
+                      return int(digits) if digits else None
 
-          for name in (
-              "car_info.md",
-              "component_identity_research.md",
-              "reliability_research.md",
-              "market_research_sk_cz.md",
-              "market_research_mobile_de.md",
-              "market_research.md",
-              "web_research.md",
-              "analysis_result_raw.md",
-              "analysis_result.md",
-          ):
-              path = OUT / "artifacts" / name
-              if path.exists():
-                  text = path.read_text(encoding="utf-8", errors="replace")
-                  lines.append(f"\n===== {name} ({len(text)} chars) =====\n{text[:9000]}")
-                  if len(text) > 9000:
-                      lines.append("…[truncated]")
+                  def add_candidate(match, *, base_score, group="number"):
+                      raw_value = match.group(group)
+                      km = parse_km(raw_value)
+                      if km is None or not 1_000 <= km <= 2_000_000:
+                          return
+                      start, end = match.span(group)
+                      left = folded[max(0, start - 140):start]
+                      right = folded[end:min(len(folded), end + 110)]
+                      close_left = left[-80:]
+                      score = int(base_score)
 
-          recent = usage.get("recent", []) if isinstance(usage, dict) else []
-          matched_calls = [
-              item
-              for item in recent
-              if selected_slug in str(item.get("listing_slug") or item.get("listing") or "")
-              or "chrysler" in str(item.get("listing_title") or item.get("listing") or "").lower()
-          ]
-          lines.append("\n===== TOKEN USAGE FOR LISTING =====")
-          lines.append(compact(matched_calls, 12000))
-          lines.append("\n===== TOKEN USAGE TOTALS =====")
-          lines.append(compact({
-              "today": usage.get("today") if isinstance(usage, dict) else None,
-              "totals": usage.get("totals") if isinstance(usage, dict) else None,
-              "by_listing": (usage.get("by_listing") or {}).get(selected_slug) if isinstance(usage, dict) else None,
-              "by_model": usage.get("by_model") if isinstance(usage, dict) else None,
-              "cost_currency": usage.get("cost_currency") if isinstance(usage, dict) else None,
-              "cost_note": usage.get("cost_note") if isinstance(usage, dict) else None,
-          }, 12000))
+                      if current_marker.search(close_left):
+                          score += 180
+                      if trailing_current_marker.search(right[:70]):
+                          score += 100
 
-          summary = "\n".join(lines)
-          (OUT / "audit-summary.txt").write_text(summary, encoding="utf-8")
-          print(summary)
+                      connector_left = re.search(
+                          r"\b(?:pri|od|ked|v\s+case)\W{0,18}$",
+                          close_left,
+                          re.IGNORECASE,
+                      )
+                      connector_right = re.match(
+                          r"^\W{0,16}(?:km|kilometrov?)?\W{0,10}"
+                          r"(?:pri|od|v\s+case)\b",
+                          right[:60],
+                          re.IGNORECASE,
+                      )
+                      if (
+                          connector_left
+                          and (service_marker.search(left) or service_marker.search(right[:90]))
+                      ) or (
+                          connector_right and service_marker.search(right[:100])
+                      ):
+                          score -= 240
+
+                      if interval_marker.search(close_left) or re.match(
+                          r"^\W{0,15}(?:km\W*)?(?:interval\w*|kazd\w*)\b",
+                          right[:65],
+                          re.IGNORECASE,
+                      ):
+                          score -= 220
+
+                      key = (start, end, km)
+                      candidate = (score, km, start)
+                      previous = candidates.get(key)
+                      if previous is None or candidate > previous:
+                          candidates[key] = candidate
+
+                  labelled_pattern = re.compile(
+                      rf"(?:aktualn\w*\s+)?(?:najazd\w*|stav\s+(?:tachometra|km)|"
+                      rf"celkov\w*\s+najazd|mileage)\s*(?:je|:|-)?\s*"
+                      rf"(?P<number>{number_pattern})\s*(?:km|kilometrov?)?",
+                      re.IGNORECASE,
+                  )
+                  for match in labelled_pattern.finditer(folded):
+                      add_candidate(match, base_score=70)
+
+                  patterns = (
+                      (rf"(?P<number>\d{{2,3}}\s*tis(?:\.|ic)?\s*\.?\s*)km\b", 38),
+                      (rf"(?P<number>\d{{2,3}}\s*x{{3}})\s*(?:km|kilometrov?)\b", 36),
+                      (rf"(?P<number>\d{{2,3}}\s*\.{{2,3}})(?!\d)", 32),
+                      (rf"(?P<number>\d{{2,3}}(?:[\s.]\d{{3}})+)\s*km\b", 30),
+                      (rf"(?P<number>\d{{5,7}})\s*km\b", 28),
+                  )
+                  for pattern, base_score in patterns:
+                      for match in re.finditer(pattern, folded, re.IGNORECASE):
+                          add_candidate(match, base_score=base_score)
+
+                  if not candidates:
+                      return None
+                  _score, mileage_km, _position = max(candidates.values())
+                  return mileage_km
+              ''',
+          )
+
+          replace_once(
+              "Bazos.py",
+              """    if year_match:\n        info[\"parameters\"][\"Year\"] = year_match.group(1)\n""",
+              """    if year_match:\n        info[\"parameters\"][\"Year\"] = year_match.group(1)\n    else:\n        title_year = re.search(r'\\b((?:19|20)\\d{2})\\b', info.get(\"title\", \"\"))\n        if title_year and 1980 <= int(title_year.group(1)) <= 2035:\n            info[\"parameters\"][\"Year\"] = title_year.group(1)\n""",
+          )
+
+          replace_once(
+              "Bazos.py",
+              "|B[3456]|T[34568]))\\b',",
+              "|B[3456]|T[34568]|V(?:6|8|10|12)))\\b',",
+          )
+
+          replace_between(
+              "Bazos.py",
+              "    # Fuel type\n",
+              "    # Transmission.",
+              r'''
+                  # Fuel type. LPG is a dual-fuel conversion of a petrol vehicle and
+                  # materially changes inspection questions and operating-cost context.
+                  fuel_keywords = {
+                      "Benzín": r'\b(?:benzín|benzin|benzene|gasoline)\b',
+                      "Diesel": r'\b(?:diesel|nafta|tdi|tid|bitdi)\b',
+                      "Hybrid": r'\b(?:hybrid|hybridný)\b',
+                      "Elektro": r'\b(?:elektro|electric|ev|elektromobil)\b',
+                  }
+                  fuel_source = f"{info.get('title', '')}\n{primary_desc_text}"
+                  folded_fuel_source = _fold_text(fuel_source)
+                  if re.search(r'\b(?:lpg|autoplyn)\b', folded_fuel_source, re.I):
+                      info["parameters"]["Fuel"] = "Benzín/LPG"
+                  else:
+                      fuel_matches = [
+                          (match.start(), fuel_name)
+                          for fuel_name, pattern in fuel_keywords.items()
+                          if (match := re.search(pattern, fuel_source, re.I))
+                      ]
+                      if fuel_matches:
+                          info["parameters"]["Fuel"] = min(fuel_matches)[1]
+
+              ''',
+          )
+
+          replace_once(
+              "test_app_factory.py",
+              "self.assertEqual(config.demo_job_ttl_minutes, 60)",
+              "self.assertEqual(config.demo_job_ttl_minutes, 43_200)",
+          )
+          replace_once(
+              "test_app_factory.py",
+              "self.assertEqual(config.demo_job_ttl_minutes, 5)",
+              "self.assertEqual(config.demo_job_ttl_minutes, 2)",
+          )
+          replace_once(
+              "test_app_factory.py",
+              """        self.assertTrue(config.demo_skip_kb)\n        self.assertEqual(config.demo_max_upload_mb, 24)\n""",
+              """        self.assertTrue(config.demo_skip_kb)\n        self.assertFalse(config.require_persistent_storage)\n        self.assertFalse(config.storage_persistent_hint)\n        self.assertFalse(config.render_environment)\n        self.assertEqual(config.demo_max_upload_mb, 24)\n""",
+          )
+          replace_once(
+              "test_app_factory.py",
+              """            self.assertEqual(first_health.get_json(), {\"status\": \"ok\", \"demo_mode\": True})\n            self.assertEqual(second_health.get_json(), {\"status\": \"ok\", \"demo_mode\": False})\n""",
+              """            first_health_payload = first_health.get_json()\n            second_health_payload = second_health.get_json()\n            self.assertEqual(first_health_payload[\"status\"], \"ok\")\n            self.assertTrue(first_health_payload[\"demo_mode\"])\n            self.assertIn(\"storage\", first_health_payload)\n            self.assertFalse(first_health_payload[\"storage\"][\"persistent\"])\n            self.assertEqual(second_health_payload[\"status\"], \"ok\")\n            self.assertFalse(second_health_payload[\"demo_mode\"])\n            self.assertIn(\"storage\", second_health_payload)\n""",
+          )
+          replace_once(
+              "test_app_factory.py",
+              """    def test_legacy_entry_point_keeps_original_flask_application_name(self):\n""",
+              """    def test_strict_persistence_guard_blocks_analysis_before_spending_tokens(self):\n        with tempfile.TemporaryDirectory() as temp_dir:\n            app = create_app(\n                {\n                    \"TESTING\": True,\n                    \"DEMO_MODE\": True,\n                    \"DEMO_RATE_LIMIT_PER_IP\": \"0\",\n                    \"SCRAPPER_DATA_DIR\": temp_dir,\n                    \"REQUIRE_PERSISTENT_STORAGE\": True,\n                    \"SCRAPPER_STORAGE_PERSISTENT\": False,\n                }\n            )\n            client = app.test_client()\n\n            health = client.get(\"/healthz\")\n            analysis = client.post(\n                \"/api/demo/analyze\",\n                json={\"url\": \"https://auto.bazos.sk/inzerat/1/test.php\"},\n            )\n\n            self.assertEqual(health.status_code, 503)\n            self.assertEqual(health.get_json()[\"status\"], \"degraded\")\n            self.assertEqual(analysis.status_code, 503)\n            self.assertEqual(analysis.get_json()[\"code\"], \"persistent_storage_unavailable\")\n\n    def test_explicit_persistent_storage_hint_satisfies_strict_guard(self):\n        with tempfile.TemporaryDirectory() as temp_dir:\n            app = create_app(\n                {\n                    \"TESTING\": True,\n                    \"SCRAPPER_DATA_DIR\": temp_dir,\n                    \"REQUIRE_PERSISTENT_STORAGE\": True,\n                    \"SCRAPPER_STORAGE_PERSISTENT\": True,\n                }\n            )\n\n            response = app.test_client().get(\"/healthz\")\n            payload = response.get_json()\n\n            self.assertEqual(response.status_code, 200)\n            self.assertTrue(payload[\"storage\"][\"ready\"])\n            self.assertTrue(payload[\"storage\"][\"persistent\"])\n\n    def test_legacy_entry_point_keeps_original_flask_application_name(self):\n""",
+          )
+
+          replace_once(
+              "test_listing_jobs_repository.py",
+              """\n\nif __name__ == \"__main__\":\n""",
+              """\n\n    def test_zero_ttl_disables_automatic_cleanup(self):\n        old_job = self.repository.job_dir(\"paid-report\", create=True)\n        now = time.time()\n        os.utime(old_job, (now - 365 * 24 * 3600, now - 365 * 24 * 3600))\n\n        removed = self.repository.cleanup_expired(0, now=now)\n\n        self.assertEqual(removed, [])\n        self.assertTrue(old_job.exists())\n\n\nif __name__ == \"__main__\":\n""",
+          )
+
+          replace_once(
+              "test_bazos_scraper.py",
+              """\n\nif __name__ == \"__main__\":\n""",
+              r'''
+
+                  def test_prefers_current_mileage_over_historical_lpg_installation(self):
+                      soup = BeautifulSoup(
+                          """
+                          <html><body>
+                            <h1>Predám Chrysler 300C 3,5 V6 2006 LPG</h1>
+                            <div class="popisdetail">
+                              Benzín, LPG bolo namontované pri 237 000 km.
+                              Pravidelne servisované. Aktuálny nájazd 318 200 km.
+                            </div>
+                          </body></html>
+                          """,
+                          "html.parser",
+                      )
+
+                      result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/chrysler.php")
+
+                      self.assertEqual(result["parameters"]["Mileage"], "318200 km")
+                      self.assertEqual(result["parameters"]["Fuel"], "Benzín/LPG")
+                      self.assertEqual(result["parameters"]["Year"], "2006")
+                      self.assertEqual(result["parameters"]["Engine"].upper(), "3,5 V6")
+
+                  def test_explicit_current_mileage_beats_later_service_history(self):
+                      soup = BeautifulSoup(
+                          """
+                          <html><body>
+                            <h1>Škoda Octavia 2.0 TDI</h1>
+                            <div class="popisdetail">
+                              Najazdené km: 250000
+                              Rozvody a vodná pumpa boli menené pri 180 000 km.
+                            </div>
+                          </body></html>
+                          """,
+                          "html.parser",
+                      )
+
+                      result = extract_car_info(soup, "https://auto.bazos.sk/inzerat/1/octavia.php")
+
+                      self.assertEqual(result["parameters"]["Mileage"], "250000 km")
+
+
+              if __name__ == "__main__":
+                  unittest.main()
+              ''',
+          )
+
+          replace_once(
+              "web/token-dashboard.html",
+              "grid-template-columns: repeat(4, minmax(0, 1fr));",
+              "grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));",
+          )
+          replace_once(
+              "web/token-dashboard.html",
+              """            <article class=\"card\">\n                <span>Estimated cost</span>\n                <strong id=\"totalCost\">0</strong>\n                <small id=\"costNote\">Configure rates for estimates</small>\n            </article>\n""",
+              """            <article class=\"card\">\n                <span>Estimated cost</span>\n                <strong id=\"totalCost\">0</strong>\n                <small id=\"costNote\">Configure rates for estimates</small>\n            </article>\n            <article class=\"card\">\n                <span>Result storage</span>\n                <strong id=\"storageState\">Checking</strong>\n                <small id=\"storageNote\">Verifying report durability...</small>\n            </article>\n""",
+          )
+          replace_once(
+              "web/token-dashboard.html",
+              """        byId('refreshBtn').addEventListener('click', () => {\n""",
+              """        async function loadStorage() {\n            const response = await fetch('/healthz', { cache: 'no-store' });\n            const data = await response.json();\n            const storage = data.storage || {};\n            byId('storageState').textContent = storage.persistent ? 'Persistent' : 'Ephemeral';\n            byId('storageNote').textContent = storage.message || 'Storage status unavailable';\n            byId('storageState').className = storage.persistent ? 'status success' : 'status';\n        }\n\n        byId('refreshBtn').addEventListener('click', () => {\n            loadStorage().catch(() => {\n                byId('storageState').textContent = 'Unknown';\n                byId('storageNote').textContent = 'Could not verify storage';\n            });\n""",
+          )
+          replace_once(
+              "web/token-dashboard.html",
+              """        loadUsage().catch((error) => {\n            byId('updatedAt').innerHTML = '<span class=\"error\">' + escapeHtml(error.message) + '</span>';\n        });\n\n        async function loadProgress() {\n""",
+              """        loadUsage().catch((error) => {\n            byId('updatedAt').innerHTML = '<span class=\"error\">' + escapeHtml(error.message) + '</span>';\n        });\n        loadStorage().catch(() => {\n            byId('storageState').textContent = 'Unknown';\n            byId('storageNote').textContent = 'Could not verify storage';\n        });\n\n        async function loadProgress() {\n""",
+          )
+
+          write(
+              "render.yaml",
+              r'''
+              services:
+                - type: web
+                  name: checkniauto
+                  runtime: python
+                  plan: starter
+                  branch: test2
+                  autoDeployTrigger: checksPass
+                  buildCommand: python -m pip install -r requirements.txt
+                  startCommand: gunicorn --bind :$PORT --workers 1 --threads 4 --timeout 600 --graceful-timeout 30 web_server:app
+                  healthCheckPath: /healthz
+                  numInstances: 1
+                  disk:
+                    name: checkniauto-data
+                    mountPath: /var/data
+                    sizeGB: 1
+                  envVars:
+                    - key: DEMO_MODE
+                      value: "true"
+                    - key: DEMO_ANALYSIS_PROFILE
+                      value: quality_optimized
+                    - key: SCRAPPER_DATA_DIR
+                      value: /var/data/checkniauto
+                    - key: SCRAPPER_STORAGE_PERSISTENT
+                      value: "true"
+                    - key: REQUIRE_PERSISTENT_STORAGE
+                      value: "true"
+                    - key: DEMO_JOB_TTL_MINUTES
+                      value: "43200"
+                    - key: FLASK_SECRET_KEY
+                      sync: false
+                    - key: ADMIN_DASHBOARD_TOKEN
+                      sync: false
+                    - key: GEMINI_PRIMARY_API_KEY
+                      sync: false
+                    - key: GEMINI_BACKUP_API_KEY
+                      sync: false
+                    - key: GEMINI_SECOND_BACKUP_API_KEY
+                      sync: false
+                    - key: GROK_API_KEY
+                      sync: false
+                    - key: OPENROUTER_API_KEY
+                      sync: false
+              ''',
+          )
+
+          write(
+              ".github/workflows/v2-quality.yml",
+              r'''
+              name: V2 quality gates
+
+              on:
+                push:
+                  branches: [v2, test2]
+                pull_request:
+                  branches: [test2]
+
+              permissions:
+                contents: read
+
+              jobs:
+                regression:
+                  runs-on: ubuntu-latest
+                  timeout-minutes: 25
+                  steps:
+                    - uses: actions/checkout@v4
+                    - uses: actions/setup-python@v5
+                      with:
+                        python-version: "3.11"
+                        cache: pip
+                    - name: Install dependencies
+                      run: python -m pip install -r requirements.txt
+                    - name: Compile changed runtime modules
+                      run: >-
+                        python -m py_compile
+                        Bazos.py
+                        scrapper_demo/app.py
+                        scrapper_demo/config.py
+                        scrapper_demo/storage/runtime.py
+                        scrapper_demo/storage/listing_jobs.py
+                    - name: Run full regression suite
+                      run: python -m unittest discover -v
+              ''',
+          )
+
+          readme = Path("README_DEMO.md")
+          readme_text = readme.read_text(encoding="utf-8")
+          readme_text = readme_text.replace(
+              "Generated job files are temporary runtime artifacts and are not treated as a\npersistent cache; this keeps deployments compatible with ephemeral Render\nfilesystems.",
+              "Generated reports, source photos, intermediate evidence and token telemetry are\ncustomer data. Production must store them on durable storage. The application now\nreports storage durability through `/healthz`, shows it on the admin dashboard, and\ncan block analysis before any paid API call when `REQUIRE_PERSISTENT_STORAGE=true`.",
+          )
+          readme_text = readme_text.replace(
+              "DEMO_JOB_TTL_MINUTES` | `60` | Age after which old demo job folders are cleaned up.",
+              "DEMO_JOB_TTL_MINUTES` | `43200` | Retention in minutes (30 days by default). Set `0` to disable automatic cleanup.",
+          )
+          readme_text = readme_text.replace(
+              "If `SCRAPPER_DATA_DIR` is not set, the app stores demo jobs under the platform\ntemp directory in `scrapper-demo/Auta`.",
+              "If `SCRAPPER_DATA_DIR` is not set, the app stores demo jobs under the platform\ntemp directory in `scrapper-demo/Auta`; `/healthz` and the dashboard label this as\nephemeral. Never enable paid analyses in that state.",
+          )
+          if "## Render Persistent Storage" not in readme_text:
+              readme_text += dedent(
+                  r'''
+
+                  ## Render Persistent Storage
+
+                  Render's default service filesystem is ephemeral. For the production service,
+                  attach a persistent disk at `/var/data` and configure:
+
+                  ```text
+                  SCRAPPER_DATA_DIR=/var/data/checkniauto
+                  SCRAPPER_STORAGE_PERSISTENT=true
+                  REQUIRE_PERSISTENT_STORAGE=true
+                  DEMO_JOB_TTL_MINUTES=43200
+                  ```
+
+                  `render.yaml` contains the same production-safe disk and environment setup.
+                  With strict persistence enabled, `/healthz` returns `503` and both public
+                  analysis submission endpoints stop before scraping or model calls whenever
+                  durable storage is unavailable. This makes the run a no-charge failure instead
+                  of producing a report that can disappear after a restart.
+                  ''',
+              )
+          readme.write_text(readme_text, encoding="utf-8")
+
+          audit_workflow = Path(".github/workflows/live-analysis-audit.yml")
+          if audit_workflow.exists():
+              audit_workflow.unlink()
           PY
-
-      - name: Upload authenticated audit
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkniauto-authenticated-analysis-audit
-          path: audit
-          if-no-files-found: warn
-          retention-days: 1
+      - name: Show patch
+        run: git diff --stat && git diff --check
+      - name: Run focused regressions
+        run: >-
+          python -m unittest -v
+          test_bazos_scraper.py
+          test_listing_jobs_repository.py
+          test_app_factory.py
+          test_demo_dashboard_api.py
+          test_frontend_localization.py
+      - name: Run full regression suite
+        run: python -m unittest discover -v
+      - name: Commit and push V2 update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "checkniauto-v2-bot"
+          git config user.email "checkniauto-v2-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "V2: persist paid reports and fix Bazos mileage facts"
+          git push origin HEAD:v2
