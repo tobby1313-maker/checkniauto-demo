@@ -1,0 +1,67 @@
+name: Temporary live analysis audit
+
+on:
+  push:
+    branches: [v2]
+    paths:
+      - ".github/workflows/live-analysis-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-public-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch public report endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://checkniauto.onrender.com"
+          slug="predam-chrysler-300c-35-v6-2006-lpg"
+          mkdir -p audit
+          curl --location --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 \
+            --dump-header audit/page-headers.txt \
+            --output audit/analysis-page.html \
+            "$base/analysis/$slug"
+          curl --location --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 \
+            --dump-header audit/presentation-headers.txt \
+            --output audit/presentation.json \
+            "$base/api/demo/listings/$slug/presentation"
+          curl --location --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 \
+            --dump-header audit/artifacts-headers.txt \
+            --output audit/artifacts.json \
+            "$base/api/demo/listings/$slug/artifacts"
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          for name in ("presentation.json", "artifacts.json"):
+              path = Path("audit") / name
+              print(f"{name}: {path.stat().st_size} bytes")
+              try:
+                  data = json.loads(path.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  print(f"  invalid JSON: {exc}")
+                  continue
+              if isinstance(data, dict):
+                  print("  keys:", ", ".join(sorted(data)[:30]))
+                  if name == "presentation.json":
+                      listing = data.get("listing") or {}
+                      verdict = data.get("verdict") or {}
+                      vision = data.get("vision") or {}
+                      market = data.get("market") or {}
+                      print("  title:", listing.get("title"))
+                      print("  verdict:", verdict.get("label"), verdict.get("evidence_quality"))
+                      print("  photos:", len(listing.get("images") or []))
+                      print("  visual verdict:", vision.get("visual_verdict"))
+                      print("  market available:", market.get("available"), "comparables:", len(market.get("comparables") or []))
+          PY
+      - name: Upload fetched public report
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrysler-live-analysis-audit
+          path: audit
+          if-no-files-found: error
+          retention-days: 1
