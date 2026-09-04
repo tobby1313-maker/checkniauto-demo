@@ -1,4 +1,4 @@
-name: Temporary V2 source snapshot
+name: Temporary live storage audit
 
 on:
   push:
@@ -10,22 +10,36 @@ permissions:
   contents: read
 
 jobs:
-  snapshot:
+  fetch-health:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - name: Build source snapshot
+      - name: Fetch live health and listing state
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p snapshot
-          git ls-files -z | tar --null -T - -czf snapshot/checkniauto-v2-source.tar.gz
-          git rev-parse HEAD > snapshot/commit.txt
-      - name: Upload source snapshot
-        uses: actions/upload-artifact@v4
+          mkdir -p audit
+          base="https://checkniauto.onrender.com"
+          slug="predam-chrysler-300c-35-v6-2006-lpg"
+          for item in \
+            "healthz:$base/healthz" \
+            "listings:$base/api/demo/listings" \
+            "presentation:$base/api/demo/listings/$slug/presentation"; do
+            name="${item%%:*}"
+            url="${item#*:}"
+            curl --silent --show-error --location --retry 4 --retry-all-errors \
+              --connect-timeout 20 --max-time 180 \
+              --dump-header "audit/${name}-headers.txt" \
+              --output "audit/${name}.txt" \
+              --write-out '%{http_code}\n' "$url" > "audit/${name}-status.txt"
+            printf '%s status=' "$name"
+            cat "audit/${name}-status.txt"
+            printf '%s body=' "$name"
+            cat "audit/${name}.txt"
+            printf '\n'
+          done
+      - uses: actions/upload-artifact@v4
         with:
-          name: checkniauto-v2-source-snapshot
-          path: snapshot
-          if-no-files-found: error
+          name: checkniauto-live-storage-audit
+          path: audit
           retention-days: 1
