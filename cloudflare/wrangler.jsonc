@@ -1,0 +1,14 @@
+{
+  "name": "checkni-auto-beta",
+  "main": "worker.mjs",
+  "compatibility_date": "2025-06-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "PUBLIC_ORIGIN": "https://checkni-auto-beta.YOUR_SUBDOMAIN.workers.dev",
+    "MCP_READ_ONLY": "false"
+  },
+  "d1_databases": [{"binding": "DB", "database_name": "checkni-auto-beta", "database_id": "REPLACE_WITH_DATABASE_ID"}],
+  "r2_buckets": [{"binding": "BUCKET", "bucket_name": "checkni-auto-beta"}],
+  "triggers": {"crons": ["15 0 * * *"]}
+}
