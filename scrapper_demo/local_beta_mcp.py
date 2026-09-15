@@ -1,7 +1,7 @@
 """Stateless Streamable HTTP MCP with single-operator OAuth/PKCE on Render.
 
 The caller is ChatGPT, after an explicit human prompt. No model is invoked here.
-OAuth state is ephemeral alongside the jobs; reconnect if Render clears it.
+Tokens are ephemeral. The predefined public client survives loss of local data.
 """
 from __future__ import annotations
 import base64
@@ -17,6 +17,11 @@ from .beta_contracts import HubError, REVIEW_INSTRUCTIONS, encoded, require, rev
 from .local_beta_hub import digest, same_secret
 
 VERSIONS = {"2025-03-26", "2025-06-18", "2025-11-25"}
+# Public OAuth client identification is NOT a credential or an access token.
+# This exact callback is supported because we advertise and return the issuer.
+# Keep the registration in code rather than in the disposable analyses database.
+CHATGPT_PUBLIC_CLIENT_ID = "checkniauto-chatgpt"
+CHATGPT_PUBLIC_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
 STR = {"type": "string"}
 ARRAY = {"type": "array", "items": STR}
 CONFIDENCE = {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]}
@@ -120,9 +125,16 @@ def register_local_mcp(app, hub, origin, *, read_only=False):
         data = body(5000)
         require(isinstance(data, dict) and isinstance(data.get("redirect_uris"), list) and 1 <= len(data["redirect_uris"]) <= 3
                 and all(allowed_redirect(u) for u in data["redirect_uris"]), "Only ChatGPT OAuth callbacks can register.")
-        client_id = secrets.token_urlsafe(32)
-        with hub.connection(True) as db:
-            db.execute("INSERT INTO oauth_clients VALUES(?,?,?)", (client_id, encoded(data["redirect_uris"]), hub.now()))
+        if data["redirect_uris"] == [CHATGPT_PUBLIC_REDIRECT]:
+            # Reuse our predefined public client for the stable ChatGPT callback.
+            # Reconnect must not depend on a row surviving Render's redeploy.
+            client_id = CHATGPT_PUBLIC_CLIENT_ID
+        else:
+            # Preserve exact per-client bindings for older callback-ID clients.
+            # Never map an arbitrary callback to the predefined public client.
+            client_id = secrets.token_urlsafe(32)
+            with hub.connection(True) as db:
+                db.execute("INSERT INTO oauth_clients VALUES(?,?,?)", (client_id, encoded(data["redirect_uris"]), hub.now()))
         return jsonify(client_id=client_id, redirect_uris=data["redirect_uris"], token_endpoint_auth_method="none",
                        grant_types=["authorization_code", "refresh_token"], response_types=["code"]), 201
 
@@ -132,9 +144,19 @@ def register_local_mcp(app, hub, origin, *, read_only=False):
         if request.method == "GET":
             a = request.args
             require(len(request.query_string) <= 8000, "Authorization request too large.", 413)
-            with hub.connection() as db:
-                client = db.execute("SELECT * FROM oauth_clients WHERE id=?", (a.get("client_id", ""),)).fetchone()
-            require(client is not None and a.get("redirect_uri") in json.loads(client["redirect_uris"]), "Unknown client or callback.")
+            if a.get("client_id") == CHATGPT_PUBLIC_CLIENT_ID:
+                client = {"id": CHATGPT_PUBLIC_CLIENT_ID,
+                          "redirect_uris": encoded([CHATGPT_PUBLIC_REDIRECT])}
+            else:
+                with hub.connection() as db:
+                    client = db.execute("SELECT * FROM oauth_clients WHERE id=?", (a.get("client_id", ""),)).fetchone()
+            require(client is not None,
+                    "OAuth client registration is missing. It may have been lost after a Render restart. "
+                    "Recreate the CheckniAuto connection with OAuth Client ID 'checkniauto-chatgpt' "
+                    "and an empty Client Secret. The client ID is not your administrator password.")
+            require(a.get("redirect_uri") in json.loads(client["redirect_uris"]),
+                    "OAuth callback does not match this client. The predefined checkniauto-chatgpt "
+                    "client requires https://chatgpt.com/connector_platform_oauth_redirect exactly.")
             require(a.get("response_type") == "code" and a.get("code_challenge_method") == "S256"
                     and re.fullmatch(r"[a-zA-Z0-9_-]{43}", a.get("code_challenge", "")), "PKCE S256 is required.")
             require(a.get("resource") == resource, "Invalid resource.")
@@ -278,7 +300,7 @@ def register_local_mcp(app, hub, origin, *, read_only=False):
         if msg["method"] == "initialize":
             version = params.get("protocolVersion")
             return reply({"protocolVersion": version if isinstance(version, str) and version in VERSIONS else "2025-06-18",
-                          "capabilities": {"tools": {}}, "serverInfo": {"name": "checkniauto-local-beta", "version": "1.1.0"},
+                          "capabilities": {"tools": {}}, "serverInfo": {"name": "checkniauto-local-beta", "version": "1.2.0"},
                           "instructions": REVIEW_INSTRUCTIONS + " Model preferences: " + encoded(review_policy())})
         if msg["method"] == "ping":
             return reply({})
