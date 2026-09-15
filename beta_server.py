@@ -96,7 +96,13 @@ def create_beta_app(config=None, *, hub=None):
     def privacy(response):
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        # On an HTML form, no-referrer also makes the browser send Origin: null.
+        # Allow only the consent document to retain its same-origin form Origin;
+        # do NOT allow null/foreign origins in the MCP or OAuth request guards.
+        # Token responses and the redirect to ChatGPT keep no-referrer.
+        oauth_form = (request.endpoint == "oauth_authorize" and request.method == "GET"
+                      and response.status_code == 200 and response.mimetype == "text/html")
+        response.headers["Referrer-Policy"] = "same-origin" if oauth_form else "no-referrer"
         response.headers["Cache-Control"] = ("private, max-age=3600" if request.method == "GET" and
             re.fullmatch(r"/_beta/jobs/beta-[a-f0-9]{32}/photos/p[0-9]{3}", request.path) else "no-store")
         return response
@@ -120,7 +126,7 @@ def create_beta_app(config=None, *, hub=None):
 
     @app.get("/healthz")
     def health():
-        return jsonify(ok=True, mode="chatgpt_beta", ai_api_calls_enabled=False, version="local-beta-2", **storage_info())
+        return jsonify(ok=True, mode="chatgpt_beta", ai_api_calls_enabled=False, version="local-beta-3", **storage_info())
 
     @app.get("/_beta/config")
     def config_route():
