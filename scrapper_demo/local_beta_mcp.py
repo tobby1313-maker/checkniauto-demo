@@ -155,7 +155,12 @@ def register_local_mcp(app, hub, origin, *, read_only=False):
 <p>Použi CHECKNI_OPERATOR_TOKEN alebo existujúce heslo token dashboardu. Nie heslo do ChatGPT.</p></html>''',
                 scope=state["scope"], signed=payload+"."+signature(payload))
             response = Response(html, mimetype="text/html")
-            response.headers["Content-Security-Policy"] = "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+            # Chromium checks form-action on the post-consent redirect too.
+            # Permit only this previously registered, allowlisted ChatGPT callback.
+            response.headers["Content-Security-Policy"] = (
+                f"default-src 'none'; form-action 'self' {state['redirect_uri']}; "
+                "frame-ancestors 'none'; base-uri 'none'"
+            )
             response.set_cookie("__Host-checkni-oauth", nonce, max_age=300, secure=True, httponly=True, samesite="Lax")
             return response
         require(request.headers.get("Origin") == origin, "Invalid authorization origin.", 403)
