@@ -1,0 +1,34 @@
+name: V2 Bazos URL normalization
+
+on:
+  push:
+    branches: [v2]
+    paths:
+      - "scrapper_demo/url_normalizer.py"
+      - "web_server.py"
+      - "test_url_normalizer.py"
+      - ".github/workflows/v2-url-normalization.yml"
+  pull_request:
+    branches: [test2]
+    paths:
+      - "scrapper_demo/url_normalizer.py"
+      - "web_server.py"
+      - "test_url_normalizer.py"
+      - ".github/workflows/v2-url-normalization.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-url-normalization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile URL normalization code
+        run: python -m py_compile scrapper_demo/url_normalizer.py web_server.py
+      - name: Run Bazos URL regression tests
+        run: python -m unittest -v test_url_normalizer.py
