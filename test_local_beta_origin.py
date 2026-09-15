@@ -1,8 +1,9 @@
 """Consent-page origin regressions, including a real browser form submission.
 
 Browser tests run in CI with CHECKNI_BROWSER_TESTS=1 and Playwright installed.
-All browser requests are routed to Flask's real app in-process; no external
-service, production credential, model API or user data is used.
+CDP Fetch intercepts every browser request, including redirects, and feeds
+Flask's app in-process. No external service, production credential, model API
+or user data is required. The browser computes Origin and cookies itself.
 """
 import base64
 import hashlib
@@ -77,7 +78,8 @@ class OAuthOriginHttpTests(OAuthFixture, unittest.TestCase):
         page, _ = self.consent()
         self.assertEqual(page.headers["Referrer-Policy"], "same-origin")
         self.assertEqual(page.headers["Cache-Control"], "no-store")
-        self.assertIn("form-action 'self'", page.headers["Content-Security-Policy"])
+        self.assertIn("form-action 'self' " + CALLBACK + ";", page.headers["Content-Security-Policy"])
+        self.assertNotIn("*", page.headers["Content-Security-Policy"])
         self.assertIn("Secure", page.headers["Set-Cookie"])
         for path in ("/_beta/config", "/healthz", "/.well-known/oauth-authorization-server",
                      "/.well-known/oauth-protected-resource", "/oauth/authorize"):
@@ -139,41 +141,57 @@ class OAuthOriginBrowserTests(OAuthFixture, unittest.TestCase):
         from playwright.sync_api import sync_playwright
         url = self.authorization_url()
         transport = self.app.test_client(use_cookies=False)
-        seen = {"posts": [], "callbacks": []}
+        seen = {"posts": [], "callbacks": [], "console": []}
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context()
+            context = browser.new_context(service_workers="block")
             context.set_default_timeout(15000)
+            page = context.new_page()
+            cdp = context.new_cdp_session(page)
+            page.on("console", lambda msg: seen["console"].append(msg.text))
 
-            def route_request(route):
-                req = route.request
-                parsed = urlsplit(req.url)
-                headers = req.all_headers()
+            def fulfill(request_id, status, headers, data):
+                cdp.send("Fetch.fulfillRequest", {
+                    "requestId": request_id, "responseCode": status,
+                    "responseHeaders": [{"name": k, "value": v} for k, v in headers
+                                        if k.lower() != "content-length"],
+                    "body": base64.b64encode(data).decode(),
+                })
+
+            def route_request(event):
+                req = event["request"]
+                parsed = urlsplit(req["url"])
+                headers = {k.lower(): v for k, v in req["headers"].items()}
+                request_id = event["requestId"]
                 if parsed.scheme + "://" + parsed.netloc == ORIGIN:
                     path = parsed.path + ("?" + parsed.query if parsed.query else "")
-                    response = transport.open(path, base_url=ORIGIN, method=req.method,
-                                              headers=headers, data=req.post_data_buffer)
-                    out_headers = dict(response.headers)
-                    out_headers.pop("Content-Length", None)
-                    if reproduce_old_policy and parsed.path == "/oauth/authorize" and req.method == "GET":
+                    response = transport.open(path, base_url=ORIGIN, method=req["method"],
+                                              headers=headers, data=req.get("postData", "").encode())
+                    out_headers = response.headers.copy()
+                    if reproduce_old_policy and parsed.path == "/oauth/authorize" and req["method"] == "GET":
                         out_headers["Referrer-Policy"] = "no-referrer"
-                    if parsed.path == "/oauth/authorize" and req.method == "POST":
+                    if parsed.path == "/oauth/authorize" and req["method"] == "POST":
                         seen["posts"].append({"origin": headers.get("origin"), "status": response.status_code,
                                               "error": response.json.get("error") if response.is_json else None})
-                    route.fulfill(status=response.status_code, headers=out_headers, body=response.get_data())
-                elif req.url.startswith(CALLBACK + "?"):
-                    seen["callbacks"].append({"url": req.url, "referer": headers.get("referer")})
-                    route.fulfill(status=200, content_type="text/html", body="<h1>Callback received</h1>")
+                    fulfill(request_id, response.status_code, list(out_headers), response.get_data())
+                elif req["url"].startswith(CALLBACK + "?"):
+                    seen["callbacks"].append({"url": req["url"], "referer": headers.get("referer")})
+                    fulfill(request_id, 200, [("Content-Type", "text/html")], b"<h1>Callback received</h1>")
                 else:
-                    route.abort()
+                    cdp.send("Fetch.failRequest", {"requestId": request_id, "errorReason": "BlockedByClient"})
 
-            context.route("**/*", route_request)
+            # Playwright route handlers cover only the first URL of a redirect.
+            # CDP Fetch covers each hop, so the synthetic callback never reaches
+            # the real ChatGPT service. No Origin/Cookie/security policy is forged.
+            cdp.on("Fetch.requestPaused", route_request)
+            cdp.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]})
             try:
-                page = context.new_page()
                 page.goto(ORIGIN + url)
                 page.locator('input[name="secret"]').fill(ADMIN)
                 with page.expect_navigation(wait_until="load"):
                     page.get_by_role("button", name="Schváliť pripojenie").click()
+            except Exception as exc:
+                self.fail(f"Browser consent failed: {exc}; posts={seen['posts']}; console={seen['console']}")
             finally:
                 context.close()
                 browser.close()
@@ -187,7 +205,7 @@ class OAuthOriginBrowserTests(OAuthFixture, unittest.TestCase):
     def test_browser_sends_real_origin_and_finishes_oauth_without_header_override(self):
         seen = self.browser_consent()
         self.assertEqual(seen["posts"], [{"origin": ORIGIN, "status": 303, "error": None}])
-        self.assertEqual(len(seen["callbacks"]), 1)
+        self.assertEqual(len(seen["callbacks"]), 1, seen["console"])
         self.assertIsNone(seen["callbacks"][0]["referer"])
         self.exchange(seen["callbacks"][0]["url"])
 
