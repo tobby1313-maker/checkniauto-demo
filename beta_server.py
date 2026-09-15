@@ -145,10 +145,25 @@ def create_beta_app(config=None, *, hub=None):
         if not slots.acquire(blocking=False):
             raise HubError("Práve pripravujeme iný inzerát. Skús to o chvíľu.",429)
         job_id = "beta-" + secrets.token_hex(16)
+        temporary_files = None
         try:
+            temporary_files = tempfile.TemporaryDirectory(prefix="checkni-beta-")
+            if manual:
+                # Request-owned upload streams may close before SSE iteration.
+                # Copy them while this view still owns the live request.
+                folder = Path(temporary_files.name) / "manual"
+                (folder / "images").mkdir(parents=True)
+                raw = {"title":title,"description":description,"url":url,
+                       "photos_count":len(uploads),"parameters":{},"source":"manual"}
+                (folder / "raw_data.json").write_text(json.dumps(raw,ensure_ascii=False),encoding="utf-8")
+                for number, upload in enumerate(uploads,1):
+                    # Never use user-provided filenames or paths.
+                    upload.save(folder / "images" / f"{number:03d}.upload")
             storage.call("GET","/v1/ready")
             storage.call("POST","/v1/jobs",payload={"id":job_id,"source_url":url,"language":language})
         except Exception:
+            if temporary_files is not None:
+                temporary_files.cleanup()
             slots.release()
             raise
 
@@ -156,17 +171,10 @@ def create_beta_app(config=None, *, hub=None):
             queued = False
             try:
                 yield sse({"status":"PREPARING","slug":job_id,"message":"Pripravujeme podklady, bez AI API volaní."})
-                with tempfile.TemporaryDirectory(prefix="checkni-beta-") as temporary:
+                with temporary_files as temporary:
                     work = Path(temporary)
                     if manual:
                         folder = work / "manual"
-                        (folder / "images").mkdir(parents=True)
-                        raw = {"title":title,"description":description,"url":url,
-                               "photos_count":len(uploads),"parameters":{},"source":"manual"}
-                        (folder / "raw_data.json").write_text(json.dumps(raw,ensure_ascii=False),encoding="utf-8")
-                        for number, upload in enumerate(uploads,1):
-                            # Never use user-provided filenames or paths.
-                            upload.save(folder / "images" / f"{number:03d}.upload")
                     else:
                         yield sse({"status":"SCRAPING","message":"Načítavame inzerát a fotografie."})
                         folder = scrape(url,work)
@@ -194,6 +202,7 @@ def create_beta_app(config=None, *, hub=None):
                 app.logger.warning("Beta preparation failure for %s (%s)", job_id, type(exc).__name__)
                 yield sse({"error":message,"slug":job_id,"ai_api_calls":0,"chargeable":False})
             finally:
+                temporary_files.cleanup()
                 slots.release()
         return Response(stream_with_context(events()),mimetype="text/event-stream",
                         headers={"X-Accel-Buffering":"no","Cache-Control":"no-cache"})
