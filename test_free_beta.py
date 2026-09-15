@@ -29,7 +29,7 @@ def fake_prepare(folder,**kwargs):
 
 class FreeBetaHttpTests(unittest.TestCase):
     def test_unconfigured_storage_fails_before_scraping(self):
-        app=create_beta_app({'TESTING':True,'CHECKNI_CLOUD_URL':'','CHECKNI_INGEST_TOKEN':''})
+        app=create_beta_app({'TESTING':True,'CHECKNI_STORAGE_MODE':'cloudflare','CHECKNI_CLOUD_URL':'','CHECKNI_INGEST_TOKEN':''})
         with patch('beta_server.scrape') as scrape:
             response=app.test_client().post('/api/demo/analyze',json={'url':'https://auto.bazos.sk/inzerat/1/test.php'})
         self.assertEqual(response.status_code,503);scrape.assert_not_called()
