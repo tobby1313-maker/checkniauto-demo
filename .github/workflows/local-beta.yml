@@ -5,6 +5,11 @@ on:
     paths:
       - 'beta_server.py'
       - 'scrapper_demo/beta_contracts.py'
+      - 'scrapper_demo/buyer_guide.py'
+      - 'test_buyer_guide*.py'
+      - 'CHATGPT_BETA_INSTRUCTIONS.md'
+      - 'web/beta.html'
+      - 'web/assets/beta.css'
       - 'scrapper_demo/local_beta_*.py'
       - 'test_local_beta*.py'
       - 'test_free_beta.py'
@@ -30,6 +35,8 @@ jobs:
         run: python -m py_compile beta_server.py scrapper_demo/beta_contracts.py scrapper_demo/local_beta_hub.py scrapper_demo/local_beta_mcp.py test_local_beta_origin.py test_local_beta_clients.py
       - name: Local SQLite, actual HTTP and OAuth/MCP tests (no model calls)
         run: python -m unittest -v test_local_beta test_local_beta_origin.OAuthOriginHttpTests test_local_beta_clients.StableClientHttpTests
+      - name: Buyer-guide contracts and actual local MCP publication
+        run: python -m unittest -v test_buyer_guide test_buyer_guide_integration
       - name: Existing preparation, cloud compatibility and gallery regressions
         env:
           CHECKNI_AI_MODE: legacy_api
@@ -74,3 +81,7 @@ jobs:
         env:
           CHECKNI_BROWSER_TESTS: '1'
         run: python -m unittest -v test_local_beta_origin.OAuthOriginBrowserTests test_local_beta_clients.StableClientBrowserTests
+      - name: Buyer-guide rendering, completeness and HTML safety
+        env:
+          CHECKNI_BROWSER_TESTS: '1'
+        run: python -m unittest -v test_buyer_guide_browser

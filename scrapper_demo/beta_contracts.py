@@ -6,6 +6,8 @@ import json
 import re
 from urllib.parse import urlsplit
 
+from .buyer_guide import RESEARCH_INSTRUCTIONS, guide_template, validate_guide
+
 JOB_RE = re.compile(r"beta-[a-f0-9]{32}\Z")
 ASSET_RE = re.compile(r"(?:images/p[0-9]{3}\.jpg|sheets/overview_[0-9]{3}\.jpg|(?:raw_data|listing_facts|market_data|photo_selection)\.json)\Z")
 MAX_JOB_BYTES = 40_000_000
@@ -31,6 +33,8 @@ REVIEW_INSTRUCTIONS = (
     "If write tools are unavailable return report JSON for import in /beta-admin. "
     "Requested models are preferences, not evidence of which model executed the review."
 )
+
+REVIEW_INSTRUCTIONS += "\n\n" + RESEARCH_INSTRUCTIONS
 
 class HubError(Exception):
     def __init__(self, message, status=503):
@@ -110,8 +114,12 @@ def validate_manifest(m):
 
 @contract
 def validate_report(r, job_id, manifest):
-    require(keys(r, {"schema_version", "job_id", "summary", "verdict", "confidence", "findings", "sources", "questions", "limitations", "photo_review", "market_summary"}), "Unexpected report field.")
-    require(type(r.get("schema_version")) is int and r["schema_version"] == 1 and r.get("job_id") == job_id, "Report belongs to a different analysis.")
+    version = r.get("schema_version") if isinstance(r, dict) else None
+    fields = {"schema_version", "job_id", "summary", "verdict", "confidence", "findings", "sources", "questions", "limitations", "photo_review", "market_summary"}
+    if version == 2:
+        fields.add("buyer_guide")
+    require(keys(r, fields), "Unexpected report field.")
+    require(type(r.get("schema_version")) is int and r["schema_version"] in {1, 2} and r.get("job_id") == job_id, "Report belongs to a different analysis.")
     require(text(r.get("summary")) and r["summary"] != "Replace with an evidence-based summary.", "Replace the report template with a real summary.")
     require(r.get("verdict") in {"INSPECT", "CAUTION", "AVOID", "INSUFFICIENT_DATA"} and r.get("confidence") in {"LOW", "MEDIUM", "HIGH"}, "Invalid verdict or confidence.")
     for field in ("questions", "limitations"):
@@ -119,7 +127,7 @@ def validate_report(r, job_id, manifest):
     require(isinstance(r.get("sources"), list) and len(r["sources"]) <= 30, "Invalid sources.")
     sources = set()
     for s in r["sources"]:
-        require(keys(s, {"id", "title", "url"}) and text(s.get("id"), 40) and text(s.get("title"), 400) and text(s.get("url"), 2000), "Invalid source.")
+        require(keys(s, {"id", "title", "url"} | ({"source_type", "accessed_on", "applies_to"} if version == 2 else set())) and text(s.get("id"), 40) and text(s.get("title"), 400) and text(s.get("url"), 2000), "Invalid source.")
         try:
             u = urlsplit(s["url"])
             valid_url = u.scheme in {"http", "https"} and u.hostname and not u.username and not u.password
@@ -144,11 +152,22 @@ def validate_report(r, job_id, manifest):
         require(f["evidence_type"] != "photo" or f["photo_ids"], "Photo evidence needs a photo ID.")
         require(f["evidence_type"] != "web" or f["source_ids"], "Web evidence needs a source ID.")
     require("market_summary" not in r or text(r["market_summary"]), "Invalid market summary.")
+    if version == 2:
+        try:
+            validate_guide(r)
+        except ValueError as exc:
+            raise HubError(str(exc), 400) from None
     require(len(encoded(r).encode()) <= 100_000, "Report is too large.", 413)
 
 
-def report_template(job_id, manifest):
-    return {"schema_version": 1, "job_id": job_id, "verdict": "INSUFFICIENT_DATA", "confidence": "LOW", "summary": "Replace with an evidence-based summary.", "findings": [], "sources": [], "questions": ["Which claims should the seller document?"], "limitations": ["This is not a physical inspection or a vehicle-history report."], "photo_review": [{"photo_id": p["id"], "level": "not_inspected"} for p in manifest["photos"]]}
+def report_template(job_id, manifest, *, version=2):
+    require(type(version) is int and version in {1, 2}, "Unsupported report version.")
+    template = {"schema_version": 1, "job_id": job_id, "verdict": "INSUFFICIENT_DATA", "confidence": "LOW", "summary": "Replace with an evidence-based summary.", "findings": [], "sources": [], "questions": ["Which claims should the seller document?"], "limitations": ["This is not a physical inspection or a vehicle-history report."], "photo_review": [{"photo_id": p["id"], "level": "not_inspected"} for p in manifest["photos"]]}
+
+    if version == 2:
+        template["schema_version"] = 2
+        template["buyer_guide"] = guide_template()
+    return template
 
 
 def review_policy():
