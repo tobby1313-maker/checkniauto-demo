@@ -1,0 +1,59 @@
+name: Free beta queue and MCP
+on:
+  push:
+    branches: [v2]
+    paths:
+      - 'beta_server.py'
+      - 'web_server.py'
+      - 'scrapper_demo/beta_prepare.py'
+      - 'cloudflare/**'
+      - 'scripts/setup_free_beta.py'
+      - 'test_*beta*.py'
+      - 'web/beta.html'
+      - 'web/assets/beta.*'
+      - '.github/workflows/free-beta.yml'
+  pull_request:
+    branches: [v2, test2]
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CHECKNI_AI_MODE: legacy_api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m py_compile beta_server.py web_server.py scrapper_demo/beta_prepare.py scripts/setup_free_beta.py
+      - name: Free beta and existing scraper/photo regressions (no network or model calls)
+        run: python -m unittest -v test_free_beta test_beta_preparation test_bazos_scraper test_image_service test_url_normalizer
+      - name: Default beta entrypoint smoke test, with AI keys absent
+        env:
+          CHECKNI_AI_MODE: chatgpt_beta
+          CHECKNI_CLOUD_URL: ''
+          CHECKNI_INGEST_TOKEN: ''
+        run: |
+          python - <<'PY'
+          import web_server
+          client = web_server.app.test_client()
+          assert client.get('/healthz').json['ai_api_calls_enabled'] is False
+          assert client.post('/api/demo/analyze', json={'url':'https://auto.bazos.sk/inzerat/1/test.php'}).status_code == 503
+          assert client.post('/api/analyze/anything', json={}).status_code == 403
+          assert client.get('/assets/beta.js').status_code == 200
+          PY
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check web/assets/beta.js && node --check cloudflare/worker.mjs && node --check cloudflare/oauth.mjs
+      - name: Real SQLite queue, private object storage and OAuth/MCP regression tests
+        run: node --test cloudflare/worker.test.mjs

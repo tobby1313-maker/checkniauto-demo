@@ -23,7 +23,6 @@ class ImageServiceTest(unittest.TestCase):
     def test_missing_image_directory_returns_none_coverage(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_data, metadata = image_service.prepare_llm_images(temp_dir)
-
         self.assertEqual(image_data, [])
         self.assertEqual(metadata["coverage_mode"], "none")
         self.assertEqual(metadata["original_count"], 0)
@@ -31,7 +30,6 @@ class ImageServiceTest(unittest.TestCase):
 
     def test_representative_selection_includes_gallery_boundaries(self):
         indices = image_service.select_representative_indices(42, limit=20)
-
         self.assertEqual(len(indices), 20)
         self.assertEqual(indices[0], 0)
         self.assertEqual(indices[-1], 41)
@@ -61,8 +59,7 @@ class ImageServiceTest(unittest.TestCase):
             self.assertEqual(len(image_data), 1)
             self.assertEqual(metadata["coverage_mode"], "detail_all")
             self.assertEqual(metadata["selected_count"], 4)
-            self.assertEqual(metadata["unique_count"], 4)
-            self.assertEqual(metadata["duplicate_count"], 0)
+            self.assertEqual(metadata["readable_count"], 4)
             self.assertEqual(metadata["attachment_count"], 1)
             self.assertTrue(metadata["full_gallery_included"])
             self.assertTrue((listing_dir / ".analysis_images" / "collage_01_llm.jpg").is_file())
@@ -71,7 +68,7 @@ class ImageServiceTest(unittest.TestCase):
                 original_bytes,
             )
 
-    def test_duplicate_photos_are_filtered_from_detail_payload(self):
+    def test_similar_photos_stay_in_overview_but_only_representatives_get_detail(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             listing_dir = Path(temp_dir)
             images_dir = listing_dir / "images"
@@ -81,16 +78,44 @@ class ImageServiceTest(unittest.TestCase):
                     images_dir / f"{index:02d}.jpg",
                     format="JPEG",
                 )
+            image_data, metadata = image_service.prepare_llm_images(listing_dir)
 
-            _image_data, metadata = image_service.prepare_llm_images(listing_dir)
-
-        self.assertEqual(metadata["selected_count"], 1)
+        self.assertGreaterEqual(len(image_data), 2)
+        self.assertEqual(metadata["selected_count"], 24)
+        self.assertEqual(metadata["overview_image_count"], 24)
         self.assertEqual(metadata["unique_count"], 1)
         self.assertEqual(metadata["duplicate_count"], 23)
-        self.assertEqual(metadata["coverage_mode"], "detail_all")
-        self.assertEqual(metadata["selection_reason"], "all_unique_photos_in_detail_collages_after_perceptual_deduplication")
+        self.assertEqual(metadata["detail_count"], 1)
+        self.assertEqual(metadata["coverage_mode"], "full_gallery_overview")
+        self.assertTrue(metadata["overview_includes_all"])
+        self.assertTrue(metadata["full_gallery_included"])
+        self.assertEqual(
+            sum(row["inspection_level"] == "overview_only" for row in metadata["gallery_manifest"]),
+            23,
+        )
 
-    def test_attachment_cap_limits_small_gallery_payload_and_reports_reason(self):
+    def test_large_gallery_covers_every_photo_and_bounds_detail_pass(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            listing_dir = Path(temp_dir)
+            images_dir = listing_dir / "images"
+            images_dir.mkdir()
+            for index in range(30):
+                self._pattern_image(index, size=(180, 120)).save(
+                    images_dir / f"{index:02d}.jpg", format="JPEG"
+                )
+            image_data, metadata = image_service.prepare_llm_images(listing_dir)
+
+        self.assertLessEqual(len(image_data), image_service.MAX_ANALYSIS_COLLAGES)
+        self.assertEqual(metadata["original_count"], 30)
+        self.assertEqual(metadata["readable_count"], 30)
+        self.assertEqual(metadata["overview_image_count"], 30)
+        self.assertEqual(metadata["selected_count"], 30)
+        self.assertLessEqual(metadata["detail_count"], 12)
+        self.assertGreater(metadata["detail_count"], 0)
+        self.assertTrue(metadata["full_gallery_included"])
+        self.assertEqual(len(metadata["gallery_manifest"]), 30)
+
+    def test_attachment_cap_one_uses_full_overview_instead_of_dropping_photos(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             listing_dir = Path(temp_dir)
             images_dir = listing_dir / "images"
@@ -104,10 +129,11 @@ class ImageServiceTest(unittest.TestCase):
         self.assertEqual(len(image_data), 1)
         self.assertEqual(metadata["attachment_count"], 1)
         self.assertEqual(metadata["attachment_limit"], 1)
-        self.assertEqual(metadata["selected_count"], 4)
-        self.assertEqual(metadata["unique_count"], 8)
-        self.assertEqual(metadata["coverage_mode"], "detail_limited")
-        self.assertEqual(metadata["selection_reason"], "representative_unique_photos_selected_within_attachment_limit")
+        self.assertEqual(metadata["selected_count"], 8)
+        self.assertEqual(metadata["overview_image_count"], 8)
+        self.assertEqual(metadata["detail_count"], 0)
+        self.assertEqual(metadata["coverage_mode"], "full_gallery_overview")
+        self.assertTrue(metadata["full_gallery_included"])
 
 
 if __name__ == "__main__":

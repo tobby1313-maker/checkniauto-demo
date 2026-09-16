@@ -1,0 +1,87 @@
+name: Local Render beta
+on:
+  push:
+    branches: [v2, fix/local-render-beta]
+    paths:
+      - 'beta_server.py'
+      - 'scrapper_demo/beta_contracts.py'
+      - 'scrapper_demo/buyer_guide.py'
+      - 'test_buyer_guide*.py'
+      - 'CHATGPT_BETA_INSTRUCTIONS.md'
+      - 'web/beta.html'
+      - 'web/assets/beta.css'
+      - 'scrapper_demo/local_beta_*.py'
+      - 'test_local_beta*.py'
+      - 'test_free_beta.py'
+      - 'web/assets/beta.js'
+      - '.github/workflows/local-beta.yml'
+permissions:
+  contents: read
+jobs:
+  local-beta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements.txt
+      - name: Compile local storage and MCP
+        run: python -m py_compile beta_server.py scrapper_demo/beta_contracts.py scrapper_demo/local_beta_hub.py scrapper_demo/local_beta_mcp.py test_local_beta_origin.py test_local_beta_clients.py
+      - name: Local SQLite, actual HTTP and OAuth/MCP tests (no model calls)
+        run: python -m unittest -v test_local_beta test_local_beta_origin.OAuthOriginHttpTests test_local_beta_clients.StableClientHttpTests
+      - name: Buyer-guide contracts and actual local MCP publication
+        run: python -m unittest -v test_buyer_guide test_buyer_guide_integration
+      - name: Existing preparation, cloud compatibility and gallery regressions
+        env:
+          CHECKNI_AI_MODE: legacy_api
+        run: python -m unittest -v test_free_beta test_beta_preparation test_bazos_scraper test_image_service test_url_normalizer
+      - name: Deployed entrypoint with no cloud or model credentials
+        env:
+          CHECKNI_AI_MODE: chatgpt_beta
+          CHECKNI_STORAGE_MODE: local
+        run: |
+          python - <<'PY'
+          import json
+          from web_server import app
+          client = app.test_client()
+          r = client.get('/healthz')
+          assert r.status_code == 200, r.data
+          d = r.get_json()
+          assert d['storage_mode'] == 'local_ephemeral'
+          assert d['storage_ready'] is True
+          assert d['cloud_configured'] is False
+          assert d['storage_persistent'] is False
+          assert d['ai_api_calls_enabled'] is False
+          assert client.post('/api/test-api-key').status_code == 403
+          r = client.post('/mcp', json={'jsonrpc':'2.0','id':1,'method':'tools/list'})
+          assert len(r.json['result']['tools']) == 7
+          print(json.dumps(d, indent=2))
+          PY
+      - run: node --check web/assets/beta.js
+  oauth-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install test-only browser tooling
+        run: |
+          python -m pip install -r requirements.txt playwright
+          python -m playwright install --with-deps chromium
+      - name: Test actual consent, cookies and PKCE, including a clean Render disk
+        env:
+          CHECKNI_BROWSER_TESTS: '1'
+        run: python -m unittest -v test_local_beta_origin.OAuthOriginBrowserTests test_local_beta_clients.StableClientBrowserTests
+      - name: Buyer-guide rendering, completeness and HTML safety
+        env:
+          CHECKNI_BROWSER_TESTS: '1'
+        run: python -m unittest -v test_buyer_guide_browser
